@@ -59,6 +59,18 @@ data class OpnameDetailUiState(
      * membedakannya dari sesi yang memang rusak.
      */
     val stockError: String? = null,
+    /**
+     * `isManager` + `lingkup` dari `GET /inventory/opname/context` — dipakai
+     * HANYA untuk memilih KALIMAT sebab seksi "Hitung Barang" tertutup
+     * (`kalimatHitungTertutup`), TIDAK PERNAH untuk menggerbangi tombol apa pun.
+     * Vonisnya tetap `canHitung` per-sesi dari server.
+     *
+     * Karena itu `null` (permintaan gagal / belum tiba) harus aman: kalimatnya
+     * jatuh ke teks LAMA, bukan menuduh peran yang salah. Pola sama dengan
+     * `konteksPenunjukan` di `InventoryOpnameDetailPage.tsx`.
+     */
+    val isManager: Boolean? = null,
+    val lingkup: String? = null,
     /** Unit terscan sesi ini (buffer Room; baris tanpa syncedAtMillis masih diantre). */
     val units: List<OpnameUnitEntity> = emptyList(),
     /** Barang yang sedang dihitung — semua scan berikutnya masuk ke barang ini. */
@@ -223,6 +235,17 @@ class OpnameDetailViewModel @Inject constructor(
         viewModelScope.launch {
             authRepository.capabilities()?.let { caps ->
                 _uiState.update { it.copy(canPropose = caps["serial.propose"] == true) }
+            }
+        }
+        // Konteks pemantauan — coroutine SENDIRI, alasan yang sama dengan blok
+        // di atas: ia cuma memilih kalimat, jadi tak boleh menahan detail sesi
+        // tampil dan kegagalannya tak boleh mematikan apa pun. Sengaja TIDAK
+        // menyentuh `errorMessage`.
+        viewModelScope.launch {
+            (repository.context() as? AuthResult.Success)?.let { ctx ->
+                _uiState.update {
+                    it.copy(isManager = ctx.data.isManager, lingkup = ctx.data.lingkup)
+                }
             }
         }
         viewModelScope.launch {

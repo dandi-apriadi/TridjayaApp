@@ -92,6 +92,38 @@ private fun formatRupiah(value: Double): String {
 internal enum class StockFilter { SEMUA, BELUM, SUDAH }
 
 /**
+ * Kenapa seksi "Hitung Barang" tertutup — kalimatnya, bukan vonisnya.
+ *
+ * Cerminan `frontend/src/utils/opnameIzinCatat.ts` (`kalimatSebabCatat`); satu
+ * kontrak, dua klien. Sampai 2026-08-21 layar ini hanya punya SATU kalimat, dan
+ * kalimat itu mengarahkan SEMUA orang ke admin stok. Untuk pemantau lintas
+ * cabang arahan itu BUNTU: manager/owner tak pernah punya `opname.hitung` di
+ * cabang mana pun, dan admin/superadmin sejak 2026-08-21 memang sengaja dibuka
+ * BACA-saja (`has_admin_platform` di `authorize_view`) — admin stok tak punya
+ * apa pun untuk diberikan kepada mereka. Menyuruh mereka menagih izin membuat
+ * admin stok menerima permintaan yang tak bisa ia penuhi.
+ *
+ * Fungsi MURNI supaya kalimatnya teruji tanpa Compose. Kedua argumen boleh
+ * `null` — konteks diambil terpisah dan permintaannya boleh gagal; `null`
+ * selalu berarti "belum tahu", TIDAK PERNAH "bukan pemantau", jadi kegagalan
+ * memuat konteks jatuh ke kalimat LAMA, bukan menuduh peran yang salah.
+ */
+internal fun kalimatHitungTertutup(isManager: Boolean?, lingkup: String?): String = when {
+    isManager == true ->
+        "Akunmu memantau opname lintas cabang (read-only), jadi pencatatan memang tidak " +
+            "tersedia di sini — bukan izin yang kurang. Semua angka, selisih, dan temuan " +
+            "tetap bisa kamu baca."
+    lingkup == "semua" ->
+        "Akunmu administrator platform: boleh membaca sesi opname seluruh cabang, tapi " +
+            "pencatatannya milik petugas dan admin stok cabang itu sendiri. Semua angka, " +
+            "selisih, dan temuan tetap terbaca di sini."
+    else ->
+        "Kamu bisa melihat sesi ini, tapi belum bisa mencatat unit — cabang ini sudah " +
+            "menunjuk petugas opname, atau sesi ini milik cabang lain. Hubungi admin stok " +
+            "kalau seharusnya kamu ikut menghitung."
+}
+
+/**
  * Saring snapshot barang sesi ini menurut status scan lalu (opsional) teks
  * cari — dua langkah TERPISAH supaya "cari di dalam Belum" tetap bisa
  * dijawab dari satu kolom cari yang sama, bukan dua UI berbeda.
@@ -449,10 +481,7 @@ fun OpnameDetailScreen(
                         item(key = "hitung_tertutup") {
                             Column(modifier = Modifier.padding(top = 12.dp)) {
                                 IzinKurangNote(
-                                    "Kamu bisa melihat sesi ini, tapi belum bisa mencatat unit — " +
-                                        "cabang ini sudah menunjuk petugas opname, atau sesi ini " +
-                                        "milik cabang lain. Hubungi admin stok kalau seharusnya " +
-                                        "kamu ikut menghitung."
+                                    kalimatHitungTertutup(state.isManager, state.lingkup)
                                 )
                             }
                         }
