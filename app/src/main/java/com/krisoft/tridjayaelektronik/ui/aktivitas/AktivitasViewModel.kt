@@ -48,6 +48,17 @@ data class PilihanBukti(
 /** Progres pengiriman satu baris — menggantikan `busyIndex` telanjang. */
 data class KirimProgres(val index: Int, val label: String)
 
+/**
+ * Penolakan yang TIDAK akan sembuh dengan menekan tombol yang sama lagi.
+ *
+ * [isi] sengaja memuat pesan server APA ADANYA, tidak diparafrase: kalimat
+ * penolakan sudah ditulis lengkap dengan langkah konkretnya di
+ * `aktivitas_harian::domain::pesan_bukti_hari_lain` dan saudara-saudaranya.
+ * Menulis ulang di sini melahirkan versi kedua yang akan berselisih diam-diam
+ * begitu salah satunya diperbarui.
+ */
+data class BlokirBukti(val judul: String, val isi: String)
+
 data class AktivitasUiState(
     val isLoading: Boolean = true,
     /** Gagal MEMUAT daftar (layar tak bisa dipakai). Beda dari [message]. */
@@ -76,6 +87,13 @@ data class AktivitasUiState(
      * review", itu umpan balik yang lebih jujur daripada toast.
      */
     val message: String? = null,
+    /**
+     * Kegagalan PERMANEN — server sudah memutuskan, mencoba lagi menghasilkan
+     * jawaban yang sama persis. Dipisah dari [message] karena presentasinya
+     * harus berbeda: [message] dirender sebagai item DI DALAM daftar, jadi
+     * karyawan yang sudah menggulir layar tak melihatnya sama sekali.
+     */
+    val blokir: BlokirBukti? = null,
 ) {
     val terkirim: Int get() = aktivitas.indices.count { it in submitted }
 
@@ -335,11 +353,27 @@ class AktivitasViewModel @Inject constructor(
             when (val up = repository.uploadEvidence(bytes, namaBerkasGambar(i, stempel))) {
                 is AuthResult.Failure -> {
                     simpanParsial(index, daftar)
-                    finish(
-                        index,
-                        "Gambar ke-${i + 1} dari ${daftar.size} gagal: ${up.message} " +
-                            "Tekan \"Kirim bukti\" lagi untuk melanjutkan dari gambar ini.",
-                    )
+                    // Ekor "Tekan Kirim bukti lagi" HANYA untuk kegagalan yang
+                    // memang bisa sembuh (jaringan putus, 5xx). Sampai vc97 ia
+                    // ditempelkan TANPA SYARAT — termasuk pada 400 permanen —
+                    // sehingga karyawan membaca dua perintah yang bertabrakan
+                    // ("ganti fotonya" lalu "tekan lagi") dan menuruti yang
+                    // terakhir. Terukur 2026-08-21: tiga orang menekan ulang
+                    // 10-13 kali dalam setengah menit atas foto yang sama, dan
+                    // setiap kali dijawab 400 yang identik.
+                    if (gagalPermanen(up.httpStatus)) {
+                        blokir(
+                            index,
+                            "Gambar ke-${i + 1} ditolak",
+                            up.message,
+                        )
+                    } else {
+                        finish(
+                            index,
+                            "Gambar ke-${i + 1} dari ${daftar.size} gagal: ${up.message} " +
+                                "Tekan \"Kirim bukti\" lagi untuk melanjutkan dari gambar ini.",
+                        )
+                    }
                     return
                 }
                 is AuthResult.Success -> daftar[i] = item.copy(url = up.data)
@@ -377,7 +411,9 @@ class AktivitasViewModel @Inject constructor(
             ukuranBytes = video.ukuranBytes,
         )
         when (hasil) {
-            is AuthResult.Failure -> finish(index, hasil.message)
+            is AuthResult.Failure ->
+                if (gagalPermanen(hasil.httpStatus)) blokir(index, "Video ditolak", hasil.message)
+                else finish(index, hasil.message)
             is AuthResult.Success -> {
                 setProgres(index, "Menyimpan laporan…")
                 // POLOS, bukan array — sama seperti web (`KaryawanAktivitasPage.tsx`).
@@ -427,6 +463,8 @@ class AktivitasViewModel @Inject constructor(
 
     fun consumeMessage() = _state.update { it.copy(message = null) }
 
+    fun consumeBlokir() = _state.update { it.copy(blokir = null) }
+
     // ── Internal ─────────────────────────────────────────────────────────────
 
     private fun setProgres(index: Int, label: String) =
@@ -444,7 +482,12 @@ class AktivitasViewModel @Inject constructor(
         employeeNote: String? = null,
     ) {
         when (val result = repository.submitItem(index, aktivitas, mode, evidenceUrl, employeeNote)) {
-            is AuthResult.Failure -> finish(index, result.message)
+            // Penolakan gerbang batas-atas `jobdeskIndex` (server sejak
+            // 2026-08-21) mendarat DI SINI, dan ia permanen: indeksnya tak akan
+            // berubah dengan mencoba lagi. Dialog, bukan baris di tengah daftar.
+            is AuthResult.Failure ->
+                if (gagalPermanen(result.httpStatus)) blokir(index, "Laporan ditolak", result.message)
+                else finish(index, result.message)
             is AuthResult.Success -> {
                 // Muat ulang baris hari ini supaya status (menunggu/disetujui) dan
                 // bukti datang dari server, bukan ditebak di klien.
@@ -460,6 +503,17 @@ class AktivitasViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Kegagalan permanen: buka dialog, dan KOSONGKAN [AktivitasUiState.message]
+     * supaya keluhan yang sama tidak terbaca dua kali dalam dua bentuk.
+     */
+    private fun blokir(index: Int, judul: String, isi: String) {
+        _state.update {
+            val dasar = if (it.busyIndex == index) it.copy(kirim = null) else it
+            dasar.copy(message = null, blokir = BlokirBukti(judul, isi))
         }
     }
 

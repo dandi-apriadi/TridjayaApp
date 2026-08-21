@@ -271,6 +271,36 @@ fun AktivitasScreen(
         }
     }
 
+    // Penolakan PERMANEN dipajang sebagai dialog, bukan sebagai baris di tengah
+    // daftar seperti `state.message`. Dua sebab, dan keduanya terukur:
+    //   1. `ExpressiveInlineError` dirender sebagai item LazyColumn pada posisi
+    //      tetap — karyawan yang sudah menggulir ke aktivitas ke-7 tidak
+    //      melihatnya sama sekali;
+    //   2. sampai vc97 pesannya diakhiri "Tekan Kirim bukti lagi", yang untuk
+    //      400 permanen berarti mengulang kegagalan yang sama tanpa ujung.
+    //      Tiga karyawan melakukannya 10-13 kali pada 2026-08-21.
+    // Dialog menghentikan alurnya dan memaksa penolakannya dibaca.
+    state.blokir?.let { blokir ->
+        AlertDialog(
+            onDismissRequest = viewModel::consumeBlokir,
+            title = { Text(blokir.judul) },
+            text = {
+                Text(
+                    // APA ADANYA dari server. Kalimatnya sudah memuat langkah
+                    // konkret dan berlaku untuk web maupun app; memarafrasenya
+                    // di sini melahirkan versi kedua yang akan berselisih.
+                    blokir.isi,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            // Satu tombol saja, dan BUKAN "Coba lagi": tak ada yang bisa
+            // dicoba lagi — itu justru kekeliruan yang sedang ditutup.
+            confirmButton = {
+                ExpressiveFilledButton(onClick = viewModel::consumeBlokir) { Text("Mengerti") }
+            },
+        )
+    }
+
     alasanUntukIndex?.let { index ->
         AlasanDialog(
             onDismiss = { alasanUntukIndex = null },
