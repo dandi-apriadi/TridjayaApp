@@ -275,3 +275,33 @@ internal const val PESAN_TERKUNCI_PIC =
  */
 internal fun terkunciPic(reviewStatus: String?): Boolean =
     reviewStatus?.trim()?.equals("approved", ignoreCase = true) == true
+
+/**
+ * `true` = server MENOLAK isinya, bukan gagal menyampaikannya — jadi menekan
+ * tombol yang sama lagi menghasilkan jawaban yang sama persis.
+ *
+ * ## Kenapa fungsi sekecil ini punya nama dan test sendiri
+ *
+ * Sampai vc97, `AktivitasViewModel` menempelkan ekor
+ * `Tekan "Kirim bukti" lagi untuk melanjutkan dari gambar ini.` ke SETIAP
+ * kegagalan unggah, termasuk 400 permanen. Karyawan lalu membaca dua perintah
+ * yang bertabrakan — pesan server ("GANTI dengan foto baru") diikuti perintah
+ * app ("tekan lagi") — dan menuruti yang terakhir.
+ *
+ * Terukur di produksi 2026-08-21: tiga orang (Tresandila, Dita, Mamun) menekan
+ * ulang 10-13 kali dalam setengah menit atas foto yang sama, tiap kali dijawab
+ * 400 identik oleh gerbang bukti-lintas-hari. Seorang lagi (Agus) berhenti
+ * setelah sekali — dia yang membaca kalimat servernya, bukan ekornya.
+ *
+ * ## Kenapa HANYA 400 dan 422
+ *
+ * - `401`/`403` — ditangani jalur sesi/izin, bukan di sini.
+ * - `408`/`429`/`5xx` — memang layak diulang.
+ * - kegagalan jaringan datang TANPA `httpStatus` (`null`).
+ *
+ * Defaultnya karena itu "boleh coba lagi", dan itu arah yang aman: salah
+ * menebak permanen sebagai sementara cuma menyisakan satu tombol yang tak
+ * menolong; salah menebak sementara sebagai permanen menyuruh orang menyerah
+ * atas kegagalan yang sebenarnya sembuh sendiri.
+ */
+internal fun gagalPermanen(httpStatus: Int?): Boolean = httpStatus == 400 || httpStatus == 422
