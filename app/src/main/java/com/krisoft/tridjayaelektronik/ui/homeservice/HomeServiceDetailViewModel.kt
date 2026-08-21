@@ -80,6 +80,12 @@ class HomeServiceDetailViewModel @Inject constructor(
         // ini memetakan langsung ke guard backend, jadi peta kemampuan adalah
         // sumber yang sama dengan yang menolak/meloloskan aksinya nanti.
         // Coroutine terpisah supaya detail tetap tampil walau panggilan ini lambat.
+        //
+        // SEKALI seumur ViewModel, dan itu cukup: VM ini di-scope ke
+        // `NavBackStackEntry` milik `ROUTE_HS_DETAIL` yang di-push lalu di-pop,
+        // jadi ia mati bersama layarnya. Menaikkannya ke scope kept-alive tanpa
+        // `PenyegarKemampuan` = peta beku seumur proses — lihat
+        // `PembacaPetaKemampuanTest`.
         viewModelScope.launch {
             authRepository.capabilities()?.let { caps ->
                 _state.update {

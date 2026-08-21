@@ -213,6 +213,13 @@ class OpnameDetailViewModel @Inject constructor(
         observeUnits(id)
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         // Coroutine terpisah: gate usulan tak boleh menahan detail sesi tampil.
+        //
+        // Diambil ULANG tiap `load()` (tiap detail dibuka & tiap tarik-turun),
+        // BUKAN sekali di `init` — jadi tak ada `PenyegarKemampuan` di sini dan
+        // memang tak perlu: pemicunya sudah lebih sering daripada latch itu.
+        // Yang WAJIB diperiksa kalau VM ini kelak pindah ke scope kept-alive
+        // (root tab, bukan turunan `ROUTE_OPNAME`) — lihat
+        // `PembacaPetaKemampuanTest`.
         viewModelScope.launch {
             authRepository.capabilities()?.let { caps ->
                 _uiState.update { it.copy(canPropose = caps["serial.propose"] == true) }

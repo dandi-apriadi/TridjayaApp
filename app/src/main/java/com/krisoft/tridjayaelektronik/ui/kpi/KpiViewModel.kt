@@ -50,6 +50,14 @@ class KpiViewModel @Inject constructor(
 
     private var started = false
 
+    /**
+     * Peta kemampuan diambil SEKALI di sini ([started]), dan itu cukup: VM ini
+     * di-scope ke `NavBackStackEntry` milik `ROUTE_KPI` yang di-push lalu
+     * di-pop, jadi ia mati bersama layarnya dan buka-berikutnya mengambil ulang.
+     * Kalau VM ini kelak dipindah ke scope kept-alive (root tab), gerbang
+     * `canManage` akan beku seumur proses dan `PenyegarKemampuan`
+     * (`ui/home/SidikAkses.kt`) jadi WAJIB — lihat `PembacaPetaKemampuanTest`.
+     */
     fun start() {
         if (started) return
         started = true

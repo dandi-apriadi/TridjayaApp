@@ -45,6 +45,9 @@ class TokenStore(private val context: Context) {
     @Volatile private var loaded = false
     private val loadMutex = Mutex()
 
+    /** Penjaga logout-lengket — baca KDoc [GenerasiSesi] sebelum menyentuh penulis mana pun. */
+    private val generasi = GenerasiSesi()
+
     // Reactive login flag — flips false on logout or when a background refresh fails, so the nav
     // gate can react from anywhere without a per-screen callback.
     private val _sessionState = MutableStateFlow(false)
@@ -57,14 +60,42 @@ class TokenStore(private val context: Context) {
     init {
         // Keep the mirror + flows live with any external write. Does NOT flip `loaded`:
         // the one-time migration in load() must run before we trust the store to be seeded.
-        scope.launch {
-            dataStore.data.collect { s ->
-                cache = s
-                if (loaded) {
-                    _sessionState.value = s.accessToken.isNotBlank()
-                    _mustChangePassword.value = s.accessToken.isNotBlank() && s.mustChangePassword
-                }
-            }
+        scope.launch { dataStore.data.collect { s -> pasangDariDisk(s) } }
+    }
+
+    /**
+     * Pasang satu emisi DataStore ke mirror memori — **atomik terhadap
+     * [clear]**.
+     *
+     * Emisi disk tak boleh MENGHIDUPKAN sesi yang baru dikosongkan [clear];
+     * itu tugas [bolehPasangDariDisk], dan alasannya panjang di sana. Yang
+     * ditambahkan DI SINI adalah kuncinya. Pemeriksaan itu MEMBACA `cache` dan
+     * `loaded` lalu `cache = s` MENULISNYA; kalau keduanya berdiri di luar
+     * monitor [GenerasiSesi], `clear()` bisa berjalan persis di antara
+     * keduanya. Emisi yang lolos pemeriksaan (mirror masih berisi saat
+     * diperiksa) lalu mendarat SESUDAH logout selesai: mirror hidup lagi,
+     * `sessionState` kembali `true`, dan separuh kedua perbaikan
+     * logout-lengket batal tanpa satu pun error. [GenerasiSesi.terkunci]
+     * menyatukan pemeriksaan + penulisan ke dalam kunci yang sama dengan
+     * kenaikan generasi, persis seperti [mutateBila] untuk jalur penulisan.
+     *
+     * **Kenapa ini tak menciptakan siklus kunci.** (1) Pembaca sinkron mirror
+     * ([accessToken] dkk) sengaja TIDAK mengambil kunci apa pun — thread OkHttp
+     * tak bisa suspend dan tak boleh diblokir. (2) Blok ini nol I/O, nol
+     * suspensi, dan tak menunggu thread lain. (3) `clear()` menerbitkan KEDUA
+     * StateFlow di dalam monitor, jadi kolektor `Main.immediate` bisa berjalan
+     * inline di bawahnya — tapi ia tak bisa jatuh ke `runBlocking { load() }`
+     * lewat [ensureLoaded], sebab tiap penerbit ([clear], [terapkan], [load])
+     * menyetel `loaded = true` SEBELUM menerbitkan. Di fungsi ini penerbitannya
+     * bahkan dijaga `if (loaded)`, jadi selagi `loaded` masih `false` tak ada
+     * kolektor yang dijalankan sama sekali.
+     */
+    private fun pasangDariDisk(s: PersistedSession) = generasi.terkunci {
+        if (!bolehPasangDariDisk(s, cache, loaded)) return@terkunci
+        cache = s
+        if (loaded) {
+            _sessionState.value = s.accessToken.isNotBlank()
+            _mustChangePassword.value = s.accessToken.isNotBlank() && s.mustChangePassword
         }
     }
 
@@ -133,6 +164,15 @@ class TokenStore(private val context: Context) {
     }
 
     /**
+     * Generasi sesi yang sedang berjalan. Diambil pemanggil SEBELUM kerja panjang
+     * (mis. `POST /auth/refresh`) lalu disetorkan lagi ke [updateSession].
+     *
+     * Sinkron, seperti seluruh permukaan baca kelas ini, karena pemanggilnya
+     * `TokenRefresher` di thread OkHttp yang tak bisa suspend.
+     */
+    fun tandaSesi(): Long = generasi.sekarang()
+
+    /**
      * Hasil `/auth/refresh`: token baru **dan** profil segar dalam SATU mutasi.
      *
      * Sengaja menggantikan `updateTokens()` yang dulu hanya menyentuh token dan membuang
@@ -140,8 +180,16 @@ class TokenStore(private val context: Context) {
      * pernah ter-update tanpa logout, plus keadaan setengah jadi kalau ditulis dua kali).
      * Jangan menambahkan kembali penulis token-saja: dari `/auth/refresh` selalu ada
      * profil yang ikut, dan memisahkannya membuka lagi jendela yang baru ditutup ini.
+     *
+     * @param tanda hasil [tandaSesi] yang diambil SEBELUM panggilan refresh
+     *   berangkat. Inilah yang membuat logout LENGKET: refresh yang masih terbang
+     *   saat orangnya menekan Logout memegang generasi lama, jadi penulisan
+     *   baliknya ditolak alih-alih menghidupkan sesi yang sudah dimatikan (lihat
+     *   [GenerasiSesi]).
+     * @return `false` bila penulisannya DIBUANG karena sesi keburu diakhiri.
+     *   Pemanggil wajib memperlakukan token dalam [session] sebagai tak terpakai.
      */
-    fun updateSession(session: SessionData) = mutate {
+    fun updateSession(session: SessionData, tanda: Long): Boolean = mutateBila(tanda) {
         sesiSetelahRefresh(it, session, expiryFrom(session.expiresIn))
     }
 
@@ -200,12 +248,38 @@ class TokenStore(private val context: Context) {
      * yang keluar sendiri disambut tuduhan sesi diambil alih.
      */
     fun clear(alasan: String? = null) {
-        alasanKeluar = alasan
-        cache = PersistedSession()
-        loaded = true
-        _sessionState.value = false
-        _mustChangePassword.value = false
-        scope.launch { simpanDiamDiam(PersistedSession()) }
+        // Menaikkan generasi sesi DI DALAM kunci yang sama dengan pengosongan
+        // mirror: penulis yang lahir sebelum baris ini (refresh yang masih
+        // terbang) tak bisa menyelinap di antara keduanya. Lihat [GenerasiSesi].
+        val tanda = generasi.akhiri { baru ->
+            alasanKeluar = alasan
+            cache = PersistedSession()
+            loaded = true
+            _sessionState.value = false
+            _mustChangePassword.value = false
+            baru
+        }
+        // Yang disimpan adalah `cache`, BUKAN `PersistedSession()` konstan —
+        // sama seperti [terapkan], dan alasannya kembar.
+        //
+        // Login yang menyusul logout berjalan di generasi yang SAMA ([saveLogin]
+        // sengaja tak dijaga generasi, lihat [mutate]), jadi penulisan clear()
+        // ini dan penulisan login itu SAMA-SAMA lolos `masihBerlaku` di titik
+        // commit. Urutan commit dua `scope.launch` di `Dispatchers.IO` tidak
+        // ditentukan urutan launch-nya, jadi konstanta kosong bisa mendarat
+        // BELAKANGAN dan menimpa sesi yang baru saja berhasil login. Akibatnya
+        // berantai dan senyap: disk kosong sementara mirror berisi sesi hidup,
+        // lalu emisi kosong yang menyusul TIDAK ditahan ([bolehPasangDariDisk]
+        // sengaja satu arah — ia hanya menahan emisi BERISI), jadi mirror ikut
+        // kosong, `sessionState` jadi `false`, dan orang yang BARU BERHASIL
+        // LOGIN dilempar balik ke layar Login; cold start berikutnya pun tak
+        // menemukan sesi. HP cabang bersama melakukan logout→login sepanjang
+        // hari, jadi urutan itu bukan teoretis.
+        //
+        // Menyimpan `cache` membuat kedua penulisan konvergen ke niat TERAKHIR
+        // proses ini: kalau ada login menyusul, yang tertulis sesi hidup itu;
+        // kalau tidak, `cache` memang kosong (baru saja dikosongkan di atas).
+        scope.launch { simpanDiamDiam(tanda) { cache } }
     }
 
     /** Pay the seed + legacy-migration cost early, off the main thread (called from Application). */
@@ -213,15 +287,48 @@ class TokenStore(private val context: Context) {
 
     // --- internals ---
 
+    /**
+     * Penulis TANPA syarat generasi: [saveLogin], [updateProfile],
+     * [markPasswordChanged].
+     *
+     * Ketiganya sengaja tak dijaga, dan alasannya sama: tak satu pun bisa
+     * MENGHIDUPKAN sesi yang sudah dimatikan. [saveLogin] memang lahir SESUDAH
+     * logout (orang login lagi) — menolaknya justru bug. Dua sisanya cuma
+     * menyalin field profil ke atas mirror; sesudah [clear] `accessToken` tetap
+     * kosong, jadi `sessionState` tetap `false` dan [cachedProfile] tetap `null`.
+     * Yang WAJIB dijaga hanyalah penulis yang membawa TOKEN dari jaringan, dan
+     * itu cuma [updateSession].
+     */
     private fun mutate(transform: (PersistedSession) -> PersistedSession) {
+        generasi.denganGenerasi { tanda -> terapkan(tanda, transform) }
+    }
+
+    /** [mutate] yang menolak penulisan dari generasi sesi yang sudah lewat. */
+    private fun mutateBila(
+        tanda: Long,
+        transform: (PersistedSession) -> PersistedSession,
+    ): Boolean = generasi.jalankanBila(tanda) { berlaku -> terapkan(berlaku, transform) }
+
+    private fun terapkan(tanda: Long, transform: (PersistedSession) -> PersistedSession) {
         val updated = transform(cache)
         cache = updated
         loaded = true
         _sessionState.value = updated.accessToken.isNotBlank()
         _mustChangePassword.value = updated.accessToken.isNotBlank() && updated.mustChangePassword
-        // Persist the latest mirror. Writing `cache` (not a captured snapshot) makes concurrent
-        // persists idempotently converge on the final state — no lost-update or resurrection.
-        scope.launch { simpanDiamDiam(cache) }
+        // Persist the latest mirror. DUA mekanisme yang berbeda, jangan dibaca
+        // sebagai satu:
+        //  - menulis `cache` (bukan potret yang ditangkap saat menjadwalkan)
+        //    membuat penyimpanan yang bersamaan DI DALAM SATU GENERASI
+        //    konvergen ke niat TERAKHIR proses ini, apa pun urutan commit-nya.
+        //    Itu yang menutup lost-update, dan ia hanya sahih selama SETIAP
+        //    penulis melakukan hal yang sama — termasuk [clear], yang dulu
+        //    menulis konstanta kosong dan karena itu bisa menghapus login yang
+        //    menyusul logout (lihat catatan panjang di sana).
+        //  - yang menutup RESURRECTION bukan baris ini melainkan
+        //    `masihBerlaku(tanda)` di dalam `updateData` ([simpanDiamDiam]):
+        //    penulisan yang lahir di generasi yang sudah mati tak pernah
+        //    commit sama sekali.
+        scope.launch { simpanDiamDiam(tanda) { cache } }
     }
 
     /**
@@ -237,10 +344,18 @@ class TokenStore(private val context: Context) {
      * Gagal menyimpan HANYA berarti mirror di disk tertinggal dari `cache` di
      * memori: sesi berjalan tetap utuh, paling buruk user login ulang nanti.
      * Itu harga yang jauh lebih murah daripada app yang tertutup sendiri.
+     *
+     * **[tanda] diperiksa DI DALAM `updateData`, bukan sebelum `scope.launch`.**
+     * Dua penyimpanan bisa berjalan bersamaan di `Dispatchers.IO` dan DataStore
+     * yang menyerialkannya — urutan commit-nya tak ditentukan urutan `launch`.
+     * Memeriksa generasi di titik commit itulah yang membuat penulisan basi
+     * (sesi yang sudah di-logout) TAK PERNAH mendarat di disk, bagaimanapun
+     * kedua coroutine itu terjadwal. Menjadikannya no-op — mengembalikan `lama`
+     * — bukan melempar: batalnya penulisan ini normal, bukan kesalahan.
      */
-    private suspend fun simpanDiamDiam(nilai: PersistedSession) {
+    private suspend fun simpanDiamDiam(tanda: Long, nilai: () -> PersistedSession) {
         try {
-            dataStore.updateData { nilai }
+            dataStore.updateData { lama -> if (generasi.masihBerlaku(tanda)) nilai() else lama }
         } catch (e: Exception) {
             // sengaja ditelan — lihat kdoc
         }

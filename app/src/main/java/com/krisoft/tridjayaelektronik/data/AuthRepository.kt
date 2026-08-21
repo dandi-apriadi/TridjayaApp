@@ -75,10 +75,13 @@ class AuthRepository @Inject constructor(
      * must never mask a genuinely invalid session.
      */
     /** Kemampuan efektif user dari server (sumber tunggal gate menu). Gagal /
-     *  offline / server lama = `null`, pemanggil jatuh ke gate role lokal. */
+     *  offline / server lama / **badan rusak yang terdekode jadi peta kosong** =
+     *  `null`. Yang dilakukan pemanggil atas `null` BERBEDA-BEDA — `gateAllows`
+     *  jatuh ke gate role lokal, pembaca ber-`?.let` membiarkan gerbangnya apa
+     *  adanya; [petaKemampuanSah] merinci efeknya per pembaca. */
     suspend fun capabilities(): Map<String, Boolean>? = try {
         val response = api.capabilities()
-        if (response.isSuccessful) response.body()?.data?.capabilities else null
+        if (response.isSuccessful) petaKemampuanSah(response.body()?.data?.capabilities) else null
     } catch (_: Exception) {
         null
     }

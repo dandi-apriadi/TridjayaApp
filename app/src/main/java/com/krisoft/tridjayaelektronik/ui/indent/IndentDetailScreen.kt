@@ -84,6 +84,16 @@ class IndentDetailViewModel @Inject constructor(
     var effectiveRoles by mutableStateOf<Set<String>>(emptySet())
         private set
 
+    // Peta kemampuan diambil SEKALI di sini. Perhatikan scope-nya: detail indent
+    // BUKAN tujuan navigasi sendiri melainkan state-swap di dalam
+    // `IndentListScreen`, jadi VM ini menempel pada `NavBackStackEntry`
+    // `ROUTE_INDENT` — ia HIDUP TERUS selama layar Indent dibuka, termasuk
+    // sesudah detailnya ditutup dan detail lain dibuka. Petanya karena itu
+    // berumur satu KUNJUNGAN layar Indent, bukan satu detail; hak akses yang
+    // berubah di tengah kunjungan baru terlihat setelah keluar-masuk layar itu.
+    // Kalau umur itu kelak jadi lebih panjang (VM naik ke root tab),
+    // `PenyegarKemampuan` (`ui/home/SidikAkses.kt`) jadi WAJIB — lihat
+    // `PembacaPetaKemampuanTest`.
     init {
         effectiveRoles = com.krisoft.tridjayaelektronik.ui.home.effectiveRoles(authRepository.cachedUser)
         viewModelScope.launch {

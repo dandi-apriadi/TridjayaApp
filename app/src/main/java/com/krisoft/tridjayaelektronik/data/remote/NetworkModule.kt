@@ -246,6 +246,17 @@ private class TokenRefresher(
         val current = tokenStore.accessToken
         if (!current.isNullOrBlank() && current != staleToken) return current
 
+        // Generasi sesi diambil SEBELUM apa pun berangkat ke jaringan — inilah
+        // yang membuat Logout LENGKET. `synchronized(this)` di atas cuma
+        // menyerialkan refresh terhadap refresh LAIN; ia tak menahan
+        // `TokenStore.clear()` yang dipanggil dari layar Settings di thread
+        // Main. Jadi orang bisa menekan Logout tepat selagi `runBlocking` di
+        // bawah menunggu server, dan tanpa tanda ini `updateSession()` yang
+        // menyusul akan menulis balik sesi yang baru saja dihapus — termasuk
+        // ke DataStore, sehingga app dibuka lagi dalam keadaan MASIH LOGIN.
+        // Lihat `data/GenerasiSesi.kt`.
+        val tandaSesi = tokenStore.tandaSesi()
+
         // Tak ada token refresh. DUA keadaan yang berbeda:
         //  - masih ada access token  -> sesi memang habis, beri alasannya;
         //  - tak ada apa-apa         -> BELUM PERNAH login (atau sudah logout
@@ -285,7 +296,14 @@ private class TokenRefresher(
         // karena refresh inilah satu-satunya panggilan yang berjalan terus sepanjang sesi,
         // itu berarti role/roles/pageGrants/divisi tak pernah berubah sampai orangnya
         // logout lalu login lagi. Satu panggilan, bukan dua — lihat `sesiSetelahRefresh`.
-        tokenStore.updateSession(body.data)
+        //
+        // DITOLAK = sesi diakhiri selagi refresh ini terbang (Logout, atau
+        // refresh lain yang ditolak server). Token baru di tangan kita SAH di
+        // server — server menjawab `Ok(())` diam-diam untuk pencabutan atas
+        // refresh token yang sudah terlanjur dirotasi — jadi kalau ia dipasang,
+        // logoutnya batal tanpa satu pun error. Dibuang, dan `null` dikembalikan
+        // supaya pemanggil memperlakukan permintaannya sebagai tak terautentikasi.
+        if (!tokenStore.updateSession(body.data, tandaSesi)) return null
         return body.data.accessToken
     }
 }
