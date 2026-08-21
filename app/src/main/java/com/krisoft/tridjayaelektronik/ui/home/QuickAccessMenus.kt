@@ -232,7 +232,7 @@ internal val QUICK_ACCESS_MENUS: List<QuickAccessMenu> = listOf(
         capability = "opname.view",
         label = "Opname",
         allowedRoles = OPNAME_MENU_ROLES,
-        backendGuard = "inventory-service opname.rs has_admin/has_manager",
+        backendGuard = "inventory-service opname.rs authorize_view",
     ),
     QuickAccessMenu(
         id = "harga_gs",
