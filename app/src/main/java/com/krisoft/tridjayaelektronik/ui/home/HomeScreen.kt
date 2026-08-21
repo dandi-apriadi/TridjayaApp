@@ -435,7 +435,12 @@ private fun EmptyRankRow(message: String) {
  * Role gates for the quick-access menus — mirrors the backend gateway's route guards so the
  * user never sees a menu that would only answer 403:
  * - Indent (`require_indent_submitter` GET): admin, owner, indent-approver, manager, kepala-cabang.
- * - Opname (service `has_admin`/`has_manager`): admin, admin-stok, kepala-cabang, manager, owner.
+ * - Opname (service `authorize_view`): admin, admin-stok, kepala-cabang, manager, owner.
+ *   `has_admin` TIDAK pernah dipakai `authorize_view`; dan sejak 2026-08-21 guard itu juga
+ *   meloloskan admin/superadmin LINTAS CABANG lewat `has_admin_platform` — sebelumnya ubin ini
+ *   tampil untuk superadmin (capability `opname.view` memuatnya) lalu server menolak tiap sesi
+ *   cabang lain, yaitu properti "never sees a menu that would only answer 403" yang dijanjikan
+ *   KDoc ini justru bohong untuk role itu.
  * Inventory/Prospek/Sales are open to every logged-in role. A null role (profile not loaded
  * yet) hides the gated tiles — they appear as soon as the cached profile lands.
  */
