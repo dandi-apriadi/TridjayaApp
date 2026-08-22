@@ -508,7 +508,7 @@ private fun KartuKwitansi(url: String?, penanda: String, mengunggah: Boolean, on
             when {
                 mengunggah -> "Mengunggah…"
                 url != null -> "Kwitansi terunggah — foto ulang"
-                else -> "Foto kwitansi (wajib)"
+                else -> "Foto kwitansi (opsional)"
             }
         )
     }

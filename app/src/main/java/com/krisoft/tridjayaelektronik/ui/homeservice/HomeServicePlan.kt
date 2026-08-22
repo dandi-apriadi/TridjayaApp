@@ -173,7 +173,11 @@ internal fun kurangBuatTiket(
     customerHp: String?,
     customerAlamat: String?,
 ): List<String> = buildList {
-    if (fotoKwitansiUrl.isNullOrBlank()) add("foto kwitansi")
+    // `fotoKwitansiUrl` SENGAJA tidak diperiksa: foto kwitansi opsional sejak
+    // 2026-08-22 (permintaan user), cerminan server `service.rs` yang berhenti
+    // memanggil `wajib_isi` untuk kolom ini. Parameternya dipertahankan supaya
+    // pemanggil tak perlu diubah dan supaya syarat ini tak bisa dipasang lagi
+    // di app tanpa terlihat di diff fungsi ini.
     if (tanpaVerifikasi) {
         if (customerNama.isNullOrBlank()) add("nama konsumen")
         if (customerHp.isNullOrBlank()) add("nomor HP konsumen")

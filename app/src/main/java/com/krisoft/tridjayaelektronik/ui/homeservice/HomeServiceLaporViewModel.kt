@@ -336,7 +336,8 @@ class HomeServiceLaporViewModel @Inject constructor(
         }
     }
 
-    /** Foto kwitansi — wajib, dan di-watermark seperti bukti foto lain di app. */
+    /** Foto kwitansi — OPSIONAL sejak 2026-08-22, tetap di-watermark seperti
+     *  bukti foto lain di app bila pelapor memang memotretnya. */
     fun unggahKwitansi(file: File) {
         // URL lama DIBUANG saat unggahan baru mulai (persis web). Tanpa ini,
         // memotret ulang kwitansi yang buram menyisakan URL foto LAMA di state

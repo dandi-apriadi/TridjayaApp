@@ -205,10 +205,18 @@ class HomeServicePlanTest {
     }
 
     @Test
-    fun `foto kwitansi dan keluhan wajib di kedua jalur`() {
-        assertEquals(listOf("foto kwitansi"), kurang(foto = null))
+    fun `foto kwitansi TIDAK wajib di kedua jalur, keluhan tetap wajib`() {
+        // Dibalik 2026-08-22 (permintaan user): dulu `foto = null` memulangkan
+        // listOf("foto kwitansi"). Dibalik, bukan dihapus — tanpa baris ini
+        // syarat itu bisa dipasang lagi di app tanpa ada yang menahannya, dan
+        // gejalanya bukan galat melainkan tombol Kirim yang mati.
+        assertEquals(emptyList<String>(), kurang(foto = null))
+        assertEquals(emptyList<String>(), kurang(foto = "   "))
         assertEquals(listOf("isi keluhan"), kurang(deskripsi = "  "))
-        assertEquals(listOf("foto kwitansi"), kurang(tanpaVerifikasi = true, noTransaksi = null, foto = null))
+        assertEquals(
+            emptyList<String>(),
+            kurang(tanpaVerifikasi = true, noTransaksi = null, foto = null),
+        )
         assertEquals(listOf("isi keluhan"), kurang(tanpaVerifikasi = true, noTransaksi = null, deskripsi = null))
     }
 
@@ -233,15 +241,17 @@ class HomeServicePlanTest {
 
     @Test
     fun `urutan daftar kekurangan sama dengan web`() {
-        // Urutan `kurang` di HomeServiceLaporPage.tsx: foto → (nama, HP |
-        // pembelian | barang) → alamat → keluhan. Pelapor yang berpindah antara
-        // HP dan web harus membaca daftar yang sama persis.
+        // Urutan `kurang` di HomeServiceLaporPage.tsx: (nama, HP | pembelian |
+        // barang) → alamat → keluhan. Pelapor yang berpindah antara HP dan web
+        // harus membaca daftar yang sama persis. Suku "foto kwitansi" dibuang
+        // dari KEDUA sisi pada 2026-08-22 — kalau salah satu sisi memasangnya
+        // lagi, test inilah yang jatuh.
         assertEquals(
-            listOf("foto kwitansi", "barang yang dikomplainkan", "alamat konsumen", "isi keluhan"),
+            listOf("barang yang dikomplainkan", "alamat konsumen", "isi keluhan"),
             kurang(barisTerpilih = emptySet(), foto = null, deskripsi = null, alamat = null),
         )
         assertEquals(
-            listOf("foto kwitansi", "nama konsumen", "nomor HP konsumen", "alamat konsumen", "isi keluhan"),
+            listOf("nama konsumen", "nomor HP konsumen", "alamat konsumen", "isi keluhan"),
             kurang(
                 tanpaVerifikasi = true, noTransaksi = null, barisTerpilih = emptySet(),
                 foto = null, deskripsi = null, nama = null, hp = null, alamat = null,
@@ -263,7 +273,7 @@ class HomeServicePlanTest {
         )
         assertFalse(gate.ok)
         assertEquals(
-            "Masih perlu: foto kwitansi, barang yang dikomplainkan, alamat konsumen.",
+            "Masih perlu: barang yang dikomplainkan, alamat konsumen.",
             gate.alasan,
         )
     }
