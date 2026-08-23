@@ -128,6 +128,39 @@ class UpdatePromptTest {
         assertFalse(bolehTampilkanPrompt(tersedia(84), versiDitutup = 85))
     }
 
+    // --- pembaruan wajib: dialog blokir ditahan sampai unduhan diam-diam siap ----------
+    //
+    // Sebelum ini `force` selalu `return true` tanpa syarat, jadi dialog blokir muncul
+    // sedetik setelah versi baru terdeteksi — sebelum unduhannya (yang auto-mulai) bahkan
+    // sempat berjalan. Karyawan lapangan kehilangan app-nya justru selama unduhan
+    // berlangsung, yang bisa berarti menit-menitan di sinyal lapangan yang lemah.
+
+    @Test
+    fun `pembaruan wajib ditahan selama unduhan belum siap dilihat`() {
+        assertFalse(
+            "unduhan Idle/Downloading — jangan kunci app, biarkan diam-diam di latar",
+            bolehTampilkanPrompt(tersedia(85, force = true), versiDitutup = null, unduhanSiapDilihat = false),
+        )
+    }
+
+    @Test
+    fun `pembaruan wajib tampil begitu unduhan siap dipasang atau gagal`() {
+        assertTrue(
+            "ReadyToInstall/Failed — sekarang baru wajib menunjukkan sesuatu ke pengguna",
+            bolehTampilkanPrompt(tersedia(85, force = true), versiDitutup = null, unduhanSiapDilihat = true),
+        )
+    }
+
+    @Test
+    fun `pembaruan opsional tak terpengaruh parameter unduhan siap`() {
+        // Update opsional tak pernah mengunduh diam-diam — unduhannya baru mulai
+        // setelah "Perbarui Sekarang" ditekan, jadi dialog tawarannya harus tetap
+        // tampil terlepas dari nilai unduhanSiapDilihat.
+        assertTrue(
+            bolehTampilkanPrompt(tersedia(85, force = false), versiDitutup = null, unduhanSiapDilihat = false),
+        )
+    }
+
     // --- penundaan SEMENTARA (Back / ketuk di luar dialog) -----------------------------
     //
     // Kelas bug yang dijaga di sini: sebelum pemisahan ini, Back dan ketuk di

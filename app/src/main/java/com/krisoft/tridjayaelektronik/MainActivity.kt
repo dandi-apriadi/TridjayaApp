@@ -89,6 +89,7 @@ import com.krisoft.tridjayaelektronik.ui.login.LoginScreen
 import com.krisoft.tridjayaelektronik.ui.login.ResetPasswordScreen
 import com.krisoft.tridjayaelektronik.ui.navigation.AppDestination
 import com.krisoft.tridjayaelektronik.ui.session.SessionViewModel
+import com.krisoft.tridjayaelektronik.data.update.UpdateDownloadState
 import com.krisoft.tridjayaelektronik.data.update.UpdateStatus
 import com.krisoft.tridjayaelektronik.ui.settings.SettingsScreen
 import com.krisoft.tridjayaelektronik.ui.splash.SplashScreen
@@ -347,11 +348,15 @@ private fun TridjayaNavHost(
         }
     }
 
-    // Update gate — a force update blocks the whole app (over any screen incl. login) and its
-    // download already auto-started (UpdateViewModel detects it); an optional update shows a
-    // dismissible prompt, download starts on tap. AlertDialog renders in its own window above the
-    // NavHost. "Nanti" kini menutup SATU VERSI saja (`bolehTampilkanPrompt`), bukan seluruh sesi:
-    // menutup prompt 84 tak boleh ikut menelan prompt 85 yang terbit sesudahnya.
+    // Update gate — pembaruan wajib TAK LAGI mengunci layar sejak terdeteksi: unduhannya
+    // (auto-mulai, lihat `UpdateViewModel.jalankanCek`) berjalan diam-diam di latar sementara
+    // karyawan tetap memakai app seperti biasa. Dialog blokir baru muncul setelah berkasnya siap
+    // dipasang (`ReadyToInstall`) atau gagal (`Failed`) — bukan lagi selama `Idle`/`Downloading`.
+    // Pembaruan opsional tak berubah: dialog tawarannya harus tampil DULU supaya orang bisa
+    // menekan "Perbarui Sekarang", karena di jalur itu unduhan baru mulai setelah ketukan itu.
+    // AlertDialog merender di jendelanya sendiri di atas NavHost. "Nanti" kini menutup SATU VERSI
+    // saja (`bolehTampilkanPrompt`), bukan seluruh sesi: menutup prompt 84 tak boleh ikut menelan
+    // prompt 85 yang terbit sesudahnya.
     //
     // `UpdateStatus.Unknown` (pemeriksaan gagal: 401/403/5xx, offline, timeout, TLS, gagal parse —
     // lihat `UpdateManager.check`) sengaja TIDAK menampilkan apa pun di sini. Orang sedang
@@ -365,8 +370,10 @@ private fun TridjayaNavHost(
     // (`!forceUpdate`), jadi dialog update OPSIONAL bisa tertimbun ucapan ulang
     // tahun — tombolnya tak bisa ditekan, persis kegagalan yang alasannya sudah
     // ditulis untuk kasus wajib.
+    val downloadSiapDilihat = updateDownload is UpdateDownloadState.ReadyToInstall ||
+        updateDownload is UpdateDownloadState.Failed
     val promptUpdateTampil = updateTersedia != null &&
-        bolehTampilkanPrompt(updateTersedia, versiPromptDitutup, versiDitundaSementara)
+        bolehTampilkanPrompt(updateTersedia, versiPromptDitutup, versiDitundaSementara, downloadSiapDilihat)
 
     if (updateTersedia != null && promptUpdateTampil) {
         UpdateDialog(
