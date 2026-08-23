@@ -10,6 +10,7 @@ import com.krisoft.tridjayaelektronik.data.AktivitasRepository
 import com.krisoft.tridjayaelektronik.data.model.AktivitasItemDto
 import com.krisoft.tridjayaelektronik.data.model.AktivitasPositionDto
 import com.krisoft.tridjayaelektronik.domain.sales.KlasemenStandings
+import com.krisoft.tridjayaelektronik.ui.home.effectiveRoles
 import com.krisoft.tridjayaelektronik.util.PhotoWatermark
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -75,6 +76,16 @@ data class AktivitasUiState(
      * menambahkan divisi yang salah.
      */
     val penempatanId: String = "",
+    /**
+     * Role efektif orangnya lolos gerbang BACA `GET /raport-harian`
+     * (`LIST_ROLES`), jadi tombol "Lihat Riwayat" boleh ditampilkan.
+     *
+     * Default `false` = fail-closed: pemanggil/keadaan yang belum sempat
+     * menghitungnya menyembunyikan tombol, bukan memunculkan tombol yang
+     * berujung 403. Lihat [AKTIVITAS_BACA_ROLES] untuk kenapa gerbang baca
+     * lebih sempit dari gerbang kartu ini.
+     */
+    val bolehLihatRiwayat: Boolean = false,
     val aktivitas: List<String> = emptyList(),
     val submitted: Map<Int, AktivitasItemDto> = emptyMap(),
     /** Berkas terpilih per index aktivitas, belum dikirim. */
@@ -174,6 +185,10 @@ class AktivitasViewModel @Inject constructor(
                             isLoading = false,
                             error = null,
                             divisi = divisi,
+                            // Dihitung dari role EFEKTIF profil, bukan role
+                            // utama: akun multi-role primary `sales` + sekunder
+                            // `karyawan` tetap berhak membaca riwayatnya.
+                            bolehLihatRiwayat = bolehLihatRiwayat(effectiveRoles(user)),
                             penempatanId = (penempatan as? PenempatanSaya.Ada)?.positionId.orEmpty(),
                             posisi = posisi?.posisi.orEmpty(),
                             // `.jobdesks` = nama field DI KABEL, ejaan lama.

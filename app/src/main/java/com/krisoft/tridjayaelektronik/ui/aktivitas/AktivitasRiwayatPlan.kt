@@ -18,6 +18,48 @@ import com.krisoft.tridjayaelektronik.domain.sales.KlasemenStandings
  * terpisah tak punya tombol kirim sama sekali.
  */
 
+/**
+ * Cerminan `LIST_ROLES` (`kinerja-service/src/aktivitas_harian.rs:64`) — gerbang
+ * `GET /raport-harian`, yaitu satu-satunya sumber layar riwayat.
+ *
+ * **Ia LEBIH SEMPIT dari gerbang kartu Input Aktivitas** (`AKTIVITAS_INPUT_ROLES
+ * = ALL_LOGGED_IN`), dan selisih itu disengaja di backend: MENGIRIM laporan
+ * login-only supaya auto-feed KPI tak putus, sedangkan MEMBACA daftar tetap
+ * ber-role. Tanpa cerminan ini tombol "Lihat Riwayat" muncul untuk pemegang
+ * role `sales`/`kasir`/`driver`/`admin-penjualan` yang kartunya memang terbuka,
+ * lalu layarnya dijawab 403 — persis kelas "menu mati" yang dilarang aturan
+ * repo (menu tampil, backend menolak).
+ *
+ * Dua ejaan `pic_raport`/`pic-raport` sama-sama ditulis karena backend memang
+ * mengenali keduanya. Kalau `LIST_ROLES` berubah, daftar ini WAJIB ikut.
+ *
+ * `superadmin` ADA di sini walau TIDAK ada di `LIST_ROLES`, dan itu bukan
+ * kelebihan: vocab wire gateway→service masih `"admin"` (shim
+ * `legacy_wire_role`), sedangkan yang dibaca klien dari profil adalah ejaan
+ * DB/JWT `"superadmin"`. Menulis `"admin"` saja akan menyembunyikan tombol dari
+ * superadmin yang servernya justru menerima. Konvensi yang sama dipakai SEMUA
+ * daftar role di `ActivityRegistry.kt` dan `capabilities.rs`.
+ */
+internal val AKTIVITAS_BACA_ROLES = setOf(
+    "admin",
+    "superadmin",
+    "owner",
+    "pic_raport",
+    "pic-raport",
+    "karyawan",
+    "trainee",
+    "manager",
+)
+
+/**
+ * Boleh membuka layar riwayat? Dinilai dari role EFEKTIF (role utama + `roles` +
+ * `divisi`), BUKAN role primary tunggal — akun multi-role yang primary-nya
+ * `sales` tapi juga ber-role `karyawan` tetap berhak, dan gate yang cuma
+ * membaca role utama akan menyembunyikan riwayatnya sendiri darinya.
+ */
+internal fun bolehLihatRiwayat(roleEfektif: Set<String>): Boolean =
+    roleEfektif.any { it in AKTIVITAS_BACA_ROLES }
+
 /** Perbandingan `yyyy-MM-dd` cukup leksikografis — polanya sama `OpnameJendela.kt`. */
 internal fun bolehMajuTanggal(tanggal: String, hariIni: String): Boolean = tanggal < hariIni
 

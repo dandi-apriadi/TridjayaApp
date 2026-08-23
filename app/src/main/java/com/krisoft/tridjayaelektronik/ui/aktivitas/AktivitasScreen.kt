@@ -216,7 +216,13 @@ fun AktivitasScreen(
                     // ber-foto, dan tombol di bawahnya praktis tak pernah
                     // ditemukan — itu persis nasib "Lihat History Bukti" di web
                     // sebelum dinaikkan.
-                    item {
+                    //
+                    // DIGERBANG: gerbang BACA `GET /raport-harian` (`LIST_ROLES`)
+                    // lebih SEMPIT dari gerbang kartu ini (`ALL_LOGGED_IN`) —
+                    // MENGIRIM laporan login-only, MEMBACA daftarnya tidak.
+                    // Tanpa gerbang ini pemegang `sales`/`kasir`/`driver`
+                    // melihat tombol yang layarnya dijawab 403.
+                    if (state.bolehLihatRiwayat) item {
                         ExpressiveOutlinedButton(
                             onClick = onLihatRiwayat,
                             modifier = Modifier.fillMaxWidth(),

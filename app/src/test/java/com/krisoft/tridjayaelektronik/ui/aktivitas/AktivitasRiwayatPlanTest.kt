@@ -21,6 +21,39 @@ class AktivitasRiwayatPlanTest {
         score = skor,
     )
 
+    // ── Gerbang baca (dua arah) ──────────────────────────────────────────────
+
+    @Test
+    fun `role yang boleh membaca daftar melihat tombol riwayat`() {
+        listOf("karyawan", "trainee", "manager", "owner", "admin", "superadmin", "pic_raport", "pic-raport")
+            .forEach { role ->
+                assertTrue("$role harus boleh", bolehLihatRiwayat(setOf(role)))
+            }
+    }
+
+    @Test
+    fun `role di luar LIST_ROLES tidak melihat tombol riwayat`() {
+        // Arah yang menutup "menu mati": kartu Input Aktivitas terbuka untuk
+        // SEMUA yang login (AKTIVITAS_INPUT_ROLES = ALL_LOGGED_IN), tapi
+        // GET /raport-harian menolak role-role ini dengan 403.
+        listOf("sales", "kasir", "driver", "admin-penjualan", "pdi", "delivery-control", "agent")
+            .forEach { role ->
+                assertFalse("$role tak boleh", bolehLihatRiwayat(setOf(role)))
+            }
+    }
+
+    @Test
+    fun `akun multi-role berhak lewat role sekunder`() {
+        // Kalau gerbangnya membaca role UTAMA saja, orang ini kehilangan
+        // riwayatnya sendiri padahal server menerimanya.
+        assertTrue(bolehLihatRiwayat(setOf("sales", "karyawan")))
+    }
+
+    @Test
+    fun `tanpa role sama sekali fail-closed`() {
+        assertFalse(bolehLihatRiwayat(emptySet()))
+    }
+
     // ── Batas maju ───────────────────────────────────────────────────────────
 
     @Test
