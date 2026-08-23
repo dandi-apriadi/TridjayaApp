@@ -25,6 +25,7 @@ import com.krisoft.tridjayaelektronik.ui.opname.OpnameListScreen
 import com.krisoft.tridjayaelektronik.ui.opname.OpnameValidasiScreen
 import com.krisoft.tridjayaelektronik.ui.sales.SalesScreen
 import com.krisoft.tridjayaelektronik.data.model.DeliveryStatusKey
+import com.krisoft.tridjayaelektronik.data.model.KontrolSaringan
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.AkiListScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.CreateSpkScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.DiscountApprovalScreen
@@ -516,7 +517,11 @@ fun ActivityNavHost(
             )
         }
         composable(ROUTE_DLV_PDI) {
+            // Cabang BOLEH di sini: rantai peran PDI non-history sengaja tidak
+            // mengisi `filter.kode_dealer`, jadi penjaga `is_none()` di server
+            // memakai pilihan klien apa adanya — murni menyempitkan.
             DeliveryQueueScreen("Antri PDI", DeliveryStatusKey.PENDING_PDI, onBack = { navController.popBackStack() },
+                kontrolSaringan = KontrolSaringan(cari = true, cabang = true, urut = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }
         composable(ROUTE_DLV_AKI) {
@@ -533,20 +538,37 @@ fun ActivityNavHost(
             )
         }
         composable(ROUTE_DLV_KASIR) {
+            // SENGAJA TANPA `cabang`. Rantai kasir mengisi `filter.cabang_bayar`,
+            // BUKAN `kode_dealer`, jadi penjaga `is_none()` di server tidak
+            // menahan pilihan klien dan kedua klausa di-AND di SQL — memilih
+            // cabang lain menghasilkan daftar KOSONG tanpa error, yang terbaca
+            // sebagai "SPK saya hilang".
             DeliveryQueueScreen("Antri Kasir", DeliveryStatusKey.PENDING_SPK, onBack = { navController.popBackStack() },
+                kontrolSaringan = KontrolSaringan(cari = true, urut = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }
         composable(ROUTE_DLV_NOTE) {
             DeliveryQueueScreen("Surat Jalan", DeliveryStatusKey.PENDING_DELIVERY_NOTE, onBack = { navController.popBackStack() },
+                kontrolSaringan = KontrolSaringan(cari = true, cabang = true, urut = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }
         composable(ROUTE_DLV_SCHEDULE) {
+            // `metode` HANYA di sini — server membacanya cuma di tahap ini, dan
+            // artinya MEMBALIK default (kosong = buang self_pickup +
+            // sales_delivery). Chip-nya melebarkan daftar, bukan menyempitkan.
             DeliveryQueueScreen("Penjadwalan", DeliveryStatusKey.PENDING_SCHEDULING, onBack = { navController.popBackStack() },
+                kontrolSaringan = KontrolSaringan(cari = true, cabang = true, urut = true, metode = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }
         composable(ROUTE_DLV_DRIVER) {
             // Driver: backend meng-scope antrian (assigned + in_transit) berdasarkan role, tanpa filter status.
+            // HANYA `cari`. JANGAN beri `urut`: layar ini punya pengurutan
+            // manifest manual (`moveLoadSpk` → POST /delivery/driver/reorder),
+            // dan urutan muatan ITULAH arti daftarnya — `urut=terlama` akan
+            // menabraknya. Pemilih cabang pun tak berguna: muatan satu driver
+            // hampir selalu satu cabang.
             DeliveryQueueScreen("Tugas Antar", status = null, reorderable = true, asDriver = true, onBack = { navController.popBackStack() },
+                kontrolSaringan = KontrolSaringan(cari = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }
         composable(ROUTE_DLV_PENDING_PAYMENT) {
@@ -554,13 +576,19 @@ fun ActivityNavHost(
             // "gantung 24 jam" dihitung di kartu Activity, bukan di sini — kasir
             // tetap perlu bisa menutup yang baru sebelum jatuh tempo.
             DeliveryQueueScreen("Konfirmasi Pembayaran", status = null, view = "pending_payment", onBack = { navController.popBackStack() },
+                kontrolSaringan = KontrolSaringan(cari = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }
         composable(ROUTE_DLV_HISTORY) {
             // SATU-SATUNYA pemakai `periodeFilter`: riwayat itu arsip, jadi
             // menyaringnya per periode aman. Enam layar lain di berkas ini
             // adalah antrian kerja — lihat KDoc `periodeFilter`.
+            // TANPA `cabang`: di jalur history rantai peran SUDAH mengisi
+            // `kode_dealer`, jadi penjaga `is_none()` membuat pilihan klien
+            // diabaikan diam-diam — kontrolnya jadi tombol mati rasa. Kontrol
+            // yang berbohong lebih merusak daripada kontrol yang tidak ada.
             DeliveryQueueScreen("Riwayat SPK", status = null, view = "history", periodeFilter = true,
+                kontrolSaringan = KontrolSaringan(cari = true),
                 onBack = { navController.popBackStack() },
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }

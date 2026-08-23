@@ -245,7 +245,18 @@ data class TimelineStepDto(
 data class DeliveryListData(
     val items: List<DeliveryJobDto> = emptyList(),
     val page: Int? = null,
-    val limit: Int? = null
+    val limit: Int? = null,
+    /**
+     * Baris yang lolos SELURUH saringan SEBELUM `LIMIT` — dikirim server sejak
+     * `delivery.rs` menambahkannya ("halaman yang menampilkan 200 dari 431 diam
+     * saja"). Field ini sebelumnya TIDAK ada di sini, jadi kotlinx membuangnya
+     * lewat `ignoreUnknownKeys` dan app tak punya cara tahu daftarnya terpotong.
+     *
+     * `null` = server lama yang belum mengirimnya. Perlakukan sebagai "tidak
+     * tahu", JANGAN sebagai nol — indikator "N dari M" harus diam, bukan
+     * mengarang bahwa daftarnya utuh.
+     */
+    val total: Int? = null
 )
 
 /** Response `POST /api/inventory/delivery` (di dalam `data`). */
