@@ -461,6 +461,11 @@ private fun MainScreen(
     // TIDAK boleh mengambilnya sendiri: ia hidup seumur proses, jadi pengambilan
     // sekali di sini berarti gerbang tab beku sampai app dimatikan. Lihat
     // `PembacaPetaKemampuanTest`.
+    //
+    // `null` = belum pernah berhasil diambil, dan di sana gerbangnya JATUH KE
+    // DAFTAR ROLE LOKAL (`gateAllows` hanya memasuki cabang kemampuan bila
+    // petanya bukan null) — BUKAN fail-closed. Fail-closed berlaku untuk kunci
+    // yang ABSEN dari peta yang ADA. Dua keadaan berbeda; jangan disamakan.
     val petaKemampuan by sessionViewModel.petaKemampuan.collectAsState()
     val destinations = AppDestination.visibleBottomNavItems(
         effectiveRoles(sessionViewModel.cachedUser),
@@ -514,7 +519,15 @@ private fun MainScreen(
     // selain tombol back. Berlaku juga sesudah user memilih tab sendiri; itu
     // memang maksudnya.
     LaunchedEffect(destinations) {
-        if (selected !in destinations) selected = destinations.firstOrNull() ?: AppDestination.ACTIVITY
+        // Syarat `selected in bottomNavItems` WAJIB, dan ketiadaannya adalah bug
+        // yang merusak fitur yang sudah jalan: `INVENTORY` SENGAJA bukan anggota
+        // `bottomNavItems` (ia dibuka dari ubin Activity/Akses Cepat, bukan dari
+        // pill) tapi tetap destination yang sah. Tanpa syarat ini predikatnya
+        // SELALU benar saat orang membuka "Cari Barang", dan efeknya menendang
+        // mereka kembali ke tab pertama seketika.
+        if (selected in AppDestination.bottomNavItems && selected !in destinations) {
+            selected = destinations.firstOrNull() ?: AppDestination.ACTIVITY
+        }
     }
     // Bumped by Home's "Akses Cepat" Inventory tile — see the LaunchedEffect inside
     // InventoryNavHost for why the actual navigate() call lives there, not here.

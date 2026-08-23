@@ -149,7 +149,11 @@ fun PanelKecocokan(k: EksekutifKecocokanDto, matangJam: Long, modifier: Modifier
 
 @Composable
 private fun BarisKecocokan(label: String, cocok: Long, dari: Long) {
-    val persen = if (dari > 0) cocok * 1000 / dari / 10.0 else null
+    // `1000.0` (Double), bukan `1000` — `cocok * 1000 / dari` dengan dua Long
+    // adalah pembagian INTEGER yang MEMOTONG, sedangkan server MEMBULATKAN
+    // (`domain::persen`). Dua angka untuk satu hal yang sama, berselisih
+    // sampai 0,1 poin, tanpa ada yang bisa menjelaskan sebabnya.
+    val persen = if (dari > 0) Math.round(cocok * 1000.0 / dari) / 10.0 else null
     Column(Modifier.padding(vertical = 4.dp)) {
         BarisRincian(label, "$cocok / $dari · ${formatPersen(persen)}")
         BarPersen(persen)

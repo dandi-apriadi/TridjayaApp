@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -66,8 +67,11 @@ fun EksekutifNavHost(
             val viewModel: EksekutifViewModel = hiltViewModel(entry)
             EksekutifScreen(
                 viewModel = viewModel,
+                // Hanya BERPINDAH. Pemuatannya dimiliki `LaunchedEffect(kode)` di
+                // route detail — satu pemilik, supaya jalur normal dan jalur
+                // pemulihan sesudah process death memakai kode yang sama dan tak
+                // ada permintaan ganda pada tiap ketukan.
                 onBukaCabang = { kode ->
-                    viewModel.bukaCabang(kode)
                     navController.navigate(ruteCabang(kode)) { launchSingleTop = true }
                 },
             )
@@ -89,6 +93,16 @@ fun EksekutifNavHost(
                 navController.getBackStackEntry(EKSEKUTIF_ROUTE_ROOT)
             }
             val viewModel: EksekutifViewModel = hiltViewModel(akar)
+            // Argumen route DIBACA, bukan sekadar dititipkan lewat state.
+            // Sesudah process death, `savedInstanceState` memulihkan back stack
+            // tapi ViewModel-nya lahir kosong — layar ini akan menganggur
+            // permanen tanpa satu pun galat kalau kode dealer-nya hanya hidup di
+            // memori. `LaunchedEffect(kode)` memuatnya ulang; kalau state-nya
+            // memang sudah benar, `bukaCabang` cuma menembak sekali lagi.
+            val kode = entriIni.arguments?.getString("kodeDealer").orEmpty()
+            LaunchedEffect(kode) {
+                if (kode.isNotBlank()) viewModel.bukaCabang(kode)
+            }
             EksekutifCabangScreen(
                 viewModel = viewModel,
                 onBack = {

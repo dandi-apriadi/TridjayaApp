@@ -50,6 +50,9 @@ class EksekutifViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(EksekutifUiState())
     val uiState: StateFlow<EksekutifUiState> = _uiState.asStateFlow()
 
+    /** Lihat [bukaCabang] — hanya disentuh dari `viewModelScope` (Main.immediate). */
+    private var generasiDetail: Long = 0L
+
     init {
         muat()
     }
@@ -86,6 +89,14 @@ class EksekutifViewModel @Inject constructor(
 
     fun bukaCabang(kodeDealer: String) {
         val rentang = rentangUntuk(_uiState.value.rentang)
+        // Penghitung generasi, bukan `Job.cancel()`: repository selalu jalan
+        // sampai akhir (mengembalikan `AuthResult`, tak pernah melempar), jadi
+        // yang perlu dijaga bukan pembatalan melainkan URUTAN SELESAI. Tanpa
+        // ini, membuka cabang A lalu cepat pindah ke B bisa menaruh angka A di
+        // layar berjudul B — salah tanpa satu pun tanda. Pola yang sama sudah
+        // dipakai `ActivityViewModel.loadGeneration`.
+        generasiDetail += 1
+        val generasi = generasiDetail
         _uiState.value = _uiState.value.copy(
             kodeDealerDibuka = kodeDealer,
             detailLoading = true,
@@ -97,7 +108,9 @@ class EksekutifViewModel @Inject constructor(
             detail = _uiState.value.detail?.takeIf { it.cabang.kodeDealer == kodeDealer },
         )
         viewModelScope.launch {
-            when (val hasil = repository.cabang(kodeDealer, rentang.start, rentang.end)) {
+            val hasil = repository.cabang(kodeDealer, rentang.start, rentang.end)
+            if (generasi != generasiDetail) return@launch
+            when (hasil) {
                 is AuthResult.Success -> _uiState.value = _uiState.value.copy(
                     detail = hasil.data,
                     detailLoading = false,

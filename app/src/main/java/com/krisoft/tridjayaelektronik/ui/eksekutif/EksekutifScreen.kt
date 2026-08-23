@@ -66,7 +66,12 @@ fun EksekutifScreen(
                     onRetry = viewModel::muat,
                 )
 
-                papan == null -> Box(Modifier.fillMaxSize()) // pemuatan pertama
+                // Spinner, bukan Box kosong — layar kosong tanpa tanda selama
+                // satu round-trip terbaca sebagai gagal muat.
+                papan == null -> Box(
+                    Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) { androidx.compose.material3.CircularProgressIndicator() }
                 else -> IsiPapan(
                     papan = papan,
                     rentang = state.rentang,
@@ -261,6 +266,6 @@ private fun BarisCabang(cabang: EksekutifCabangDto, onKetuk: () -> Unit) {
 private fun ringkasKecocokan(cabang: EksekutifCabangDto): String {
     val k = cabang.spkVsGs
     if (k.dinilai <= 0) return "belum ada SPK dinilai"
-    val persen = k.cocokNomor * 1000 / k.dinilai / 10.0
+    val persen = Math.round(k.cocokNomor * 1000.0 / k.dinilai) / 10.0
     return "${formatPersen(persen)} nomor"
 }

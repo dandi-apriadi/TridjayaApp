@@ -46,8 +46,9 @@ class SessionViewModel @Inject constructor(
      * itu `ActivityViewModel`/`HomeViewModel` lewat `PenyegarKemampuan`, yang
      * memang mengambil ulang tiap sidik akses atau identitas token berubah.
      *
-     * `null` = belum pernah berhasil diambil → tab ber-gate belum tampil
-     * (fail-closed). Lihat `AuthRepository.petaKemampuanTerakhir`.
+     * `null` = belum pernah berhasil diambil. Di keadaan itu gerbangnya jatuh ke
+     * daftar role lokal (cadangan offline), BUKAN fail-closed — lihat
+     * `AuthRepository.petaKemampuanTerakhir`.
      */
     val petaKemampuan: StateFlow<Map<String, Boolean>?> = authRepository.petaKemampuanTerakhir
 

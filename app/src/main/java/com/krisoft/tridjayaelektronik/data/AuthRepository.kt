@@ -60,6 +60,17 @@ class AuthRepository @Inject constructor(
                 val session = response.body()?.data
                     ?: return AuthResult.Failure("unknown_error", "Response kosong dari server")
                 tokenStore.saveLogin(session)
+                // Cermin peta kemampuan WAJIB dikosongkan di sini, bukan cuma di
+                // `logout()`. Jalur berakhirnya sesi yang NORMAL adalah
+                // `tokenStore.clear()` langsung dari interceptor OkHttp saat
+                // refresh token ditolak — `logout()` tak pernah lewat. Di HP
+                // dinas yang dipakai bergantian, cermin superadmin yang
+                // tertinggal membuat karyawan berikutnya MENDARAT di tab
+                // Eksekutif sampai pengambilan pertamanya selesai. Servernya
+                // tetap menolak (403), jadi datanya tak bocor — tapi tab yang
+                // sekejap terlihat lalu hilang terbaca sebagai bug, dan
+                // ongkos menutupnya satu baris.
+                _petaKemampuanTerakhir.value = null
                 AuthResult.Success(session.user)
             } else {
                 parseError(response)
@@ -108,14 +119,15 @@ class AuthRepository @Inject constructor(
      * `ActivityViewModel`/`HomeViewModel` mengambil ulang tiap sidik akses atau
      * identitas token berubah — tanpa menambah pembaca kedelapan.
      *
-     * **`null` = belum pernah berhasil**, dan itu berarti tab ber-gate belum
-     * tampil (fail-closed lewat `gateAllows`). Konsekuensi yang disengaja: pada
-     * start dingin app mendarat di tab default dulu, lalu berpindah begitu peta
-     * tiba — bukan menebak dari role lokal yang bisa basi.
+     * **`null` = belum pernah berhasil.** Perhatikan: di keadaan itu `gateAllows`
+     * JATUH KE DAFTAR ROLE LOKAL, bukan fail-closed — cabang kemampuannya cuma
+     * dimasuki bila petanya bukan `null`. Fail-closed berlaku untuk kunci yang
+     * ABSEN dari peta yang ADA. Dua keadaan berbeda, dan menyamakannya sudah
+     * membuat tiga komentar di repo ini salah sekaligus.
      *
      * Nilainya TIDAK pernah dikosongkan oleh pengambilan yang gagal (alasan sama
      * dengan `PenyegarKemampuan`: peta baik tak boleh tergantikan peta kosong).
-     * Yang mengosongkannya cuma [logout].
+     * Yang mengosongkannya: [logout] dan [login] yang berhasil.
      */
     val petaKemampuanTerakhir: StateFlow<Map<String, Boolean>?> = _petaKemampuanTerakhir
 

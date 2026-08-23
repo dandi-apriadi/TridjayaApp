@@ -29,9 +29,11 @@ import com.krisoft.tridjayaelektronik.ui.home.gateAllows
  * satu tingkat di bawah pill (isi layar: `ACTIVITY_ITEMS`, `QUICK_ACCESS_MENUS`).
  * Sekarang tab pun bisa ber-gate, memakai [gateAllows] yang SAMA supaya tiga
  * registri (tab, Activity, Akses Cepat) tak bisa menyimpang semantiknya —
- * termasuk sifat **fail-closed**-nya: kunci yang absen di peta server berarti
- * `false`, jadi tab baru TIDAK muncul di HP sampai backend-nya naik. Urutan
- * deploy karena itu mengikat: gateway/service dulu, APK belakangan.
+ * termasuk sifat **fail-closed**-nya: kunci yang absen di peta server yang ADA
+ * berarti `false`, jadi tab baru TIDAK muncul di HP sampai backend-nya naik.
+ * Urutan deploy karena itu mengikat: gateway/service dulu, APK belakangan.
+ * (Peta yang belum pernah terambil sama sekali — `null` — beda keadaan: di sana
+ * [gateAllows] memang jatuh ke [allowedRoles] sebagai cadangan offline.)
  */
 enum class AppDestination(
     val route: String,

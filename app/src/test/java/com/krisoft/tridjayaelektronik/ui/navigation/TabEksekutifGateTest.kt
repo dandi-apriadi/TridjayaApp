@@ -127,6 +127,31 @@ class TabEksekutifGateTest {
     }
 
     /**
+     * **Regresi yang ditemukan review adversarial 2026-08-23.** `INVENTORY`
+     * SENGAJA bukan anggota `bottomNavItems` — ia dibuka dari ubin Activity /
+     * Akses Cepat, bukan dari pill — tapi tetap destination yang SAH dan
+     * meng-host seluruh menu Inventory.
+     *
+     * Jaring pengaman "tab yang dibuka lenyap dari daftar" di `MainActivity`
+     * karena itu TIDAK boleh menilai `selected !in destinations` sendirian:
+     * predikat itu selalu benar untuk INVENTORY, dan efeknya menendang orang
+     * keluar dari jelajah barang seketika. Test ini mengunci fakta yang
+     * mendasarinya supaya penjaganya tak "dirapikan" balik.
+     */
+    @Test
+    fun `inventory bukan anggota pill tapi tetap destination sah`() {
+        assertFalse(
+            "INVENTORY di pill = tombol Cari kembali, dan itu dihapus 2026-07-29",
+            AppDestination.INVENTORY in bottomNavItems,
+        )
+        assertFalse(AppDestination.INVENTORY in visibleBottomNavItems(setOf("superadmin"), kemampuanEksekutif))
+        assertTrue(
+            "enum-nya WAJIB tetap ada — ia meng-host InventoryNavHost",
+            AppDestination.INVENTORY in AppDestination.entries,
+        )
+    }
+
+    /**
      * Setiap tab ber-`capability` WAJIB menyebut guard backend-nya. Bukan
      * hiasan: itu satu-satunya cara perubahan peran di Rust bisa ditelusuri ke
      * cerminannya di sini lewat grep nama simbol — pola yang sama sudah dipakai

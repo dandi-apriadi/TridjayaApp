@@ -1,5 +1,6 @@
 package com.krisoft.tridjayaelektronik.ui.eksekutif
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,11 +14,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,6 +43,15 @@ fun EksekutifCabangScreen(
     val detail = state.detail
     val judul = detail?.cabang?.nama ?: state.kodeDealerDibuka ?: "Cabang"
 
+    // Back SISTEM harus melewati jalur yang sama dengan tombol back di header.
+    // Tanpa ini `tutupCabang()` dilewati, `kodeDealerDibuka` tetap terisi, dan
+    // tiap penggantian chip rentang di papan menembak `GET /cabang/<kode>` untuk
+    // layar yang sudah lama ditutup.
+    //
+    // BUKAN `DisposableEffect { onDispose { tutupCabang() } }` — itu ikut jalan
+    // saat rotasi layar, yaitu membuang detail yang justru sedang dilihat orang.
+    BackHandler(onBack = onBack)
+
     TridjayaCollapsibleHeader(title = judul, onBack = onBack) { modifier ->
         Box(modifier.fillMaxSize()) {
             when {
@@ -47,7 +59,14 @@ fun EksekutifCabangScreen(
                     message = state.detailError!!,
                     onRetry = { state.kodeDealerDibuka?.let(viewModel::bukaCabang) },
                 )
-                detail == null -> Box(Modifier.fillMaxSize())
+                // Spinner, bukan `Box` kosong: pemuatan detail cabang terjadi di
+                // SETIAP pembukaan (tanpa cache), jadi layar kosong tanpa tanda
+                // adalah tampilan NORMAL-nya selama satu round-trip — dan itu
+                // terbaca sebagai gagal muat.
+                detail == null -> Box(
+                    Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator() }
                 else -> IsiCabang(detail = detail, error = state.detailError)
             }
         }
@@ -130,12 +149,14 @@ private fun IsiCabang(detail: EksekutifDetailCabangDto, error: String?) {
                 )
             }
         }
-        items(detail.karyawan, key = { it.userId }) { k -> KartuKaryawan(k) }
+        items(detail.karyawan, key = { it.userId }) { k ->
+            KartuKaryawan(k, detail.periode.hariKerja)
+        }
     }
 }
 
 @Composable
-private fun KartuKaryawan(k: EksekutifKaryawanDto) {
+private fun KartuKaryawan(k: EksekutifKaryawanDto, detailHariKerja: Long) {
     ClayCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Text(
@@ -157,7 +178,12 @@ private fun KartuKaryawan(k: EksekutifKaryawanDto) {
             )
             Spacer(Modifier.height(8.dp))
 
-            BarisRincian("Omset", formatRupiah(k.penjualan.omset))
+            // Label menyebut cakupannya, dan itu WAJIB: angka ini milik ORANG
+            // (seluruh dealer), sedangkan kartu cabang di atas layar yang sama
+            // milik CABANG. Terukur pada mirror Agustus 2026: 6 dari 14 cabang
+            // punya jumlah karyawan yang MELEBIHI kartu cabangnya — tanpa label
+            // ini, dua angka yang sah terbaca sebagai satu angka yang salah.
+            BarisRincian("Omset pribadi (semua cabang)", formatRupiah(k.penjualan.omset))
             BarisRincian("Unit besar", "${k.penjualan.unitBesar}")
             BarisRincian(
                 "Kehadiran",
@@ -165,8 +191,15 @@ private fun KartuKaryawan(k: EksekutifKaryawanDto) {
                 // akun uji, atau NIK yang terdaftar dikecualikan). Ditulis
                 // apa adanya — "0%" di sini akan terbaca sebagai pelanggaran
                 // yang tak pernah terjadi.
-                if (k.persenHadir == null) {
+                if (k.persenHadir == null && detailHariKerja > 0) {
+                    // `null` HANYA boleh dibaca "tidak wajib absen" kalau
+                    // rentangnya memang punya hari kerja. Pada rentang tanpa
+                    // hari kerja (tanggal 1 jatuh Minggu, dsb) server juga
+                    // menjawab `null` — untuk SEMUA orang — dan menyatakannya
+                    // sebagai fakta tentang orangnya adalah karangan.
                     "tidak wajib absen"
+                } else if (k.persenHadir == null) {
+                    "—"
                 } else {
                     "${formatPersen(k.persenHadir)} · ${k.hadir} hadir, ${k.offHari} izin"
                 },
