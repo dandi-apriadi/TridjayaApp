@@ -954,6 +954,29 @@ const val TEMUAN_TIDAK_TERDAFTAR = "tidak_terdaftar"
 fun bolehUsulkanSn(unit: OpnameUnitEntity, canPropose: Boolean): Boolean =
     canPropose && unit.temuan == TEMUAN_TIDAK_TERDAFTAR && unit.syncedAtMillis != null
 
+/**
+ * Penanda umur antrian satu usulan SN, atau `null` kalau tak ada yang layak
+ * dipajang.
+ *
+ * Vonisnya MILIK SERVER (`umurAntrianJam` + `mandek` dari `vonis_usulan`) —
+ * fungsi ini cuma memilih kalimatnya. Tiga aturan yang gampang salah:
+ * - `umur == null` → tak ada yang ditampilkan. Itu berarti "tak dihitung di
+ *   sini" (usulan sudah diputuskan, atau APK ini bicara ke server lama), BUKAN
+ *   "baru saja masuk"; menulis "0j" mengubah ketidaktahuan jadi vonis.
+ * - `mandek` dipercaya APA ADANYA, tidak diturunkan ulang dari jam di klien.
+ *   Ambangnya `DELIVERY_STALL_HOURS` yang bisa diubah lewat env server; angka
+ *   24 yang di-hardcode di sini akan berselisih diam-diam begitu env-nya
+ *   digeser.
+ * - Usulan yang sudah `approved`/`rejected` tak pernah diberi penanda: server
+ *   memang tak mengirim umurnya, dan "menunggu 3j" untuk baris yang sudah
+ *   diputus adalah kebohongan langsung.
+ */
+internal fun labelUmurUsulan(status: String, umurAntrianJam: Long?, mandek: Boolean): String? {
+    if (status != "pending") return null
+    val jam = umurAntrianJam ?: return null
+    return if (mandek) "Menggantung ${jam}j" else "Menunggu ${jam}j"
+}
+
 /** Label temuan dalam Bahasa Indonesia; nilai tak dikenal ditampilkan apa adanya. */
 fun temuanLabel(temuan: String): String = when (temuan) {
     "tidak_terdaftar" -> "belum terdaftar di registry"

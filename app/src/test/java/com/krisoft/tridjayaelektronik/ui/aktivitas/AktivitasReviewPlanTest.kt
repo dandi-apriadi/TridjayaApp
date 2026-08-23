@@ -193,4 +193,76 @@ class KalimatDuplikatBuktiTest {
         )
         assertEquals("Bukti sama dengan unggahan karyawan lain (karyawan lain)", kalimat)
     }
+
+    // ── Lencana angka 7 hari (cerminan chip web) ─────────────────────────────
+
+    @Test
+    fun `tujuh hari terakhir berakhir di hari ini dan tertua di depan`() {
+        val hari = tujuhHariTerakhir("2026-08-23") { iso, geser ->
+            // Penggeser palsu yang cukup untuk rentang di dalam satu bulan;
+            // yang diuji urutan & panjangnya, bukan aritmetika kalendernya
+            // (itu milik `KlasemenStandings.shiftDays`).
+            val tgl = iso.takeLast(2).toInt() + geser
+            iso.dropLast(2) + tgl.toString().padStart(2, '0')
+        }
+        assertEquals(7, hari.size)
+        assertEquals("2026-08-17", hari.first())
+        assertEquals("2026-08-23", hari.last())
+    }
+
+    @Test
+    fun `lencana hanya menghitung baris yang masih menunggu`() {
+        // Fungsi ini juga dipakai atas daftar dari filter lain; tanpa saringan
+        // ini lencana "menunggu" ikut menghitung baris yang sudah dinilai dan
+        // menyuruh PIC mengerjakan pekerjaan yang sudah selesai.
+        val hitung = hitungPendingPerHari(
+            listOf(
+                AktivitasItemDto(id = "1", tanggal = "2026-08-22", reviewStatus = "pending"),
+                AktivitasItemDto(id = "2", tanggal = "2026-08-22", reviewStatus = "pending"),
+                AktivitasItemDto(id = "3", tanggal = "2026-08-22", reviewStatus = "approved"),
+                AktivitasItemDto(id = "4", tanggal = "2026-08-23", reviewStatus = "pending"),
+            )
+        )
+        assertEquals(2, hitung["2026-08-22"])
+        assertEquals(1, hitung["2026-08-23"])
+    }
+
+    @Test
+    fun `hari tanpa antrian tidak punya entri, bukan nol`() {
+        // Pemanggil membedakan "kosong" dari "tak ada angkanya"; entri bernilai
+        // 0 akan dirender sebagai lencana merah — kebalikan dari gunanya.
+        val hitung = hitungPendingPerHari(
+            listOf(AktivitasItemDto(id = "1", tanggal = "2026-08-23", reviewStatus = "approved"))
+        )
+        assertNull(hitung["2026-08-23"])
+        assertTrue(hitung.isEmpty())
+    }
+
+    @Test
+    fun `baris tanpa tanggal tidak jadi lencana hantu`() {
+        val hitung = hitungPendingPerHari(
+            listOf(AktivitasItemDto(id = "1", tanggal = "", reviewStatus = "pending"))
+        )
+        assertTrue(hitung.isEmpty())
+    }
+
+    @Test
+    fun `pemotongan server ditandai, bukan disembunyikan`() {
+        assertTrue(lencanaTerpotong(total = 2500, termuat = 2000))
+        assertFalse(lencanaTerpotong(total = 12, termuat = 12))
+    }
+
+    @Test
+    fun `label chip menyebut hari ini dan kemarin, sisanya tanggal-bulan`() {
+        assertEquals("Hari ini", labelChipHari("2026-08-23", "2026-08-23", "2026-08-22"))
+        assertEquals("Kemarin", labelChipHari("2026-08-22", "2026-08-23", "2026-08-22"))
+        assertEquals("17/08", labelChipHari("2026-08-17", "2026-08-23", "2026-08-22"))
+    }
+
+    @Test
+    fun `label chip tak pecah untuk nilai yang bukan tanggal`() {
+        // Tanggal datang dari server; bentuk asing dikembalikan apa adanya
+        // supaya chip-nya tetap bisa ditekan, bukan melempar.
+        assertEquals("besok", labelChipHari("besok", "2026-08-23", "2026-08-22"))
+    }
 }

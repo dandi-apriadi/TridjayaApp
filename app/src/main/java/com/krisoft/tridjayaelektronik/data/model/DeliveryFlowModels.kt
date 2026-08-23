@@ -501,7 +501,23 @@ data class SerialRequestDto(
     val requestedByName: String? = null,
     val requestedAt: String? = null,
     val decidedByName: String? = null,
-    val decidedAt: String? = null
+    val decidedAt: String? = null,
+    /**
+     * Lama usulan MENUNGGU keputusan admin-stok, jam — DITURUNKAN server
+     * (`serials/requests.rs` `vonis_usulan`), bukan kolom DB. `null` = usulan
+     * sudah diputuskan (tak menunggu apa pun lagi) ATAU server lama yang belum
+     * mengirim field ini; jangan hitung ulang dari [requestedAt] — dua definisi
+     * untuk satu kata adalah kelas kegagalan yang sudah dibayar mahal di
+     * pipeline SPK.
+     */
+    val umurAntrianJam: Long? = null,
+    /**
+     * Sudah melewati `DELIVERY_STALL_HOURS` (default 24) — ambang yang SAMA
+     * dengan pipeline SPK dan form aki. Server tak mengirim field ini saat
+     * `false` (`skip_serializing_if`), jadi defaultnya WAJIB `false`: usulan
+     * dari server lama terbaca "belum mandek", bukan lencana palsu.
+     */
+    val mandek: Boolean = false
 )
 
 @Serializable

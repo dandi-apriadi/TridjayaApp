@@ -115,6 +115,64 @@ data class GrupAktivitas(
     val baris: List<AktivitasItemDto>,
 )
 
+/**
+ * Tujuh hari terakhir berakhir di [hariIni] (`yyyy-MM-dd`), TERTUA dulu — sama
+ * bentuk dengan `getLast7Days()` web.
+ *
+ * Penggeser harinya WAJIB [geser] (`KlasemenStandings.shiftDays`, di atas
+ * `Calendar`): `java.time` haram di `app/src/main` (minSdk 24 tanpa
+ * desugaring) dan aritmetika tanggal buatan sendiri pecah di batas bulan.
+ */
+internal fun tujuhHariTerakhir(hariIni: String, geser: (String, Int) -> String): List<String> =
+    (6 downTo 0).map { geser(hariIni, -it) }
+
+/**
+ * Lencana angka per hari: berapa baris yang MASIH menunggu penilaian.
+ *
+ * Sengaja menyaring `reviewStatus == "pending"` lagi walau permintaannya sudah
+ * `status=pending`: fungsi ini juga dipakai atas daftar yang datang dari filter
+ * lain, dan lencana "menunggu" yang diam-diam menghitung baris tersetujui
+ * menyuruh PIC mengerjakan pekerjaan yang sudah selesai.
+ *
+ * Hari tanpa baris TIDAK diberi entri (bukan `0`) — pemanggil membedakan
+ * "kosong" dari "tidak ada angkanya", dan lencana nol yang dirender sebagai
+ * titik merah adalah kebalikan dari gunanya.
+ */
+internal fun hitungPendingPerHari(items: List<AktivitasItemDto>): Map<String, Int> =
+    items.asSequence()
+        .filter { it.reviewStatus == "pending" && it.tanggal.isNotBlank() }
+        .groupingBy { it.tanggal }
+        .eachCount()
+
+/**
+ * Teks chip satu hari: "Hari ini" / "Kemarin" / `dd/MM`.
+ *
+ * Murni potong-string, TANPA satu pun pustaka tanggal. Bukan kemalasan:
+ * `java.time` haram di `app/src/main` (minSdk 24 tanpa desugaring), dan nama
+ * hari lewat `SimpleDateFormat` bergantung locale ROM — di HP berlocale
+ * en-US chip-nya akan berbunyi "Mon"/"Tue" tanpa satu pun error, sementara
+ * seluruh layar berbahasa Indonesia.
+ */
+internal fun labelChipHari(iso: String, hariIni: String, kemarin: String): String = when {
+    iso == hariIni -> "Hari ini"
+    iso == kemarin -> "Kemarin"
+    else -> {
+        val bagian = iso.split('-')
+        if (bagian.size == 3) "${bagian[2]}/${bagian[1]}" else iso
+    }
+}
+
+/**
+ * `true` = server memotong daftarnya di `limit`, jadi angka lencana adalah
+ * BATAS BAWAH, bukan hitungan penuh.
+ *
+ * Dipisahkan supaya layar bisa mengatakannya. Angka yang lebih kecil dari
+ * kenyataan membuat PIC mengira pekerjaannya habis — kelas kegagalan yang sama
+ * dengan baris "termuat dari total" di daftar utama, dan di sana pun tak
+ * disembunyikan.
+ */
+internal fun lencanaTerpotong(total: Int, termuat: Int): Boolean = total > termuat
+
 /** Label status untuk chip di kartu — sama istilah dengan layar karyawan. */
 internal fun labelStatusReview(status: String): String = when (status) {
     "approved" -> "Disetujui"
