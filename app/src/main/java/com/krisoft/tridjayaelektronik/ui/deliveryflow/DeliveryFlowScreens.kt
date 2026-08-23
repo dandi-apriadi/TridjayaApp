@@ -591,6 +591,24 @@ private fun SpkRingkasCard(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                         )
                     }
+                    // Vonis "menggantung" MILIK SERVER (`mandek`/`eskalasi`,
+                    // `DeliveryJobDto.umurTahapJam`) — app menampilkan apa adanya,
+                    // tidak menghitung ulang dari `createdAt`. Dinilai atas
+                    // SELURUH grup: satu unit yang mandek sudah cukup membuat
+                    // SPK-nya butuh tindakan, dan jam yang dipajang adalah yang
+                    // TERLAMA supaya petugas tidak diberi kesan lebih baik dari
+                    // kenyataan.
+                    val jobMandek = grup.jobs.filter { it.mandek }
+                    if (jobMandek.isNotEmpty()) {
+                        val jamTerlama = jobMandek.mapNotNull { it.umurTahapJam }.maxOrNull()
+                        val adaEskalasi = jobMandek.any { it.eskalasi }
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (jamTerlama != null) "Menggantung ${jamTerlama}j" else "Menggantung",
+                            style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                            color = if (adaEskalasi) MaterialTheme.colorScheme.error else Color(0xFFB5670C),
+                        )
+                    }
                     // Penanda per-unit yang dulu hidup di kartu per-unit ikut naik ke
                     // kartu SPK — sejak antrian tak lagi memajang kartu per
                     // unit, tanpa ini informasinya HILANG, bukan cuma pindah.

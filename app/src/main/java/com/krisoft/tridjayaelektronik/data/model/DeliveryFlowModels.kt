@@ -214,7 +214,19 @@ data class DeliveryJobDto(
      *  DETAIL, tidak di list. Satu sumber untuk app & web (termasuk approval
      *  diskon + form aki dari tabel samping); kosong = server lama, app menyusun
      *  timeline-nya sendiri. */
-    val timeline: List<TimelineStepDto> = emptyList()
+    val timeline: List<TimelineStepDto> = emptyList(),
+    /** Lama menunggu DI TAHAP SAAT INI, jam — DITURUNKAN server (`antrian::vonis`),
+     *  bukan kolom DB. Absen (`null`) = status terminal atau server lama; jangan
+     *  hitung ulang dari `createdAt` (itu umur sejak SPK dibuat, pertanyaan
+     *  berbeda — lihat `delivery.rs` `umur_tahap_jam`). */
+    val umurTahapJam: Long? = null,
+    /** Sudah melewati `DELIVERY_STALL_HOURS` (default 24) DAN memang sedang
+     *  menunggu. Vonisnya MILIK SERVER — tampilkan apa adanya, jangan
+     *  dihitung ulang di app (dua definisi yang bisa berselisih untuk kata
+     *  yang sama, kelas kegagalan yang sudah dibayar mahal di repo web). */
+    val mandek: Boolean = false,
+    /** Sudah menembus ambang eskalasi kepala cabang (120 jam). */
+    val eskalasi: Boolean = false,
 )
 
 /** Satu tahap timeline SPK (`delivery/timeline.rs`). `tone`:
