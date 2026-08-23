@@ -253,6 +253,14 @@ const val INPUT_MANUAL = "manual"
 const val VALIDASI_PENDING = "pending"
 const val VALIDASI_REJECTED = "rejected"
 
+/**
+ * Cerminan `VALIDASI_APPROVED` di `inventory-service opname.rs`. Konstanta ini
+ * sebelumnya tak ada di sini karena app tak pernah meminta riwayat — server
+ * menerima `pending|approved|rejected` dan MENOLAK sisanya dengan 400
+ * ("status harus pending|approved|rejected"), jadi ejaannya tak boleh ditebak.
+ */
+const val VALIDASI_APPROVED = "approved"
+
 /** Satu-satunya status sesi yang buffer lokalnya boleh diisi ulang dari server. */
 const val STATUS_DRAFT = "draft"
 

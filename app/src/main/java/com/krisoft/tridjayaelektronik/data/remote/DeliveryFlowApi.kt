@@ -78,7 +78,38 @@ interface DeliveryFlowApi {
         /** Rentang tanggal dibuat (YYYY-MM-DD, inklusif dua-duanya di sisi
          *  server). Tak dikirim = tanpa batas tanggal, persis perilaku lama. */
         @Query("dari") dari: String? = null,
-        @Query("sampai") sampai: String? = null
+        @Query("sampai") sampai: String? = null,
+        /**
+         * Saringan antrian (2026-08-23). Server sudah menerima semuanya di
+         * `ListQuery` (inventory-service `delivery.rs`) — nol perubahan Rust.
+         *
+         * EJAANNYA HARUS PERSIS INI. Repo ini nol `@SerialName` dan server
+         * memakai `serde(rename_all = "camelCase")`, jadi nama parameter di
+         * sinilah nama di kabel. Salah eja tidak melempar apa pun: Retrofit
+         * tetap mengirim, serde mengabaikan, saringannya cuma diam-diam tak
+         * berefek.
+         *
+         * Retrofit MEMBUANG `@Query` bernilai null (itu yang bikin aman ke
+         * server lama), TAPI string kosong tetap terkirim sebagai `?q=` —
+         * pemanggil wajib `trim().takeIf { it.isNotBlank() }`.
+         */
+        @Query("q") q: String? = null,
+        @Query("kodeDealer") kodeDealer: String? = null,
+        /**
+         * `urut`/`sumbu` MENJAWAB 400 untuk nilai asing — satu-satunya param
+         * saringan di sini yang tidak fail-open. `null` dan string kosong aman
+         * (server punya arm `None | Some("")`), tapi JANGAN menambah nilai baru
+         * di klien sebelum server yang mengenalnya benar-benar ter-deploy.
+         */
+        @Query("urut") urut: String? = null,
+        @Query("sumbu") sumbu: String? = null,
+        /**
+         * CSV metode kirim, dan artinya MEMBALIK default: kosong = server
+         * MEMBUANG `self_pickup` + `sales_delivery`; diisi = tampilkan HANYA
+         * metode itu. Jadi ini satu-satunya saringan di berkas ini yang bisa
+         * MELEBARKAN daftar. Hanya berlaku di tahap `pending_scheduling`.
+         */
+        @Query("deliveryMethod") deliveryMethod: String? = null
     ): Response<ApiResponse<DeliveryListData>>
 
     @GET("api/inventory/delivery/context")

@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.OpnameRepository
+import com.krisoft.tridjayaelektronik.data.VALIDASI_PENDING
 import com.krisoft.tridjayaelektronik.data.model.ManualUnitDto
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,14 @@ data class OpnameValidasiUiState(
     /** Id unit yang keputusannya sedang dikirim (tombolnya dinonaktifkan). */
     val submittingId: String? = null,
     val actionError: String? = null,
+    /**
+     * `pending` (default) | `approved` | `rejected` — cerminan nilai yang
+     * diterima `list_manual_units_handler`. Sebelum ini `load()` memanggil
+     * `repository.manualUnits()` TANPA argumen, jadi riwayat keputusan tak
+     * pernah bisa dibuka dari app sama sekali walau jalurnya sudah utuh sampai
+     * server.
+     */
+    val status: String = VALIDASI_PENDING,
 )
 
 /**
@@ -67,10 +76,21 @@ class OpnameValidasiViewModel @Inject constructor(
         load()
     }
 
+    /**
+     * Ganti tab status lalu muat ulang. Nilai divalidasi server (400 untuk yang
+     * asing), jadi jangan mengarang nilai baru di sini — pakai konstanta
+     * `VALIDASI_*`.
+     */
+    fun gantiStatus(baru: String) {
+        if (baru == _uiState.value.status) return
+        _uiState.update { it.copy(status = baru) }
+        load()
+    }
+
     fun load() {
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         viewModelScope.launch {
-            when (val result = repository.manualUnits()) {
+            when (val result = repository.manualUnits(_uiState.value.status)) {
                 is AuthResult.Success -> _uiState.update {
                     // Peta foto dikosongkan tiap muat ulang: bitmap lama tak
                     // boleh menumpuk, dan foto yang tadi gagal jadi bisa dicoba
