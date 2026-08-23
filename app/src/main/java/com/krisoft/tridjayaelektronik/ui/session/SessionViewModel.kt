@@ -37,6 +37,20 @@ class SessionViewModel @Inject constructor(
      *  awal (Activity vs Operasional) dari role efektif saat komposisi pertama. */
     val cachedUser get() = authRepository.cachedUser
 
+    /**
+     * Peta kemampuan untuk gerbang TAB (`AppDestination.visibleBottomNavItems`).
+     *
+     * Sengaja hanya MENERUSKAN cermin milik [AuthRepository] — ViewModel ini
+     * di-scope ke root `TridjayaNavHost` dan hidup seumur proses, jadi kalau ia
+     * mengambil sendiri, petanya beku sampai app dimatikan. Yang mengisi cermin
+     * itu `ActivityViewModel`/`HomeViewModel` lewat `PenyegarKemampuan`, yang
+     * memang mengambil ulang tiap sidik akses atau identitas token berubah.
+     *
+     * `null` = belum pernah berhasil diambil → tab ber-gate belum tampil
+     * (fail-closed). Lihat `AuthRepository.petaKemampuanTerakhir`.
+     */
+    val petaKemampuan: StateFlow<Map<String, Boolean>?> = authRepository.petaKemampuanTerakhir
+
     init {
         if (sessionState.value) {
             viewModelScope.launch { validateSessionUseCase() }

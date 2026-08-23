@@ -99,6 +99,9 @@ object NetworkModule {
     fun createAbsensiApi(tokenStore: TokenStore): AbsensiApi =
         authenticatedRetrofit(tokenStore).create(AbsensiApi::class.java)
 
+    fun createEksekutifApi(tokenStore: TokenStore): EksekutifApi =
+        authenticatedRetrofit(tokenStore).create(EksekutifApi::class.java)
+
     fun createEventApi(tokenStore: TokenStore): EventApi =
         authenticatedRetrofit(tokenStore).create(EventApi::class.java)
 

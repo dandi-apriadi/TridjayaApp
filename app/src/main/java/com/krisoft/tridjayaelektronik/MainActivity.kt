@@ -79,6 +79,8 @@ import com.krisoft.tridjayaelektronik.ui.activity.landsOnSummary
 import com.krisoft.tridjayaelektronik.ui.activity.routeForNavKey
 import com.krisoft.tridjayaelektronik.ui.home.effectiveRoles
 import com.krisoft.tridjayaelektronik.ui.home.findLifecycle
+import com.krisoft.tridjayaelektronik.ui.eksekutif.EKSEKUTIF_ROUTE_ROOT
+import com.krisoft.tridjayaelektronik.ui.eksekutif.EksekutifNavHost
 import com.krisoft.tridjayaelektronik.ui.inventory.InventoryNavHost
 import com.krisoft.tridjayaelektronik.ui.inventory.SEARCH_ROUTE_ROOT
 import com.krisoft.tridjayaelektronik.ui.login.ChangePasswordScreen
@@ -388,11 +390,13 @@ private fun DestinationContent(
     inventoryOpenListSignal: Int,
     inventoryOpenSearchSignal: Int,
     activityTabSelectedSignal: Int,
+    eksekutifNav: NavHostController,
     activityNav: NavHostController,
     summaryNav: NavHostController,
     inventoryNav: NavHostController
 ) {
     when (destination) {
+        AppDestination.EKSEKUTIF -> EksekutifNavHost(navController = eksekutifNav)
         AppDestination.ACTIVITY -> ActivityNavHost(
             startDestination = ACTIVITY_ROUTE_ROOT,
             onOpenSummaryTab = onOpenSummaryTab,
@@ -452,20 +456,65 @@ private fun MainScreen(
 ) {
     RequestOperationalPermissions()
 
-    val destinations = AppDestination.bottomNavItems
-    // Tab awal ditentukan SEKALI dari role efektif saat komposisi pertama (lihat
-    // doc `landsOnSummary` di ActivityRegistry.kt) — bukan dievaluasi ulang tiap
-    // recomposition, supaya profil yang termuat belakangan tak membuat tab
-    // melompat sendiri sesudah user sudah melihat/menyentuh layarnya. Profil
-    // belum termuat saat itu (cachedUser null) → jatuh ke default lama,
-    // `destinations.first()` (Activity).
-    var selected by remember {
-        val initial = if (landsOnSummary(effectiveRoles(sessionViewModel.cachedUser))) {
-            AppDestination.SUMMARY
-        } else {
-            destinations.first()
-        }
-        mutableStateOf(initial)
+    // Peta kemampuan hanya DITERUSKAN dari cermin `AuthRepository` (diisi
+    // `ActivityViewModel`/`HomeViewModel` lewat `PenyegarKemampuan`) — MainScreen
+    // TIDAK boleh mengambilnya sendiri: ia hidup seumur proses, jadi pengambilan
+    // sekali di sini berarti gerbang tab beku sampai app dimatikan. Lihat
+    // `PembacaPetaKemampuanTest`.
+    val petaKemampuan by sessionViewModel.petaKemampuan.collectAsState()
+    val destinations = AppDestination.visibleBottomNavItems(
+        effectiveRoles(sessionViewModel.cachedUser),
+        petaKemampuan,
+    )
+    // Tab awal DULU ditentukan sekali saja di komposisi pertama, dan komentar di
+    // sini menerangkan alasannya: supaya profil yang termuat belakangan tak
+    // membuat tab melompat sesudah user melihat/menyentuh layarnya.
+    //
+    // Alasan itu masih benar, TAPI premisnya tak lagi memadai sejak ada tab
+    // ber-gate. Gerbangnya fail-closed dan bergantung pada `GET /api/me/
+    // capabilities` yang tiba SESUDAH komposisi pertama — jadi "sekali di awal"
+    // berarti tab Eksekutif tak akan pernah jadi layar pertama, padahal justru
+    // itu yang diminta. (Bug lama yang sekaligus tertutup: `cachedUser` juga
+    // masih `null` di komposisi pertama pada start dingin, jadi manager/owner
+    // pun sudah lama mendarat di Activity alih-alih Operasional.)
+    //
+    // Yang dilakukan sekarang: hitung ulang tab pendaratan tiap kali pengetahuan
+    // bertambah, tapi TERAPKAN hanya selama user belum memilih tab sendiri.
+    // Begitu ia menyentuh pill (atau membuka notifikasi, atau menekan ubin yang
+    // memindah tab), `tabDipilihUser` menyala dan hitungan ini berhenti
+    // mengganggu — itulah bagian dari alasan lama yang tetap dipegang.
+    var selected by remember { mutableStateOf(AppDestination.ACTIVITY) }
+    // `remember`, BUKAN `rememberSaveable` — sengaja seumur `selected`. Kalau
+    // penanda ini bertahan rotasi sementara `selected` tidak, layar kembali ke
+    // ACTIVITY lalu MENETAP di sana karena auto-pendaratan sudah dianggap
+    // "dibatalkan user" — yaitu tab yang salah, permanen, hanya karena HP
+    // diputar. Keduanya lahir & mati bersama.
+    var tabDipilihUser by remember { mutableStateOf(false) }
+    /**
+     * Satu-satunya jalan mengubah tab atas kehendak user. Memakainya (bukan
+     * `selected = …` langsung) yang membuat auto-pendaratan berhenti — kalau ada
+     * pemanggil yang lupa, layarnya akan "ditarik balik" ke tab awal pada emisi
+     * peta kemampuan berikutnya.
+     */
+    val pilihTab: (AppDestination) -> Unit = { tujuan ->
+        tabDipilihUser = true
+        selected = tujuan
+    }
+    val tabPendaratan = AppDestination.tabAwal(
+        tabTersedia = destinations,
+        landsOnSummary = landsOnSummary(effectiveRoles(sessionViewModel.cachedUser)),
+    )
+    LaunchedEffect(tabPendaratan, tabDipilihUser) {
+        if (!tabDipilihUser) selected = tabPendaratan
+    }
+    // Jaring pengaman terpisah dari auto-pendaratan: tab yang sedang dibuka bisa
+    // LENYAP dari daftar di tengah sesi (akses dicabut admin → peta kemampuan
+    // segar → EKSEKUTIF hilang). Tanpa ini `selected` menunjuk tab yang tak lagi
+    // punya tombol di pill — isinya tetap terender dan tak ada cara keluar
+    // selain tombol back. Berlaku juga sesudah user memilih tab sendiri; itu
+    // memang maksudnya.
+    LaunchedEffect(destinations) {
+        if (selected !in destinations) selected = destinations.firstOrNull() ?: AppDestination.ACTIVITY
     }
     // Bumped by Home's "Akses Cepat" Inventory tile — see the LaunchedEffect inside
     // InventoryNavHost for why the actual navigate() call lives there, not here.
@@ -498,20 +547,21 @@ private fun MainScreen(
     }
 
     // Hoisted so we can watch each tab's inner route and hide the floating nav on detail screens.
+    val eksekutifNav = rememberNavController()
     val activityNav = rememberNavController()
     val summaryNav = rememberNavController()
     val inventoryNav = rememberNavController()
     // "Semua menu →" di Activity = pindah tab, bukan navigasi dalam tab.
-    val onOpenSummaryTab: () -> Unit = { selected = AppDestination.SUMMARY }
+    val onOpenSummaryTab: () -> Unit = { pilihTab(AppDestination.SUMMARY) }
     val onQuickAccessInventory: () -> Unit = {
-        selected = AppDestination.INVENTORY
+        pilihTab(AppDestination.INVENTORY)
         inventoryOpenListTrigger++
     }
     // Ubin "Cari Semua" (Activity → PINTASAN). Tab yang sama dengan "Cari Barang", tujuan
     // berbeda: SENGAJA tidak menaikkan `inventoryOpenListTrigger`, sebab sinyal itulah yang
     // mem-pop SEARCH_ROUTE_ROOT dan membuat pencarian gabungan tak terjangkau sejak 41f570d.
     val onQuickAccessSearch: () -> Unit = {
-        selected = AppDestination.INVENTORY
+        pilihTab(AppDestination.INVENTORY)
         inventoryOpenSearchTrigger++
     }
 
@@ -536,11 +586,11 @@ private fun MainScreen(
                     ?.takeIf { it.startsWith("hs_") }
                     ?.let { routeForNavKey(it) }
                 if (komplen != null) {
-                    selected = AppDestination.ACTIVITY
+                    pilihTab(AppDestination.ACTIVITY)
                     activityNav.navigate(komplen) { launchSingleTop = true }
                     return@LaunchedEffect
                 }
-                selected = AppDestination.ACTIVITY
+                pilihTab(AppDestination.ACTIVITY)
                 activityNav.navigate(ROUTE_SPK_HUB) { launchSingleTop = true }
                 // Deep-link halus: buka LANGSUNG halaman tahap terkait (di atas hub, jadi
                 // back → hub). Route dari payload FCM (delivery_notif route_for_kind).
@@ -567,7 +617,7 @@ private fun MainScreen(
             "approval" -> {
                 val sub = pendingNotifRoute?.let { routeForNavKey(it) }
                 if (sub != null) {
-                    selected = AppDestination.ACTIVITY
+                    pilihTab(AppDestination.ACTIVITY)
                     activityNav.navigate(sub) { launchSingleTop = true }
                 }
             }
@@ -579,7 +629,7 @@ private fun MainScreen(
             "crm" -> {
                 val sub = routeForNavKey("crm")
                 if (sub != null) {
-                    selected = AppDestination.ACTIVITY
+                    pilihTab(AppDestination.ACTIVITY)
                     activityNav.navigate(sub) { launchSingleTop = true }
                 }
             }
@@ -588,6 +638,7 @@ private fun MainScreen(
         onConsumeNotifChannel()
     }
 
+    val eksekutifEntry by eksekutifNav.currentBackStackEntryAsState()
     val activityEntry by activityNav.currentBackStackEntryAsState()
     val summaryEntry by summaryNav.currentBackStackEntryAsState()
     val inventoryEntry by inventoryNav.currentBackStackEntryAsState()
@@ -595,6 +646,7 @@ private fun MainScreen(
     // Show the bottom nav only on each tab's root list screen — hide it on any pushed detail
     // (product/lead/ranking/add) and on Settings, so those full-screen sub-pages own the frame.
     val showBottomNav = when (selected) {
+        AppDestination.EKSEKUTIF -> eksekutifEntry?.destination?.route == EKSEKUTIF_ROUTE_ROOT
         AppDestination.ACTIVITY -> activityEntry?.destination?.route == ACTIVITY_ROUTE_ROOT
         AppDestination.SUMMARY -> summaryEntry?.destination?.route == HOME_ROUTE_DASHBOARD
         // Inventory tak lagi punya slot di pill (tombol Cari dihapus 2026-07-29) — ia dibuka
@@ -614,12 +666,14 @@ private fun MainScreen(
     // list), then fall back to Activity, and only exit from Activity's root. Reading the observed
     // entry keeps `canPopSelected` fresh across navigations.
     val selectedNav: NavHostController? = when (selected) {
+        AppDestination.EKSEKUTIF -> eksekutifNav
         AppDestination.ACTIVITY -> activityNav
         AppDestination.SUMMARY -> summaryNav
         AppDestination.INVENTORY -> inventoryNav
         AppDestination.SETTINGS -> null
     }
     val selectedEntry = when (selected) {
+        AppDestination.EKSEKUTIF -> eksekutifEntry
         AppDestination.ACTIVITY -> activityEntry
         AppDestination.SUMMARY -> summaryEntry
         AppDestination.INVENTORY -> inventoryEntry
@@ -637,7 +691,7 @@ private fun MainScreen(
             icon = destination.icon,
             label = destination.label,
             selected = selected == destination,
-            onClick = { selected = destination }
+            onClick = { pilihTab(destination) }
         )
 
         Box(
@@ -690,14 +744,15 @@ private fun MainScreen(
                         ) {
                             DestinationContent(
                                 destination = destination,
-                                onSettingsBack = { selected = AppDestination.ACTIVITY },
-                                onCloseSearch = { selected = AppDestination.ACTIVITY },
+                                onSettingsBack = { pilihTab(AppDestination.ACTIVITY) },
+                                onCloseSearch = { pilihTab(AppDestination.ACTIVITY) },
                                 onQuickAccessInventory = onQuickAccessInventory,
                                 onQuickAccessSearch = onQuickAccessSearch,
                                 onOpenSummaryTab = onOpenSummaryTab,
                                 inventoryOpenListSignal = inventoryOpenListTrigger,
                                 inventoryOpenSearchSignal = inventoryOpenSearchTrigger,
                                 activityTabSelectedSignal = activityTabSelectedTrigger,
+                                eksekutifNav = eksekutifNav,
                                 activityNav = activityNav,
                                 summaryNav = summaryNav,
                                 inventoryNav = inventoryNav
@@ -729,13 +784,14 @@ private fun MainScreen(
     BackHandler(enabled = canPopSelected || selected != AppDestination.ACTIVITY) {
         when {
             canPopSelected -> selectedNav?.popBackStack()
-            else -> selected = AppDestination.ACTIVITY
+            else -> pilihTab(AppDestination.ACTIVITY)
         }
     }
 }
 
 /** Left-to-right screen order used to decide which side a tab slides in from on switch. */
 private fun tabOrder(destination: AppDestination): Int = when (destination) {
+    AppDestination.EKSEKUTIF -> -1
     AppDestination.ACTIVITY -> 0
     AppDestination.SUMMARY -> 1
     AppDestination.INVENTORY -> 2

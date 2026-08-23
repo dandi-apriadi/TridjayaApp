@@ -13,6 +13,7 @@ import com.krisoft.tridjayaelektronik.data.local.OpnameUnitDao
 import com.krisoft.tridjayaelektronik.data.local.SyncMetaDao
 import com.krisoft.tridjayaelektronik.data.remote.ApkApi
 import com.krisoft.tridjayaelektronik.data.remote.AuthApi
+import com.krisoft.tridjayaelektronik.data.remote.EksekutifApi
 import com.krisoft.tridjayaelektronik.data.remote.AbsensiApi
 import com.krisoft.tridjayaelektronik.data.remote.DeadstockApi
 import com.krisoft.tridjayaelektronik.data.remote.DeliveryFlowApi
@@ -85,6 +86,11 @@ object AppModule {
     @Singleton
     fun provideAbsensiApi(tokenStore: TokenStore): AbsensiApi =
         NetworkModule.createAbsensiApi(tokenStore)
+
+    @Provides
+    @Singleton
+    fun provideEksekutifApi(tokenStore: TokenStore): EksekutifApi =
+        NetworkModule.createEksekutifApi(tokenStore)
 
     @Provides
     @Singleton
