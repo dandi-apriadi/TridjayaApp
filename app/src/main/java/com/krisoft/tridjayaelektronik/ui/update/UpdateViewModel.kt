@@ -37,6 +37,15 @@ class UpdateViewModel @Inject constructor(
     private val _versiPromptDitutup = MutableStateFlow<Long?>(null)
     val versiPromptDitutup: StateFlow<Long?> = _versiPromptDitutup.asStateFlow()
 
+    /**
+     * Versi yang promptnya ditunda SEMENTARA lewat Back / ketuk di luar dialog.
+     * Dibersihkan tiap pemeriksaan yang selesai, jadi umurnya paling lama satu
+     * [JEDA_CEK_SUKSES_MS] — berbeda dari [_versiPromptDitutup] yang bertahan
+     * seumur Activity.
+     */
+    private val _versiDitundaSementara = MutableStateFlow<Long?>(null)
+    val versiDitundaSementara: StateFlow<Long?> = _versiDitundaSementara.asStateFlow()
+
     private val _download = MutableStateFlow<UpdateDownloadState>(UpdateDownloadState.Idle)
     val download: StateFlow<UpdateDownloadState> = _download.asStateFlow()
 
@@ -80,6 +89,11 @@ class UpdateViewModel @Inject constructor(
             cekTerakhirGagal = hasil is UpdateStatus.Unknown
             val baru = statusSetelahCek(_status.value, hasil)
             _status.value = baru
+            // Penundaan SEMENTARA (Back / ketuk di luar) berumur satu siklus
+            // pemeriksaan saja. Tanpa baris ini ia jadi permanen dan kita cuma
+            // memindahkan bug-nya, bukan menutupnya. Penolakan SENGAJA lewat
+            // tombol "Nanti" (`_versiPromptDitutup`) TIDAK ikut dibersihkan.
+            _versiDitundaSementara.value = null
 
             val versiBaru = (baru as? UpdateStatus.Available)?.latestVersionCode
             if (unduhanBasi(unduhanUntukVersi, _download.value is UpdateDownloadState.Downloading, versiBaru)) {
@@ -101,6 +115,20 @@ class UpdateViewModel @Inject constructor(
     fun dismissOptional() {
         val tampil = _status.value as? UpdateStatus.Available ?: return
         _versiPromptDitutup.value = tampil.latestVersionCode
+    }
+
+    /**
+     * Menutup prompt SEMENTARA — dipanggil dari Back / ketuk di luar dialog.
+     *
+     * Dipisah dari [dismissOptional] karena niatnya berbeda: menekan "Nanti"
+     * adalah keputusan, ketukan meleset di luar kotak dialog bukan. Sebelumnya
+     * keduanya memanggil fungsi yang sama, sehingga satu ketukan tak sengaja
+     * menyembunyikan pembaruan selama Activity hidup — di HP kerja yang jarang
+     * ditutup, itu berhari-hari.
+     */
+    fun tundaSementara() {
+        val tampil = _status.value as? UpdateStatus.Available ?: return
+        _versiDitundaSementara.value = tampil.latestVersionCode
     }
 
     /** Starts (or re-fires the install prompt for) the update download. Safe to call while a

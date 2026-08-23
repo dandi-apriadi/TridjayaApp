@@ -100,6 +100,9 @@ import com.krisoft.tridjayaelektronik.data.model.formatWaktuId
 import com.krisoft.tridjayaelektronik.data.model.CreateDeliveryBody
 import com.krisoft.tridjayaelektronik.data.model.KontributorDto
 import com.krisoft.tridjayaelektronik.data.model.DeliveryJobDto
+import com.krisoft.tridjayaelektronik.data.model.KontrolSaringan
+import com.krisoft.tridjayaelektronik.data.model.SaringanAntrian
+import com.krisoft.tridjayaelektronik.data.model.indikatorTerpotong
 import com.krisoft.tridjayaelektronik.data.model.DeliveryStatusKey
 import com.krisoft.tridjayaelektronik.data.model.parseTimestampMillis
 import com.krisoft.tridjayaelektronik.ui.home.formatRupiahShort
@@ -335,20 +338,36 @@ fun DeliveryQueueScreen(
      * pendek lalu menyimpulkan sudah beres.
      */
     periodeFilter: Boolean = false,
+    /**
+     * Kontrol saringan yang dirender di atas daftar — bendera EKSPLISIT per
+     * rute, disetel di `ActivityNavHost`. Default nihil supaya layar yang belum
+     * disetel tak berubah sama sekali.
+     *
+     * TIDAK disimpulkan dari `status`/role: `kodeDealer` diabaikan server di
+     * Riwayat PDI dan justru MENGOSONGKAN daftar di Antri Kasir (rantai kasir
+     * mengisi `cabang_bayar`, bukan `kode_dealer`, lalu keduanya di-AND). Lihat
+     * KDoc `SaringanAntrian`.
+     */
+    kontrolSaringan: KontrolSaringan = KontrolSaringan.NIHIL,
     onBack: () -> Unit,
     onOpen: (String) -> Unit,
     viewModel: DeliveryFlowViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
     var periode by remember { mutableStateOf(PeriodeSpk.HARI_INI) }
+    var saringan by remember { mutableStateOf(SaringanAntrian.KOSONG) }
     // Dihitung ulang tiap recomposition (bukan di-`remember`): `muatUlang` di
     // bawah ikut dibuat ulang bersamanya, jadi pull-to-refresh dan tombol
     // coba-lagi selalu membawa periode TERPILIH — bukan rentang yang
     // ter-capture saat komposisi pertama.
     val rentang = if (periodeFilter) rentangPeriode(periode) else RentangTanggal(null, null)
-    // `rentang` WAJIB ikut jadi kunci; tanpa itu memilih chip lain tak memuat apa pun.
-    LaunchedEffect(status, view, rentang) { viewModel.loadQueue(status, view, asDriver, rentang.dari, rentang.sampai) }
-    val muatUlang = { viewModel.loadQueue(status, view, asDriver, rentang.dari, rentang.sampai) }
+    // `rentang` DAN `saringan` WAJIB ikut jadi kunci; tanpa itu memilih chip /
+    // menekan cari tak memuat apa pun, dan pull-to-refresh menjatuhkan pilihan
+    // yang sedang aktif.
+    LaunchedEffect(status, view, rentang, saringan) {
+        viewModel.loadQueue(status, view, asDriver, rentang.dari, rentang.sampai, saringan)
+    }
+    val muatUlang = { viewModel.loadQueue(status, view, asDriver, rentang.dari, rentang.sampai, saringan) }
 
     // ── Aksi level-SPK (2026-08-06) ──────────────────────────────────────────
     // Backend mem-FAN-OUT surat jalan, penugasan driver, konfirmasi kasir,
@@ -396,6 +415,22 @@ fun DeliveryQueueScreen(
               // lalu mendapat nol hasil tak punya jalan kembali ke "Semua" dan
               // membacanya sebagai data yang hilang.
               if (periodeFilter) PeriodeFilterRow(dipilih = periode, onPilih = { periode = it })
+              // Alasan yang sama dengan baris chip di atas: bilah saringan DI
+              // LUAR `when`, supaya orang yang menyaring ke satu cabang lalu
+              // mendapat nol hasil masih punya jalan kembali.
+              SaringanAntrianBar(
+                  kontrol = kontrolSaringan,
+                  saringan = saringan,
+                  onUbah = { saringan = it },
+              )
+              // "Menampilkan N dari M" — diam kalau daftarnya utuh ATAU kalau
+              // server belum mengirim `total` (APK baru di atas server lama).
+              IndikatorTerpotongRow(
+                  indikatorTerpotong(
+                      ditampilkan = state.items.size,
+                      total = state.totalAntrian,
+                  )
+              )
               Box(modifier = Modifier.weight(1f)) {
                 when {
                 state.loading && state.items.isEmpty() ->
@@ -412,8 +447,16 @@ fun DeliveryQueueScreen(
                             icon = { Icon(Icons.Rounded.LocalShipping, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp)) },
                             title = "Antrian kosong",
                             // Kosong karena disaring ≠ kosong karena tak ada datanya.
-                            subtitle = if (periodeFilter) "Tidak ada SPK pada periode ini (${periode.keterangan}). Ganti periode di atas."
-                            else "Belum ada job pada tahap ini."
+                            // Urutan ini disengaja: saringan yang BARU SAJA
+                            // ditekan orangnya lebih menjelaskan hasil nol
+                            // daripada periode yang mungkin sudah lama dipilih.
+                            subtitle = when {
+                                saringan.adaYangAktif ->
+                                    "Tidak ada yang cocok dengan saringan di atas. Hapus pencarian atau pilih \"Semua cabang\"."
+                                periodeFilter ->
+                                    "Tidak ada SPK pada periode ini (${periode.keterangan}). Ganti periode di atas."
+                                else -> "Belum ada job pada tahap ini."
+                            }
                         )
                     }
                 else -> Column(modifier = Modifier.fillMaxSize()) {

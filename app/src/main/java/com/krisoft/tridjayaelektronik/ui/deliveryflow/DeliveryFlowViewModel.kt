@@ -17,6 +17,7 @@ import com.krisoft.tridjayaelektronik.data.model.CreateDeliveryBody
 import com.krisoft.tridjayaelektronik.data.model.CreateDeliveryItemBody
 import com.krisoft.tridjayaelektronik.data.model.DeliverBody
 import com.krisoft.tridjayaelektronik.data.model.DeliveryJobDto
+import com.krisoft.tridjayaelektronik.data.model.SaringanAntrian
 import com.krisoft.tridjayaelektronik.data.model.DeliveryNoteBody
 import com.krisoft.tridjayaelektronik.data.model.PdiBody
 import com.krisoft.tridjayaelektronik.data.model.PdiChecklistItemBody
@@ -60,6 +61,12 @@ sealed interface AkiPhotoState {
 data class DeliveryFlowUiState(
     val loading: Boolean = false,
     val items: List<DeliveryJobDto> = emptyList(),
+    /**
+     * Baris yang lolos saringan SEBELUM `LIMIT` (server `total`). `null` =
+     * server lama yang belum mengirimnya — perlakukan sebagai "tidak tahu",
+     * bukan nol. Dipakai indikator "Menampilkan N dari M".
+     */
+    val totalAntrian: Int? = null,
     val detail: DeliveryJobDto? = null,
     /** Karyawan yang sudah menangani unit yang sedang dibuka. Gagal dimuat =
      *  dibiarkan kosong tanpa pesan error: ini informasi pelengkap, tak boleh
@@ -292,19 +299,30 @@ class DeliveryFlowViewModel @Inject constructor(
         asDriver: Boolean = false,
         dari: String? = null,
         sampai: String? = null,
+        saringan: SaringanAntrian = SaringanAntrian.KOSONG,
     ) {
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             when (
-                val res = repository.list(
+                val res = repository.listDenganTotal(
                     status = status,
                     view = view,
                     asDriver = asDriver,
                     dari = dari,
                     sampai = sampai,
+                    saringan = saringan,
                 )
             ) {
-                is AuthResult.Success -> _state.update { it.copy(loading = false, items = res.data, error = null) }
+                is AuthResult.Success -> _state.update {
+                    it.copy(
+                        loading = false,
+                        items = res.data.items,
+                        // `total` server, BUKAN `items.size` — daftar dipotong
+                        // di 200 dan tanpa angka ini layar tak punya cara tahu.
+                        totalAntrian = res.data.total,
+                        error = null,
+                    )
+                }
                 is AuthResult.Failure -> _state.update { it.copy(loading = false, error = res.message) }
             }
         }

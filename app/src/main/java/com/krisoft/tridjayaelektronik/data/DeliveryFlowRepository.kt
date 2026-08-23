@@ -10,6 +10,8 @@ import com.krisoft.tridjayaelektronik.data.model.DeliverBody
 import com.krisoft.tridjayaelektronik.data.model.DeliveryContextDto
 import com.krisoft.tridjayaelektronik.data.model.DeliveryCreateResult
 import com.krisoft.tridjayaelektronik.data.model.DeliveryJobDto
+import com.krisoft.tridjayaelektronik.data.model.DeliveryListData
+import com.krisoft.tridjayaelektronik.data.model.SaringanAntrian
 import com.krisoft.tridjayaelektronik.data.model.DeliveryNoteBody
 import com.krisoft.tridjayaelektronik.data.model.PdiBody
 import com.krisoft.tridjayaelektronik.data.model.KontributorDto
@@ -44,20 +46,53 @@ class DeliveryFlowRepository @Inject constructor(
 ) {
     private val errorJson = Json { ignoreUnknownKeys = true }
 
-    // ponytail: `limit = 200` — plafon backend (`list_delivery`, inventory-service
-    // delivery.rs, clamp `.clamp(1, 200)`). Respons cuma balas `{items, page,
-    // limit}` — TIDAK ada field total/count keseluruhan (diverifikasi langsung di
-    // handler backend, Minor 6 audit final-fix-2), jadi badge Activity yang
-    // memakai `.data.size` (`ActivityViewModel.antrianStatus`) bisa mentok di 200
-    // kalau antrian sungguhan lebih banyak. Naikkan limit atau minta backend
-    // menambah field total kalau ada laporan angka macet di 200.
+    /**
+     * `limit = 200` — plafon backend (`list_delivery`, inventory-service
+     * `delivery.rs`, clamp `.clamp(1, 200)`).
+     *
+     * KOREKSI 2026-08-23: komentar lama di sini menyatakan "Respons cuma balas
+     * `{items, page, limit}` — TIDAK ada field total/count keseluruhan
+     * (diverifikasi langsung di handler backend)". **Itu sudah SALAH.** Handler
+     * mengirim `total` (baris yang lolos seluruh saringan SEBELUM `LIMIT`), dan
+     * komentar servernya menyebut alasannya: "halaman yang menampilkan 200 dari
+     * 431 diam saja". Yang membuang field itu adalah `DeliveryListData` kita
+     * sendiri yang tak punya properti `total`, jadi kotlinx menelannya lewat
+     * `ignoreUnknownKeys` — nol error, nol gejala.
+     *
+     * Kalimat lama itu bukan sekadar tidak akurat: ia sudah dipakai sebagai
+     * dasar keputusan ("badge mentok di 200, naikkan limit saja"). Pakai
+     * [listDenganTotal] kalau kamu butuh tahu daftarnya terpotong atau tidak.
+     */
     suspend fun list(
         status: String? = null,
         view: String? = null,
         asDriver: Boolean = false,
         dari: String? = null,
         sampai: String? = null,
-    ): AuthResult<List<DeliveryJobDto>> = try {
+        saringan: SaringanAntrian = SaringanAntrian.KOSONG,
+    ): AuthResult<List<DeliveryJobDto>> =
+        when (val r = listDenganTotal(status, view, asDriver, dari, sampai, saringan)) {
+            is AuthResult.Success -> AuthResult.Success(r.data.items)
+            is AuthResult.Failure -> AuthResult.Failure(r.code, r.message)
+        }
+
+    /**
+     * Sama dengan [list] tapi mengembalikan amplop utuh, jadi pemanggil bisa
+     * membaca `total` dan tahu daftarnya terpotong di 200 atau tidak.
+     *
+     * Parameter saringan diteruskan ke server (`ListQuery` sudah menerima
+     * semuanya — nol perubahan Rust). Nilai kosong DIBUANG di sini, bukan di
+     * layar: Retrofit membuang `@Query` null tapi tetap mengirim string kosong
+     * sebagai `?q=`.
+     */
+    suspend fun listDenganTotal(
+        status: String? = null,
+        view: String? = null,
+        asDriver: Boolean = false,
+        dari: String? = null,
+        sampai: String? = null,
+        saringan: SaringanAntrian = SaringanAntrian.KOSONG,
+    ): AuthResult<DeliveryListData> = try {
         val response = api.list(
             status = status,
             view = view,
@@ -65,13 +100,19 @@ class DeliveryFlowRepository @Inject constructor(
             asDriver = asDriver.takeIf { it },
             dari = dari,
             sampai = sampai,
+            q = saringan.q.bersih(),
+            kodeDealer = saringan.kodeDealer.bersih(),
+            urut = saringan.urut.bersih(),
+            deliveryMethod = saringan.deliveryMethod.bersih(),
         )
         val data = response.body()?.data
-        if (response.isSuccessful && data != null) AuthResult.Success(data.items)
+        if (response.isSuccessful && data != null) AuthResult.Success(data)
         else parseError(response, "Gagal memuat daftar pengiriman")
     } catch (e: Exception) {
         AuthResult.Failure("network_error", e.message ?: "Tidak bisa terhubung ke server")
     }
+
+    private fun String?.bersih(): String? = this?.trim()?.takeIf { it.isNotBlank() }
 
     suspend fun detail(id: String): AuthResult<DeliveryJobDto> = call("Gagal memuat detail") { api.detail(id) }
 

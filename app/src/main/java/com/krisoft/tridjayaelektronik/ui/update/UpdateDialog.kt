@@ -36,11 +36,28 @@ fun UpdateDialog(
     available: UpdateStatus.Available,
     download: UpdateDownloadState,
     onUpdate: () -> Unit,
-    onDismiss: (() -> Unit)?
+    /** Tombol "Nanti" — penolakan SENGAJA. Mengunci prompt untuk versi ini. */
+    onDismiss: (() -> Unit)?,
+    /**
+     * Back / ketuk di luar dialog — penutupan TAK SENGAJA.
+     *
+     * Dulu keduanya memanggil [onDismiss] yang sama, jadi satu ketukan meleset
+     * di luar kotak dialog mengunci prompt untuk versi itu SELAMA Activity
+     * hidup (`_versiPromptDitutup` cuma di memori — hanya kematian proses yang
+     * membersihkannya). Di HP kerja yang seharian di-background, itu berarti
+     * berhari-hari tanpa satu pun tanda bahwa ada pembaruan menunggu.
+     *
+     * Efek itu SECARA STRUKTURAL hanya bisa terjadi saat update TIDAK wajib —
+     * saat wajib, `dismissOnBackPress`/`dismissOnClickOutside` di bawah
+     * dua-duanya `false` dan tombol "Nanti" pun tak dirender.
+     *
+     * `null` = perlakukan seperti [onDismiss] (perilaku lama).
+     */
+    onTundaSementara: (() -> Unit)? = null
 ) {
     val force = available.force
     AlertDialog(
-        onDismissRequest = { onDismiss?.invoke() },
+        onDismissRequest = { (onTundaSementara ?: onDismiss)?.invoke() },
         shape = ExpressiveShapes.Large,
         icon = {
             if (download is UpdateDownloadState.Failed) {

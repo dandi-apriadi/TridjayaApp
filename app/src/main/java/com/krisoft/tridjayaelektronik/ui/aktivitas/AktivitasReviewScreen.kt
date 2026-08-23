@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.EventBusy
 import androidx.compose.material.icons.rounded.RateReview
 import androidx.compose.material3.AlertDialog
@@ -61,6 +62,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.ClayCard
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveEmptyState
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveErrorState
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveFilledButton
+import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveTextField
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveOutlinedButton
 import com.krisoft.tridjayaelektronik.ui.theme.ScrollableCenter
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
@@ -110,6 +112,9 @@ fun AktivitasReviewScreen(
                     onGeserHari = { viewModel.geserHari(it) },
                     onPilihHari = { viewModel.gantiTanggal(it) },
                     onStatus = { viewModel.gantiStatus(it) },
+                    cari = state.cari,
+                    onKetikCari = { viewModel.ketikCari(it) },
+                    onTerapkanCari = { viewModel.terapkanCari() },
                 )
                 // `weight(1f)`: isi di bawah memakai fillMaxSize, dan tanpa
                 // pembatas ini ia meminta tinggi penuh layar SETELAH filter —
@@ -286,6 +291,17 @@ private fun FilterBar(
     onGeserHari: (Int) -> Unit,
     onPilihHari: (String) -> Unit,
     onStatus: (String) -> Unit,
+    /**
+     * Kotak cari (2026-08-23). Jalurnya SUDAH utuh sejak lama —
+     * `AktivitasReviewViewModel.ketikCari`/`terapkanCari`, `state.cari`, dan
+     * `AktivitasRepository.antrianReview` yang meneruskannya ke `@Query("q")`
+     * dengan trim — tapi tak ada satu pun yang memanggilnya: kotaknya tak
+     * pernah dirender. Server memang memakai `q` (LIKE atas nama karyawan /
+     * teks aktivitas / cabang / divisi).
+     */
+    cari: String,
+    onKetikCari: (String) -> Unit,
+    onTerapkanCari: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -356,6 +372,32 @@ private fun FilterBar(
                     )
                 }
         }
+        // Submit pada tombol, BUKAN tiap ketikan: daftar ini menembak server,
+        // dan `terapkanCari` KDoc-nya sudah menetapkan aturan itu. Repo ini tak
+        // punya helper debounce bersama, jadi mengetik-per-huruf berarti satu
+        // request per huruf.
+        ExpressiveTextField(
+            value = cari,
+            onValueChange = onKetikCari,
+            placeholder = "Cari nama karyawan / aktivitas / cabang…",
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            trailingIcon = {
+                // Tombol cari SELALU ada. Versi pertama menampilkan "hapus"
+                // saja begitu ada teks, sehingga teks yang diketik tak punya
+                // jalan untuk dikirim — kelas cacat yang sama dengan yang
+                // sedang diperbaiki di berkas ini.
+                Row {
+                    if (cari.isNotBlank()) {
+                        IconButton(onClick = { onKetikCari(""); onTerapkanCari() }) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Hapus pencarian")
+                        }
+                    }
+                    IconButton(onClick = onTerapkanCari) {
+                        Icon(Icons.Rounded.Search, contentDescription = "Cari")
+                    }
+                }
+            },
+        )
     }
 }
 

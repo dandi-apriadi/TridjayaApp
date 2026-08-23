@@ -223,6 +223,7 @@ private fun TridjayaNavHost(
 
     val updateStatus by updateViewModel.status.collectAsState()
     val versiPromptDitutup by updateViewModel.versiPromptDitutup.collectAsState()
+    val versiDitundaSementara by updateViewModel.versiDitundaSementara.collectAsState()
     val updateDownload by updateViewModel.download.collectAsState()
 
     // Pemeriksaan pembaruan diulang tiap app kembali ke foreground. Tanpa ini pemeriksaannya
@@ -358,23 +359,39 @@ private fun TridjayaNavHost(
     // ulangnya lebih cepat (`JEDA_CEK_GAGAL_MS`), dan jalur yang pengguna sendiri yang memintanya
     // — "Cek Pembaruan" di Settings — tetap melaporkan kegagalan apa adanya lewat
     // `updateCheckMessage`, jadi kegagalan tak pernah menyamar jadi "sudah versi terbaru".
-    (updateStatus as? UpdateStatus.Available)?.let { available ->
-        if (bolehTampilkanPrompt(available, versiPromptDitutup)) {
-            UpdateDialog(
-                available = available,
-                download = updateDownload,
-                onUpdate = { updateViewModel.startDownload() },
-                onDismiss = if (available.force) null else ({ updateViewModel.dismissOptional() })
-            )
-        }
+    val updateTersedia = updateStatus as? UpdateStatus.Available
+    // Dihitung SEKALI lalu dipakai dua kali: merender dialognya, DAN menahan
+    // popup ultah di bawah. Sebelumnya popup ultah punya syaratnya sendiri
+    // (`!forceUpdate`), jadi dialog update OPSIONAL bisa tertimbun ucapan ulang
+    // tahun — tombolnya tak bisa ditekan, persis kegagalan yang alasannya sudah
+    // ditulis untuk kasus wajib.
+    val promptUpdateTampil = updateTersedia != null &&
+        bolehTampilkanPrompt(updateTersedia, versiPromptDitutup, versiDitundaSementara)
+
+    if (updateTersedia != null && promptUpdateTampil) {
+        UpdateDialog(
+            available = updateTersedia,
+            download = updateDownload,
+            onUpdate = { updateViewModel.startDownload() },
+            // "Nanti" = penolakan sengaja → kunci untuk versi ini.
+            onDismiss = if (updateTersedia.force) null else ({ updateViewModel.dismissOptional() }),
+            // Back / ketuk di luar = tak sengaja → tunda sampai pemeriksaan berikutnya.
+            onTundaSementara = if (updateTersedia.force) null else ({ updateViewModel.tundaSementara() }),
+        )
     }
 
     // Ucapan ulang tahun — sekali sehari, di atas layar mana pun setelah login
     // (cerminan popup web). Ditahan saat gate paksa-update sedang tampil: dua
     // dialog bertumpuk membuat tombol update tak bisa ditekan, dan update wajib
     // jelas lebih mendesak daripada ucapan.
-    val forceUpdate = (updateStatus as? UpdateStatus.Available)?.force == true
-    if (isLoggedIn && !mustChangePassword && !forceUpdate) {
+    // Ditahan selagi prompt update TAMPIL — bukan cuma saat update WAJIB.
+    // Alasannya sama persis dengan yang sudah ditulis untuk kasus wajib: dua
+    // dialog bertumpuk membuat tombol di bawahnya tak bisa ditekan. Yang salah
+    // di versi lama adalah SYARATNYA, bukan niatnya — ia memakai `force`,
+    // sehingga justru dialog opsional (yang tombolnya bisa diabaikan orang
+    // tanpa akibat) yang tertimbun, dan itu terbaca sebagai "update tak
+    // muncul".
+    if (isLoggedIn && !mustChangePassword && !promptUpdateTampil) {
         BirthdayPopupHost()
     }
 }
