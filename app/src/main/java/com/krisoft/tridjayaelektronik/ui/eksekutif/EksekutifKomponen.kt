@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -20,6 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.krisoft.tridjayaelektronik.data.model.EksekutifKecocokanDto
+import com.krisoft.tridjayaelektronik.data.model.EksekutifKepatuhanDto
+import com.krisoft.tridjayaelektronik.data.model.EksekutifTargetDto
 import com.krisoft.tridjayaelektronik.ui.theme.ClayCard
 
 /** Kartu angka tunggal untuk baris ringkasan. */
@@ -160,30 +161,222 @@ private fun BarisKecocokan(label: String, cocok: Long, dari: Long) {
     }
 }
 
-/** Deretan chip pemilih rentang. */
+
+/**
+ * Kartu skor kepatuhan — **skor besar + keempat komponennya, selalu bersama**.
+ *
+ * Skor tunggal tanpa komponennya adalah angka yang tak bisa ditindaklanjuti:
+ * "cabang ini 62" tak memberi tahu apakah yang bocor kehadiran, pengisian
+ * aktivitas, bukti, atau penyalinan SPK ke GS. Dan tanpa pembilang/penyebut
+ * mentah, angkanya cuma bisa dipercaya atau ditolak — tak bisa diperiksa.
+ *
+ * Komponen `null` ditulis "tidak berlaku", BUKAN 0%: driver memang tak punya
+ * SPK, dan orang tanpa penempatan KPI memang tak punya penyebut aktivitas.
+ */
 @Composable
-fun PemilihRentang(
-    terpilih: EksekutifRentang,
-    onPilih: (EksekutifRentang) -> Unit,
+fun KartuKepatuhan(
+    k: EksekutifKepatuhanDto,
     modifier: Modifier = Modifier,
+    judul: String = "Skor kepatuhan",
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        EksekutifRentang.entries.forEach { pilihan ->
-            FilterChip(
-                selected = pilihan == terpilih,
-                onClick = { onPilih(pilihan) },
-                label = {
+    val pita = pitaKepatuhan(k.skor)
+    ClayCard(modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
                     Text(
-                        pilihan.label,
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1,
+                        judul,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
                     )
-                },
-                modifier = Modifier.weight(1f),
+                    Text(
+                        // Kata, bukan cuma warna. Papan ini menilai orang, dan
+                        // layar yang membedakan baik/buruk HANYA lewat
+                        // hijau/merah tak terbaca oleh sebagian pembacanya.
+                        pita.label + " · bobot terukur ${formatBobot(k.bobotTerpakai)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    formatSkor(k.skor),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = warnaPita(pita),
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            KomponenKepatuhan("Kehadiran", k.kehadiran, k.rincian.hadir, k.rincian.hariWajib, "hari")
+            KomponenKepatuhan(
+                "Aktivitas terisi",
+                k.aktivitas,
+                k.rincian.aktivitasTerisi,
+                k.rincian.aktivitasWajib,
+                "butir",
+            )
+            KomponenKepatuhan(
+                "Bukti sah",
+                k.bukti,
+                k.rincian.buktiSah,
+                k.rincian.buktiWajib,
+                "butir",
+            )
+            // Label menyebut CAKUPAN dan PENYEBUTNYA, dan itu wajib: panel
+            // "SPK dashboard vs GS" di layar yang sama menampilkan angka yang
+            // BERBEDA untuk kalimat yang terdengar sama. Dua sebabnya nyata —
+            // panel itu dikelompokkan per DEALER (termasuk SPK yang sales-nya
+            // kosong atau sudah non-aktif) sementara kolom ini dijumlah dari
+            // karyawan cabang; dan penyebut di sini IKUT menghitung SPK yang
+            // nomornya tak pernah diisi, yang di panel itu sengaja di luar
+            // `dinilai`. Tanpa label, dua angka yang sama-sama benar terbaca
+            // sebagai satu angka yang salah.
+            KomponenKepatuhan(
+                "SPK bernomor & cocok (milik karyawan cabang)",
+                k.spk,
+                k.rincian.spkCocok,
+                k.rincian.spkDinilai,
+                "SPK",
+            )
+            if (k.skor == null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Belum ada satu pun komponen yang bisa diukur pada periode ini — " +
+                        "itu berarti datanya belum ada, bukan berarti nilainya nol.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun KomponenKepatuhan(
+    label: String,
+    persen: Double?,
+    pembilang: Long,
+    penyebut: Long,
+    satuan: String,
+) {
+    Column(Modifier.padding(vertical = 4.dp)) {
+        BarisRincian(
+            label,
+            if (persen == null) {
+                "tidak berlaku"
+            } else {
+                "$pembilang / $penyebut $satuan · ${formatPersen(persen)}"
+            },
+            warnaNilai = if (persen == null) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+        )
+        BarPersen(persen)
+    }
+}
+
+@Composable
+private fun warnaPita(pita: PitaKepatuhan): Color = when (pita) {
+    PitaKepatuhan.PRIMA -> MaterialTheme.colorScheme.primary
+    PitaKepatuhan.PANTAU -> MaterialTheme.colorScheme.tertiary
+    PitaKepatuhan.PRIORITAS -> MaterialTheme.colorScheme.error
+    PitaKepatuhan.TAK_TERUKUR -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+/**
+ * Panel target vs capaian.
+ *
+ * **Target kosong ditulis "belum diisi", bukan "Rp 0".** Halaman Target vs
+ * Actual di web memilih jalan lain — mengarang target `aktual × 1,05` — sehingga
+ * tiap barisnya selalu ≈95% dan tak mengukur apa pun. Yang dikerjakan di sini
+ * kebalikannya: kalau targetnya belum pernah diketik, layar mengatakan begitu.
+ *
+ * Tanda **prorata** ikut ditulis saat rentangnya bukan bulan kalender penuh:
+ * angka yang muncul adalah bagian target bulanan menurut HARI KERJA yang sudah
+ * lewat, bukan angka yang pernah seseorang setujui.
+ */
+@Composable
+fun PanelTarget(
+    t: EksekutifTargetDto,
+    aktualOmset: Long,
+    aktualUnit: Long,
+    modifier: Modifier = Modifier,
+    tampilkanOmset: Boolean = true,
+    tampilkanUnit: Boolean = true,
+) {
+    Column(modifier) {
+        if (tampilkanOmset) {
+            BarisTarget(
+                label = "Omset",
+                aktual = formatRupiahRingkas(aktualOmset),
+                target = t.omset?.let { formatRupiahRingkas(it) },
+                persen = t.capaianOmsetPersen,
             )
         }
+        if (tampilkanUnit) {
+            BarisTarget(
+                label = "Unit besar",
+                aktual = "$aktualUnit unit",
+                target = t.unit?.let { "$it unit" },
+                persen = t.capaianUnitPersen,
+            )
+        }
+        val adaTarget = (tampilkanOmset && t.omset != null) || (tampilkanUnit && t.unit != null)
+        if (adaTarget && t.prorata) {
+            // Konteks "bulan penuh" dirakit dari baris yang BENAR-BENAR
+            // ditampilkan. Menyebut `omsetBulanan` tanpa syarat membuat kartu
+            // karyawan — yang hanya menampilkan baris UNIT — tak pernah
+            // memunculkan konteks apa pun, karena target omset per orang
+            // memang selalu null.
+            val konteks = listOfNotNull(
+                t.omsetBulanan?.takeIf { tampilkanOmset }
+                    ?.let { "Target bulan penuh ${formatRupiahRingkas(it)}." },
+                t.unitBulanan?.takeIf { tampilkanUnit }
+                    ?.let { "Target bulan penuh $it unit." },
+            ).joinToString(" ")
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Target diprorata menurut hari kerja yang sudah lewat — " +
+                    "periodenya tidak menutupi bulannya secara penuh." +
+                    (if (konteks.isEmpty()) "" else " $konteks"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (!adaTarget) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Target periode ini belum lengkap. Satu bulan saja tanpa target " +
+                    "membatalkan seluruh rentang — kalau tidak, omset seluruh " +
+                    "periode akan dibandingkan dengan target sebagian periode. " +
+                    "Angka capaian sengaja dikosongkan, bukan dihitung dari " +
+                    "target karangan.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun BarisTarget(label: String, aktual: String, target: String?, persen: Double?) {
+    Column(Modifier.padding(vertical = 4.dp)) {
+        BarisRincian(
+            label,
+            if (target == null) {
+                "$aktual · target belum diisi"
+            } else {
+                "$aktual / $target · ${formatPersen(persen)}"
+            },
+            warnaNilai = when {
+                persen == null -> MaterialTheme.colorScheme.onSurfaceVariant
+                persen >= 100.0 -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurface
+            },
+        )
+        // Bar sengaja DIPLAFON 100 supaya capaian 130% tak menggambar batang
+        // yang melewati kotaknya; angka persisnya tetap tertulis di sebelahnya.
+        BarPersen(persen?.coerceAtMost(100.0))
     }
 }

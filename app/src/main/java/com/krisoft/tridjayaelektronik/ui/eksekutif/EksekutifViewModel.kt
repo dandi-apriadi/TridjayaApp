@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class EksekutifUiState(
-    val rentang: EksekutifRentang = EksekutifRentang.BULAN_INI,
+    val periode: PilihanPeriode = PilihanPeriode.BAWAAN,
     val papan: EksekutifPapanDto? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
@@ -80,9 +80,30 @@ class EksekutifViewModel @Inject constructor(
         muat()
     }
 
-    fun pilihRentang(rentang: EksekutifRentang) {
-        if (_uiState.value.rentang == rentang) return
-        _uiState.value = _uiState.value.copy(rentang = rentang)
+    /**
+     * Ganti periode. Rentang yang PASTI ditolak server disaring di sini dan
+     * dijawab pesan, bukan dikirim lalu dibalas 400 merah di atas papan yang
+     * sebelumnya baik-baik saja.
+     */
+    fun pilihPeriode(periode: PilihanPeriode) {
+        // Chip yang SAMA tetap memuat ulang saat ada galat yang menggantung.
+        // Tanpa pengecualian ini, gagal muat mengunci layar pada periode yang
+        // sedang dipilih: satu-satunya chip yang ingin diketuk orangnya adalah
+        // chip yang sedang aktif, dan itulah yang diabaikan. (Jalan lain —
+        // tarik-untuk-muat-ulang dan tombol "Coba lagi" — tetap ada; ini
+        // menutup jalan yang paling naluriah.)
+        val menggantung = _uiState.value.error != null || _uiState.value.detailError != null
+        if (_uiState.value.periode == periode && !menggantung) return
+        val r = rentangUntuk(periode)
+        val alasan = validasiRentang(r.start, r.end)
+        if (alasan != null) {
+            // Periode LAMA sengaja dipertahankan: mengganti state ke pilihan
+            // yang tak bisa dimuat berarti layar berjudul periode baru sambil
+            // menampilkan angka periode lama — salah tanpa satu pun tanda.
+            _uiState.value = _uiState.value.copy(error = alasan)
+            return
+        }
+        _uiState.value = _uiState.value.copy(periode = periode, error = null)
         muat()
         // Detail cabang yang sedang terbuka ikut dimuat ulang — kalau tidak,
         // layar detail memperlihatkan periode LAMA di bawah judul periode BARU,
@@ -91,7 +112,7 @@ class EksekutifViewModel @Inject constructor(
     }
 
     fun muat() {
-        val rentang = rentangUntuk(_uiState.value.rentang)
+        val rentang = rentangUntuk(_uiState.value.periode)
         segarkanKemampuan()
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
         viewModelScope.launch {
@@ -112,7 +133,7 @@ class EksekutifViewModel @Inject constructor(
     }
 
     fun bukaCabang(kodeDealer: String) {
-        val rentang = rentangUntuk(_uiState.value.rentang)
+        val rentang = rentangUntuk(_uiState.value.periode)
         // Penghitung generasi, bukan `Job.cancel()`: repository selalu jalan
         // sampai akhir (mengembalikan `AuthResult`, tak pernah melempar), jadi
         // yang perlu dijaga bukan pembatalan melainkan URUTAN SELESAI. Tanpa

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -74,9 +75,9 @@ fun EksekutifScreen(
                 ) { androidx.compose.material3.CircularProgressIndicator() }
                 else -> IsiPapan(
                     papan = papan,
-                    rentang = state.rentang,
+                    periode = state.periode,
                     error = state.error,
-                    onPilihRentang = viewModel::pilihRentang,
+                    onPilihPeriode = viewModel::pilihPeriode,
                     onBukaCabang = onBukaCabang,
                 )
             }
@@ -87,9 +88,9 @@ fun EksekutifScreen(
 @Composable
 private fun IsiPapan(
     papan: EksekutifPapanDto,
-    rentang: EksekutifRentang,
+    periode: PilihanPeriode,
     error: String?,
-    onPilihRentang: (EksekutifRentang) -> Unit,
+    onPilihPeriode: (PilihanPeriode) -> Unit,
     onBukaCabang: (String) -> Unit,
 ) {
     LazyColumn(
@@ -106,7 +107,7 @@ private fun IsiPapan(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            PemilihRentang(terpilih = rentang, onPilih = onPilihRentang)
+            PemilihPeriode(terpilih = periode, onPilih = onPilihPeriode)
         }
         item {
             Column {
@@ -159,6 +160,42 @@ private fun IsiPapan(
                     keterangan = "${papan.karyawanTotal} karyawan aktif",
                     modifier = Modifier.weight(1f),
                 )
+            }
+        }
+
+        item {
+            KartuKepatuhan(papan.kepatuhan, judul = "Skor kepatuhan perusahaan")
+        }
+
+        item {
+            ClayCard {
+                Column(Modifier.padding(14.dp)) {
+                    Text(
+                        "Target vs capaian",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    PanelTarget(
+                        t = papan.target,
+                        aktualOmset = papan.penjualan.omset,
+                        aktualUnit = papan.penjualan.unitBesar,
+                        // Target UNIT se-perusahaan tak ada di sistem ini
+                        // (`erp_mirror_sales_target` per ORANG, dan
+                        // menjumlahkannya bukan target perusahaan), jadi
+                        // barisnya tak dirender sama sekali — lebih jujur
+                        // daripada baris permanen bertuliskan "belum diisi"
+                        // yang mengesankan ada yang lupa mengisi.
+                        tampilkanUnit = false,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Target cabang yang belum diisi TIDAK dihitung nol — " +
+                            "total ini adalah jumlah target cabang yang sudah diisi saja.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
@@ -246,6 +283,35 @@ private fun BarisCabang(cabang: EksekutifCabangDto, onKetuk: () -> Unit) {
                         " · Pakai sistem ${formatPersen(cabang.pemakaianPersen)}" +
                         " · GS " + ringkasKecocokan(cabang),
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "Target " + (cabang.target.capaianOmsetPersen
+                        ?.let { formatPersen(it) } ?: "belum diisi"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            // Skor kepatuhan di ujung kanan, dengan pitanya ditulis sebagai
+            // KATA di bawah angkanya. Warna sendirian tak cukup: papan ini
+            // memeringkat cabang, dan peringkat yang hanya terbaca lewat
+            // hijau/merah tak terbaca oleh sebagian orang yang memakainya.
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    formatSkor(cabang.kepatuhan.skor),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = when (pitaKepatuhan(cabang.kepatuhan.skor)) {
+                        PitaKepatuhan.PRIMA -> MaterialTheme.colorScheme.primary
+                        PitaKepatuhan.PANTAU -> MaterialTheme.colorScheme.tertiary
+                        PitaKepatuhan.PRIORITAS -> MaterialTheme.colorScheme.error
+                        PitaKepatuhan.TAK_TERUKUR -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                Text(
+                    pitaKepatuhan(cabang.kepatuhan.skor).label,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

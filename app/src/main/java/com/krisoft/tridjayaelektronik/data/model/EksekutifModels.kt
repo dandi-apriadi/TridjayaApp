@@ -23,6 +23,8 @@ data class EksekutifPapanDto(
     val spkVsGs: EksekutifKecocokanDto = EksekutifKecocokanDto(),
     val pemakaianPersen: Double? = null,
     val karyawanTotal: Long = 0,
+    val kepatuhan: EksekutifKepatuhanDto = EksekutifKepatuhanDto(),
+    val target: EksekutifTargetDto = EksekutifTargetDto(),
     val cabang: List<EksekutifCabangDto> = emptyList(),
     val kesegaran: EksekutifKesegaranDto = EksekutifKesegaranDto(),
 )
@@ -84,6 +86,8 @@ data class EksekutifCabangDto(
     val spkVsGs: EksekutifKecocokanDto = EksekutifKecocokanDto(),
     val pemakaianPersen: Double? = null,
     val karyawanAktif: Long = 0,
+    val kepatuhan: EksekutifKepatuhanDto = EksekutifKepatuhanDto(),
+    val target: EksekutifTargetDto = EksekutifTargetDto(),
 )
 
 @Serializable
@@ -100,7 +104,64 @@ data class EksekutifKaryawanDto(
     val persenHadir: Double? = null,
     val spkVsGs: EksekutifKecocokanDto = EksekutifKecocokanDto(),
     val pemakaian: EksekutifPemakaianDto = EksekutifPemakaianDto(),
+    val kepatuhan: EksekutifKepatuhanDto = EksekutifKepatuhanDto(),
+    val target: EksekutifTargetDto = EksekutifTargetDto(),
     val terakhirLoginAt: String? = null,
+)
+
+/**
+ * Skor kepatuhan PROSES — bukan kinerja penjualan.
+ *
+ * Tiap komponen `null` = tidak berlaku untuk subjek ini (driver tak punya SPK,
+ * orang tanpa penempatan tak punya penyebut aktivitas). `skor` adalah rata-rata
+ * berbobot dari yang terukur SAJA, dan [bobotTerpakai] menyebut berapa banyak
+ * bobot yang benar-benar ikut. **Rendering `0` untuk `null` di sini akan
+ * menuduh orang atas komponen yang memang tak melekat padanya.**
+ */
+@Serializable
+data class EksekutifKepatuhanDto(
+    val skor: Double? = null,
+    val kehadiran: Double? = null,
+    val aktivitas: Double? = null,
+    val bukti: Double? = null,
+    val spk: Double? = null,
+    val bobotTerpakai: Double = 0.0,
+    val rincian: EksekutifRincianKepatuhanDto = EksekutifRincianKepatuhanDto(),
+)
+
+/** Pembilang & penyebut mentah tiap komponen kepatuhan — supaya bisa dibantah. */
+@Serializable
+data class EksekutifRincianKepatuhanDto(
+    val hadir: Long = 0,
+    val hariWajib: Long = 0,
+    val aktivitasTerisi: Long = 0,
+    val aktivitasWajib: Long = 0,
+    val buktiSah: Long = 0,
+    val buktiWajib: Long = 0,
+    val spkCocok: Long = 0,
+    val spkDinilai: Long = 0,
+)
+
+/**
+ * Target periode + capaiannya.
+ *
+ * Semua `null`-able, dan `null` BERBEDA dari `0`: target yang belum pernah
+ * diisi bukan target nol. Produksi 2026-08-23 hanya punya target cabang untuk
+ * Juli & Agustus 2026 dan target unit per orang HANYA untuk Juli, jadi "—"
+ * adalah tampilan yang WAJAR di sini, bukan tanda gagal muat.
+ *
+ * [prorata] `true` = rentangnya bukan satu bulan kalender penuh, jadi angkanya
+ * hasil pembagian menurut hari kerja — bukan angka yang pernah diketik orang.
+ */
+@Serializable
+data class EksekutifTargetDto(
+    val omset: Long? = null,
+    val unit: Long? = null,
+    val omsetBulanan: Long? = null,
+    val unitBulanan: Long? = null,
+    val capaianOmsetPersen: Double? = null,
+    val capaianUnitPersen: Double? = null,
+    val prorata: Boolean = false,
 )
 
 @Serializable

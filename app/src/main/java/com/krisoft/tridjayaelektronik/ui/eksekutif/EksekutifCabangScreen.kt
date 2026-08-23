@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,6 +33,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.ClayCard
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveEmptyState
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveErrorState
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
+import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
 
 /** Detail satu cabang: angkanya sendiri + seluruh karyawan di dalamnya. */
 @Composable
@@ -67,20 +69,63 @@ fun EksekutifCabangScreen(
                     Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) { CircularProgressIndicator() }
-                else -> IsiCabang(detail = detail, error = state.detailError)
+                else -> IsiCabang(
+                    detail = detail,
+                    periode = state.periode,
+                    // Galat PAPAN (`state.error`) tak ikut ditampilkan di sini:
+                    // ia milik layar lain dan lengket sampai papan berhasil
+                    // dimuat ulang, sehingga banner merah bertahan di atas
+                    // detail cabang yang datanya baik-baik saja. Satu-satunya
+                    // galat papan yang relevan bagi layar ini — periode yang
+                    // ditolak validasi — sudah dijawab `pilihPeriode` dengan
+                    // MEMPERTAHANKAN periode lama, jadi angka di layar tetap
+                    // sesuai chip-nya.
+                    error = state.detailError,
+                    sedangMuat = state.detailLoading,
+                    onPilihPeriode = viewModel::pilihPeriode,
+                    onMuatUlang = { state.kodeDealerDibuka?.let(viewModel::bukaCabang) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun IsiCabang(detail: EksekutifDetailCabangDto, error: String?) {
+private fun IsiCabang(
+    detail: EksekutifDetailCabangDto,
+    periode: PilihanPeriode,
+    error: String?,
+    sedangMuat: Boolean,
+    onPilihPeriode: (PilihanPeriode) -> Unit,
+    onMuatUlang: () -> Unit,
+) {
     val c = detail.cabang
+    TridjayaPullRefresh(
+        // Penanda muat WAJIB ada di sini. Mengganti periode dari layar ini
+        // memuat ulang detailnya, dan tanpa penanda apa pun yang terlihat cuma
+        // chip yang berubah di atas angka LAMA — tak bisa dibedakan dari
+        // "periodenya memang menghasilkan angka yang sama". Sekaligus ia jalan
+        // muat-ulang saat galat: tanpanya, gagal muat di layar ini adalah jalan
+        // buntu (chip yang sama tak bisa diketuk ulang, karena ViewModel
+        // menolak pilihan yang tak berubah).
+        isRefreshing = sedangMuat,
+        onRefresh = onMuatUlang,
+    ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 100.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // Pemilih periode ADA DI SINI JUGA, bukan hanya di papan. Sebelumnya
+        // layar ini cuma menampilkan label periode apa adanya, sehingga
+        // mengganti rentang saat sedang menelusuri satu cabang menuntut
+        // kembali ke papan lalu masuk lagi — dan pertanyaan "cabang ini
+        // kemarin bagaimana" adalah pertanyaan yang justru muncul DI SINI.
+        // ViewModel-nya sama (`EksekutifNavHost` men-scope-nya ke route akar),
+        // jadi papan ikut berganti periode dan keduanya tak pernah berselisih.
+        item {
+            PemilihPeriode(terpilih = periode, onPilih = onPilihPeriode)
+        }
         item {
             Text(
                 labelRentang(RentangTanggal(detail.periode.start, detail.periode.end)) +
@@ -91,7 +136,13 @@ private fun IsiCabang(detail: EksekutifDetailCabangDto, error: String?) {
         }
         if (error != null) {
             item {
-                com.krisoft.tridjayaelektronik.ui.theme.ExpressiveInlineError(message = error)
+                Column {
+                    com.krisoft.tridjayaelektronik.ui.theme.ExpressiveInlineError(message = error)
+                    Spacer(Modifier.height(6.dp))
+                    androidx.compose.material3.TextButton(onClick = onMuatUlang) {
+                        Text("Coba lagi")
+                    }
+                }
             }
         }
         item {
@@ -108,6 +159,31 @@ private fun IsiCabang(detail: EksekutifDetailCabangDto, error: String?) {
                     keterangan = "${c.absensi.alpa} hari tanpa keterangan",
                     modifier = Modifier.weight(1f),
                 )
+            }
+        }
+        item {
+            KartuKepatuhan(c.kepatuhan, judul = "Skor kepatuhan cabang")
+        }
+        item {
+            ClayCard {
+                Column(Modifier.padding(14.dp)) {
+                    Text(
+                        "Target vs capaian cabang",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    PanelTarget(
+                        t = c.target,
+                        aktualOmset = c.penjualan.omset,
+                        aktualUnit = c.penjualan.unitBesar,
+                        // Sistem ini tak punya target UNIT per cabang; yang ada
+                        // per ORANG. Menjumlahkannya jadi target cabang akan
+                        // memakai cakupan dealer yang berbeda dari omset cabang
+                        // di atasnya — dua angka yang tak sebanding, disandingkan.
+                        tampilkanUnit = false,
+                    )
+                }
             }
         }
         item {
@@ -152,6 +228,7 @@ private fun IsiCabang(detail: EksekutifDetailCabangDto, error: String?) {
         items(detail.karyawan, key = { it.userId }) { k ->
             KartuKaryawan(k, detail.periode.hariKerja)
         }
+    }
     }
 }
 
@@ -228,6 +305,45 @@ private fun KartuKaryawan(k: EksekutifKaryawanDto, detailHariKerja: Long) {
                     "${k.spkVsGs.cocokNomor} / ${k.spkVsGs.dinilai}",
                 )
             }
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
+            val pita = pitaKepatuhan(k.kepatuhan.skor)
+            BarisRincian(
+                "Skor kepatuhan",
+                "${formatSkor(k.kepatuhan.skor)} · ${pita.label}" +
+                    " (bobot terukur ${formatBobot(k.kepatuhan.bobotTerpakai)})",
+                warnaNilai = when (pita) {
+                    PitaKepatuhan.PRIMA -> MaterialTheme.colorScheme.primary
+                    PitaKepatuhan.PANTAU -> MaterialTheme.colorScheme.tertiary
+                    PitaKepatuhan.PRIORITAS -> MaterialTheme.colorScheme.error
+                    PitaKepatuhan.TAK_TERUKUR -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            // Rinciannya ditulis apa adanya supaya skor bisa DIPERIKSA, bukan
+            // cuma dipercaya — sama seperti baris "jejak" di atasnya.
+            Text(
+                "aktivitas ${k.kepatuhan.rincian.aktivitasTerisi}/" +
+                    "${k.kepatuhan.rincian.aktivitasWajib} butir · " +
+                    "bukti ${k.kepatuhan.rincian.buktiSah}/" +
+                    "${k.kepatuhan.rincian.buktiWajib}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(Modifier.height(6.dp))
+            PanelTarget(
+                t = k.target,
+                aktualOmset = k.penjualan.omset,
+                aktualUnit = k.penjualan.unitBesar,
+                // Target RUPIAH per orang tak pernah terisi di sistem ini
+                // (`FinanceTargetsPage` mengirim `targetAmount: 0` tanpa
+                // syarat), jadi barisnya tak dirender. Yang ada dan dipakai
+                // adalah target UNIT dari `sales_targets`/GS.
+                tampilkanOmset = false,
+            )
         }
     }
 }
