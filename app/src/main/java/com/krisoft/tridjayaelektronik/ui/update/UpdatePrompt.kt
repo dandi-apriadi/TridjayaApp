@@ -97,8 +97,25 @@ internal fun statusSetelahCek(sebelum: UpdateStatus, hasil: UpdateStatus): Updat
  * `force`, tapi aturannya ditegakkan di sini juga supaya penanda basi dari prompt opsional
  * sebelumnya tak bisa menyembunyikannya.
  */
-internal fun bolehTampilkanPrompt(available: UpdateStatus.Available, versiDitutup: Long?): Boolean =
-    available.force || versiDitutup == null || available.latestVersionCode > versiDitutup
+internal fun bolehTampilkanPrompt(
+    available: UpdateStatus.Available,
+    versiDitutup: Long?,
+    /**
+     * Versi yang promptnya ditunda SEMENTARA (Back / ketuk di luar dialog).
+     * Dibersihkan tiap pemeriksaan yang selesai, jadi paling lama satu jeda
+     * [JEDA_CEK_SUKSES_MS] — bukan seumur Activity seperti [versiDitutup].
+     *
+     * Dipisah dari [versiDitutup] karena keduanya menyatakan niat yang berbeda:
+     * menekan "Nanti" adalah keputusan, sedangkan ketukan meleset di luar kotak
+     * dialog bukan. Sebelum pemisahan ini keduanya mengunci sama kerasnya, dan
+     * satu ketukan tak sengaja bisa menyembunyikan pembaruan berhari-hari.
+     */
+    versiDitundaSementara: Long? = null,
+): Boolean {
+    if (available.force) return true
+    if (versiDitundaSementara == available.latestVersionCode) return false
+    return versiDitutup == null || available.latestVersionCode > versiDitutup
+}
 
 /**
  * Apakah berkas/keadaan unduhan yang tersimpan sudah menunjuk versi yang salah.

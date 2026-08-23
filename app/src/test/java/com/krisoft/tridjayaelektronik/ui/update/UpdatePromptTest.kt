@@ -128,6 +128,53 @@ class UpdatePromptTest {
         assertFalse(bolehTampilkanPrompt(tersedia(84), versiDitutup = 85))
     }
 
+    // --- penundaan SEMENTARA (Back / ketuk di luar dialog) -----------------------------
+    //
+    // Kelas bug yang dijaga di sini: sebelum pemisahan ini, Back dan ketuk di
+    // luar dialog memanggil `dismissOptional()` yang SAMA dengan tombol
+    // "Nanti", sehingga satu ketukan meleset mengunci prompt selama Activity
+    // hidup. `_versiPromptDitutup` cuma MutableStateFlow di ViewModel — hanya
+    // kematian proses yang membersihkannya, dan HP kerja jarang benar-benar
+    // ditutup. Efeknya hanya bisa terjadi saat update TIDAK wajib, karena saat
+    // wajib kedua flag DialogProperties bernilai false.
+
+    @Test
+    fun `penundaan sementara menyembunyikan prompt versi itu saja`() {
+        assertFalse(
+            "versi yang barusan ditunda tak boleh langsung muncul lagi",
+            bolehTampilkanPrompt(tersedia(85), versiDitutup = null, versiDitundaSementara = 85),
+        )
+        assertTrue(
+            "versi LAIN tak ikut tertunda",
+            bolehTampilkanPrompt(tersedia(86), versiDitutup = null, versiDitundaSementara = 85),
+        )
+    }
+
+    @Test
+    fun `pembaruan wajib menembus penundaan sementara`() {
+        // Penjaga terhadap kemunduran: kalau penundaan bisa menelan update
+        // wajib, satu ketukan tak sengaja akan melepas orang dari rilis yang
+        // justru dipaksa karena operasional rusak.
+        assertTrue(
+            bolehTampilkanPrompt(tersedia(85, force = true), versiDitutup = null, versiDitundaSementara = 85),
+        )
+    }
+
+    @Test
+    fun `penundaan sementara yang sudah dibersihkan memunculkan prompt lagi`() {
+        // `null` = ViewModel sudah membersihkannya di pemeriksaan berikutnya.
+        // Inilah beda pokoknya dengan "Nanti", yang bertahan seumur Activity.
+        assertTrue(bolehTampilkanPrompt(tersedia(85), versiDitutup = null, versiDitundaSementara = null))
+    }
+
+    @Test
+    fun `nanti tetap mengunci walau penundaan sementara sudah bersih`() {
+        // Penolakan SENGAJA tidak boleh ikut terhapus oleh pembersihan
+        // penundaan sementara — kalau ikut, prompt yang sudah ditolak akan
+        // muncul lagi tiap 30 menit dan berubah jadi gangguan.
+        assertFalse(bolehTampilkanPrompt(tersedia(85), versiDitutup = 85, versiDitundaSementara = null))
+    }
+
     // --- unduhan basi ------------------------------------------------------------------
 
     @Test
