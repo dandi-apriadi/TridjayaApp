@@ -43,6 +43,12 @@ private fun ruteCabang(kodeDealer: String) = "eksekutif_cabang/${Uri.encode(kode
 @Composable
 fun EksekutifNavHost(
     navController: NavHostController = rememberNavController(),
+    /**
+     * Dinaikkan `MainActivity` tiap tab ini BERUBAH MENJADI terpilih. Nilai
+     * awalnya (0) sengaja tak memicu apa pun — `init` ViewModel sudah memuat
+     * sekali, dan tanpa penjaga itu pembukaan pertama menembak dua kali.
+     */
+    tabSelectedSignal: Int = 0,
 ) {
     NavHost(
         navController = navController,
@@ -65,6 +71,14 @@ fun EksekutifNavHost(
     ) {
         composable(EKSEKUTIF_ROUTE_ROOT) { entry ->
             val viewModel: EksekutifViewModel = hiltViewModel(entry)
+            // Tab ini tetap ter-compose seumur sesi (`visitedDestinations` di
+            // MainActivity), jadi kembali ke sini TIDAK memicu daur hidup apa
+            // pun dan datanya bisa berjam-jam basi — termasuk label umur salinan
+            // GS, yang justru menyatakan dirinya segar. `LaunchedEffect(signal)`
+            // di ujung rantai adalah pola yang sama dengan tab Activity.
+            LaunchedEffect(tabSelectedSignal) {
+                if (tabSelectedSignal > 0) viewModel.muat()
+            }
             EksekutifScreen(
                 viewModel = viewModel,
                 // Hanya BERPINDAH. Pemuatannya dimiliki `LaunchedEffect(kode)` di

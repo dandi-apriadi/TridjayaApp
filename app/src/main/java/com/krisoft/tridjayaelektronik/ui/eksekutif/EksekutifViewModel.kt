@@ -2,10 +2,13 @@ package com.krisoft.tridjayaelektronik.ui.eksekutif
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.krisoft.tridjayaelektronik.data.AuthRepository
 import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.EksekutifRepository
 import com.krisoft.tridjayaelektronik.data.model.EksekutifDetailCabangDto
 import com.krisoft.tridjayaelektronik.data.model.EksekutifPapanDto
+import com.krisoft.tridjayaelektronik.ui.home.PenyegarKemampuan
+import com.krisoft.tridjayaelektronik.ui.home.sidikAkses
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,16 +38,30 @@ data class EksekutifUiState(
  * (`visitedDestinations` di `MainActivity`): ViewModel yang di-scope ke tab tak
  * pernah mati, dan datanya membeku sampai app ditutup.
  *
- * **Tidak memanggil `capabilities()`.** Gerbangnya sudah di lapisan tab —
- * `AppDestination.visibleBottomNavItems` hanya merender tab ini untuk pemegang
- * `monitoring.eksekutif`, jadi layar ini secara struktural tak terjangkau orang
- * yang akan dijawab 403. Menambah pengambilan peta di sini akan memerahkan
- * `PembacaPetaKemampuanTest` dengan alasan yang benar: VM ini berumur panjang
- * dan petanya akan beku.
+ * **Ia MENYEGARKAN peta kemampuan walau tak memakainya sendiri.** Ini bagian
+ * yang paling mudah dikira mubazir lalu dihapus, jadi baca alasannya:
+ *
+ * Cermin `AuthRepository.petaKemampuanTerakhir` — yang menentukan apakah tab
+ * Eksekutif tampil — hanya diisi oleh `PenyegarKemampuan` milik
+ * `ActivityViewModel` dan `HomeViewModel`. Superadmin mendarat LANGSUNG di tab
+ * ini, dan kalau ia tak pernah membuka Activity/Operasional lagi, kedua VM itu
+ * tak pernah `load()` ulang. Akibatnya dua-duanya buruk dan dua-duanya senyap:
+ *
+ *  - **akses DICABUT** → cerminnya beku `true` → tab tetap tampil seumur proses
+ *    dan tiap permintaannya dijawab 403;
+ *  - **akses BARU diberi** saat orangnya sedang membuka tab lain → tak pernah
+ *    terbaca sampai app dimatikan.
+ *
+ * Karena itu VM ini ikut menyegarkan. Ia TIDAK membaca hasilnya untuk gerbang
+ * apa pun di layarnya sendiri (gerbangnya di lapisan tab), tapi tulisannya ke
+ * cermin itulah yang menjaga gerbang tetap hidup. `PenyegarKemampuan` yang
+ * menahan badai request: pengambilan hanya terjadi saat sidik akses atau
+ * identitas token berubah.
  */
 @HiltViewModel
 class EksekutifViewModel @Inject constructor(
     private val repository: EksekutifRepository,
+    private val authRepository: AuthRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(EksekutifUiState())
@@ -52,6 +69,12 @@ class EksekutifViewModel @Inject constructor(
 
     /** Lihat [bukaCabang] — hanya disentuh dari `viewModelScope` (Main.immediate). */
     private var generasiDetail: Long = 0L
+
+    /** Lihat KDoc kelas: menjaga cermin peta kemampuan tetap hidup. */
+    private val penyegarKemampuan = PenyegarKemampuan(
+        identitasToken = { authRepository.sidikTokenAkses },
+        ambil = { authRepository.capabilities() },
+    )
 
     init {
         muat()
@@ -69,6 +92,7 @@ class EksekutifViewModel @Inject constructor(
 
     fun muat() {
         val rentang = rentangUntuk(_uiState.value.rentang)
+        segarkanKemampuan()
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
         viewModelScope.launch {
             when (val hasil = repository.papan(rentang.start, rentang.end)) {
@@ -122,6 +146,18 @@ class EksekutifViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * Menulis ke cermin bersama, TIDAK ke state layar ini.
+     *
+     * Sengaja tak memicu muat-ulang apa pun: peta kemampuan tak mengubah satu
+     * angka pun di papan. Yang berubah adalah apakah TAB-nya masih boleh ada,
+     * dan itu dinilai `MainActivity` dari cermin yang sama.
+     */
+    private fun segarkanKemampuan() {
+        val sidik = sidikAkses(authRepository.cachedUser)
+        viewModelScope.launch { penyegarKemampuan.segarkan(sidik) }
     }
 
     fun tutupCabang() {

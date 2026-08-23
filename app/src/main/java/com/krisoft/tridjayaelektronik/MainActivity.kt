@@ -390,13 +390,17 @@ private fun DestinationContent(
     inventoryOpenListSignal: Int,
     inventoryOpenSearchSignal: Int,
     activityTabSelectedSignal: Int,
+    eksekutifTabSelectedSignal: Int,
     eksekutifNav: NavHostController,
     activityNav: NavHostController,
     summaryNav: NavHostController,
     inventoryNav: NavHostController
 ) {
     when (destination) {
-        AppDestination.EKSEKUTIF -> EksekutifNavHost(navController = eksekutifNav)
+        AppDestination.EKSEKUTIF -> EksekutifNavHost(
+            navController = eksekutifNav,
+            tabSelectedSignal = eksekutifTabSelectedSignal,
+        )
         AppDestination.ACTIVITY -> ActivityNavHost(
             startDestination = ACTIVITY_ROUTE_ROOT,
             onOpenSummaryTab = onOpenSummaryTab,
@@ -548,13 +552,27 @@ private fun MainScreen(
     // menaikkan counter (ActivityScreen sendiri sudah punya `LaunchedEffect(Unit)`
     // untuk itu → tanpa guard ini keduanya akan fetch dobel di layar pertama).
     var activityTabSelectedTrigger by remember { mutableStateOf(0) }
+    // Kembarannya untuk tab Eksekutif, dan alasannya lebih tajam di sana: papan
+    // itu menampilkan UMUR salinan GS ("data 7 menit lalu") yang dihitung server
+    // saat request. Tab ini tetap ter-compose seumur sesi, jadi tanpa sinyal
+    // ini labelnya ikut membeku — layar dengan sengaja menyatakan datanya segar
+    // padahal sudah berjam-jam, yang lebih buruk daripada tak menyebut umur
+    // sama sekali.
+    var eksekutifTabSelectedTrigger by remember { mutableStateOf(0) }
     var previousSelectedForActivitySignal by remember { mutableStateOf<AppDestination?>(null) }
     LaunchedEffect(selected) {
+        val sebelumnya = previousSelectedForActivitySignal
         if (selected == AppDestination.ACTIVITY &&
-            previousSelectedForActivitySignal != null &&
-            previousSelectedForActivitySignal != AppDestination.ACTIVITY
+            sebelumnya != null &&
+            sebelumnya != AppDestination.ACTIVITY
         ) {
             activityTabSelectedTrigger++
+        }
+        if (selected == AppDestination.EKSEKUTIF &&
+            sebelumnya != null &&
+            sebelumnya != AppDestination.EKSEKUTIF
+        ) {
+            eksekutifTabSelectedTrigger++
         }
         previousSelectedForActivitySignal = selected
     }
@@ -765,6 +783,7 @@ private fun MainScreen(
                                 inventoryOpenListSignal = inventoryOpenListTrigger,
                                 inventoryOpenSearchSignal = inventoryOpenSearchTrigger,
                                 activityTabSelectedSignal = activityTabSelectedTrigger,
+                                eksekutifTabSelectedSignal = eksekutifTabSelectedTrigger,
                                 eksekutifNav = eksekutifNav,
                                 activityNav = activityNav,
                                 summaryNav = summaryNav,
