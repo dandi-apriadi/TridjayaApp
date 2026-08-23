@@ -100,6 +100,15 @@ object NetworkModule {
             .readTimeout(8, TimeUnit.SECONDS)
             .writeTimeout(8, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
+            // Audit S-2 lanjutan (2026-08-23): `redactHeader("Authorization")` di
+            // baseClientBuilder() cuma menutup HEADER. Pada level BODY (aktif di
+            // build debug) interceptor ini tetap mencetak seluruh badan request —
+            // `RefreshRequest.refreshToken` mentah — dan badan respons —
+            // `access_token`/`refresh_token` baru — apa adanya ke logcat. Client
+            // ini HANYA memanggil /api/auth/refresh (lihat komentar di atas), jadi
+            // membuang loggernya di sini tak mengurangi kegunaan log debug untuk
+            // trafik lain — pola sama createProspekUploadApi/createAktivitasUploadApi.
+            .apply { interceptors().removeAll { it is HttpLoggingInterceptor } }
             .build()
         val plainAuthApi = buildRetrofit(refreshClient).create(AuthApi::class.java)
 
@@ -115,8 +124,28 @@ object NetworkModule {
         return buildRetrofit(client)
     }
 
-    fun createAuthApi(tokenStore: TokenStore): AuthApi =
-        authenticatedRetrofit(tokenStore).create(AuthApi::class.java)
+    /**
+     * Audit S-2 lanjutan (2026-08-23): client TERPISAH dari yang dipakai API lain,
+     * sama seperti `createProspekUploadApi`/`createAktivitasUploadApi` — bukan
+     * karena badannya besar, tapi karena badannya RAHASIA. `AuthApi` membawa
+     * `LoginRequest.password`, `ChangePasswordRequest.oldPassword`/`newPassword`,
+     * dan `ResetPasswordRequest.newPassword` mentah di body; client bersama
+     * (`baseClientBuilder()`) mencetak badan APA ADANYA ke logcat di build debug
+     * — `redactHeader("Authorization")` cuma menutup HEADER, sama sekali tak
+     * menyentuh body. Token cabut lewat revoke; password sering dipakai ulang di
+     * sistem lain (72,3% password=username, catatan audit GS 2026-08-15), jadi
+     * kebocorannya lebih berbahaya daripada kebocoran header yang sudah ditutup.
+     */
+    fun createAuthApi(tokenStore: TokenStore): AuthApi {
+        val base = authenticatedRetrofit(tokenStore)
+        val authClient = (base.callFactory() as OkHttpClient).newBuilder()
+            .apply { interceptors().removeAll { it is HttpLoggingInterceptor } }
+            .build()
+        return base.newBuilder()
+            .client(authClient)
+            .build()
+            .create(AuthApi::class.java)
+    }
 
     fun createInventoryApi(tokenStore: TokenStore): InventoryApi =
         authenticatedRetrofit(tokenStore).create(InventoryApi::class.java)
