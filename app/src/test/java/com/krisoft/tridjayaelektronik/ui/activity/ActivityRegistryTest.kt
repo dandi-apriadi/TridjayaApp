@@ -43,15 +43,77 @@ class ActivityRegistryTest {
     }
 
     @Test
-    fun `hanya aktivitas dan lapor komplain yang boleh tanpa kunci kemampuan`() {
+    fun `hanya tiga item yang boleh tanpa kunci kemampuan`() {
         // raport: hak `upsert_raport` belum punya kunci di /api/me/capabilities.
         // inventory/cari_semua PINDAH ke QUICK_ACCESS_MENUS 2026-07-30 (lihat
         // MenuAccessGateTest.kt) — bukan lagi milik registri ini.
         // `lapor_komplain` menyusul 2026-08-15: jalur pelaporan kinerja-service
         // jadi login-only, jadi tak ada kunci yang bisa dicerminkan tanpa
-        // menyempitkan. Keduanya WAJIB menyebutkan alasannya di `backendGuard`.
+        // menyempitkan.
+        // `pemasangan_ac` menyusul 2026-08-22 dan alasannya BEDA dari dua yang
+        // lain: bukan "kuncinya belum ada", melainkan server sengaja tak
+        // membuatnya — `tugas-saya` self-scoped, dan anggota tim dipilih
+        // per-ORANG sehingga tak ada daftar role yang benar untuk "petugas
+        // pemasangan". Yang menyempitkan tampilannya `jabatan`, bukan role.
+        // Ketiganya WAJIB menyebutkan alasannya di `backendGuard`.
         val tanpaKunci = ACTIVITY_ITEMS.filter { it.capability == null }.map { it.id }
-        assertEquals(listOf("aktivitas", "lapor_komplain"), tanpaKunci)
+        assertEquals(listOf("aktivitas", "lapor_komplain", "pemasangan_ac"), tanpaKunci)
+    }
+
+    // ── Gate JABATAN (bukan role) ────────────────────────────────────────────
+
+    /**
+     * Inti fitur ini. `teknisi` ber-`akses_slugs = '[]'` (migrasi 195) jadi ia tak
+     * melipat jadi role apa pun, dan kedua teknisi produksi ber-`role = "karyawan"`.
+     * Kalau kartunya digerbangi role, ia mendarat di HP hampir seluruh pegawai.
+     */
+    @Test
+    fun `kartu pemasangan AC hanya untuk pemegang jabatan teknisi`() {
+        val karyawanBiasa = visibleActivityItems(setOf("karyawan"), null, divisi = "sales").map { it.id }
+        assertFalse("pemasangan_ac" in karyawanBiasa)
+
+        val teknisi = visibleActivityItems(setOf("karyawan"), null, divisi = "teknisi").map { it.id }
+        assertTrue("pemasangan_ac" in teknisi)
+    }
+
+    /** Jabatan majemuk: satu orang bisa sales merangkap teknisi. */
+    @Test
+    fun `jabatan majemuk tetap melihat kartu pemasangan AC`() {
+        val ids = visibleActivityItems(setOf("karyawan"), null, divisi = "sales, teknisi").map { it.id }
+        assertTrue("pemasangan_ac" in ids)
+    }
+
+    /**
+     * `divisi` default `null` (pemanggil lupa mengoper) harus MENYEMBUNYIKAN,
+     * bukan membocorkan — pola sama dengan default `akunUji = false`.
+     */
+    @Test
+    fun `tanpa divisi kartu pemasangan AC disembunyikan`() {
+        val ids = visibleActivityItems(setOf("karyawan"), null).map { it.id }
+        assertFalse("pemasangan_ac" in ids)
+    }
+
+    /**
+     * Bahkan superadmin tidak melihatnya: ini kartu KEPEMILIKAN TUGAS, bukan
+     * kartu kewenangan. Superadmin yang bukan anggota tim akan membuka layar
+     * yang selalu kosong, dan kartu yang tak pernah berisi adalah kartu yang
+     * berhenti dibaca.
+     */
+    @Test
+    fun `superadmin tanpa jabatan teknisi juga tidak melihatnya`() {
+        val ids = visibleActivityItems(setOf("superadmin"), null, divisi = "manajemen").map { it.id }
+        assertFalse("pemasangan_ac" in ids)
+    }
+
+    /**
+     * Saringan jabatan berjalan DI ATAS gate kemampuan, bukan menggantikannya —
+     * peta kemampuan yang ada tak boleh membuka kartu ini untuk non-teknisi.
+     */
+    @Test
+    fun `peta kemampuan tak bisa membuka kartu pemasangan AC untuk non-teknisi`() {
+        val caps = mapOf("homeservice.task" to true)
+        val ids = visibleActivityItems(setOf("karyawan"), caps, divisi = "sales").map { it.id }
+        assertFalse("pemasangan_ac" in ids)
     }
 
     // ── Item khusus akun uji ─────────────────────────────────────────────────

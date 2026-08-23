@@ -16,6 +16,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.krisoft.tridjayaelektronik.ui.acinstall.AcInstallScreen
 import com.krisoft.tridjayaelektronik.ui.attendance.AttendanceScreen
 import com.krisoft.tridjayaelektronik.ui.deadstock.DeadstockScreen
 import com.krisoft.tridjayaelektronik.ui.event.EventLeadScreen
@@ -81,6 +82,10 @@ private const val ROUTE_HS_TEKNISI = "home_hs_teknisi"
 private const val ROUTE_HS_TARIK = "home_hs_tarik"
 private const val ROUTE_HS_DRIVER = "home_hs_driver"
 private const val ROUTE_HS_DETAIL = "home_hs_detail/{id}"
+
+/** Tugas pemasangan AC (sisi petugas). Prefiks `home_` mengikuti seluruh route
+ *  anak tabel ini — lihat catatan penamaan di CLAUDE.md. */
+private const val ROUTE_PEMASANGAN_AC = "home_pemasangan_ac"
 
 private fun hsDetailRoute(id: String) = "home_hs_detail/${Uri.encode(id)}"
 private const val ROUTE_GAJI = "home_gaji"
@@ -187,6 +192,7 @@ internal fun routeForNavKey(navKey: String): String? = when (navKey) {
     "hs_teknisi" -> ROUTE_HS_TEKNISI
     "hs_tarik" -> ROUTE_HS_TARIK
     "hs_driver" -> ROUTE_HS_DRIVER
+    "pemasangan_ac" -> ROUTE_PEMASANGAN_AC
     // Bukti chat harian: layar karyawan (kirim) vs antrian kepala cabang (periksa).
     "indent" -> ROUTE_INDENT
     // Daftar sesi opname cabang (petugas yang ikut menghitung). Route-nya SUDAH
@@ -404,6 +410,9 @@ fun ActivityNavHost(
                     },
                 )
             }
+        }
+        composable(ROUTE_PEMASANGAN_AC) {
+            AcInstallScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = ROUTE_HS_DETAIL,

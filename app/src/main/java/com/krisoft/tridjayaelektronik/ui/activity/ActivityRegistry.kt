@@ -1,5 +1,7 @@
 package com.krisoft.tridjayaelektronik.ui.activity
 
+import com.krisoft.tridjayaelektronik.ui.acinstall.JABATAN_PETUGAS_PEMASANGAN
+import com.krisoft.tridjayaelektronik.ui.acinstall.punyaJabatanPetugasPemasangan
 import com.krisoft.tridjayaelektronik.ui.home.ALL_LOGGED_IN
 import com.krisoft.tridjayaelektronik.ui.home.CRM_MENU_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.SERIAL_INPUT_MENU_ROLES
@@ -64,6 +66,14 @@ enum class ActivitySource {
      *  menunggu putusan admin-stok. Sesi opname cabang TERKUNCI selama antriannya
      *  belum kosong, jadi angkanya bukan sekadar informasi. */
     OPNAME_MANUAL_PENDING,
+    /**
+     * `GET /inventory/delivery/pemasangan-ac/tugas-saya` — tugas pemasangan AC
+     * yang menugaskan akun ini. Angkanya bukan `size` melainkan yang BELUM
+     * dijawab (`butuhJawabanSaya`): tugas yang sudah diterima tetap harus
+     * dikerjakan, tapi lencana yang tak pernah turun ke nol berhenti dibaca.
+     */
+    AC_INSTALL_TUGAS,
+
     /** `GET /inventory/opname?status=draft` — sesi opname yang sedang berjalan
      *  di CABANG petugas. Server-lah yang men-scope-nya ke cabang akun
      *  (`list_opname`), bukan parameter dari app. */
@@ -93,6 +103,23 @@ data class ActivityItem(
     val beta: Boolean = false,
     /** Menu tetap terdaftar untuk kontrak route/deep-link, tetapi tidak ditampilkan di Activity. */
     val hiddenFromActivity: Boolean = false,
+    /**
+     * Saringan JABATAN (`auth_users.divisi`), dipakai SEBAGAI TAMBAHAN atas
+     * [capability]/[allowedRoles] — bukan penggantinya. `null` = tak disaring
+     * per jabatan (mayoritas item).
+     *
+     * Ada karena sebagian pekerjaan tidak bisa dinyatakan lewat role sama
+     * sekali. Contoh yang melahirkannya: `teknisi` adalah jabatan berkategori
+     * `label` ber-`akses_slugs = '[]'` (migrasi 195) — ia TIDAK melipat jadi
+     * role apa pun, dan kedua teknisi produksi ber-`role = "karyawan"`. Gate
+     * role di sana menyaring nol orang, dan endpoint-nya sendiri login-only
+     * self-scoped sehingga tak ada kunci kemampuan yang bisa dicerminkan.
+     *
+     * Pembagian kerjanya sama dengan [ITEM_KHUSUS_AKUN_UJI]: role/kemampuan
+     * menjawab "boleh memanggil endpoint-nya?", jabatan menjawab "punya
+     * pekerjaannya?".
+     */
+    val jabatan: Set<String>? = null,
 )
 
 /**
@@ -115,10 +142,11 @@ data class ActivityItem(
  * **Ia BUKAN satu-satunya — kalimat itu sudah basi sejak 2026-08-15.**
  * `lapor_komplain` ikut dinolkan hari itu karena jalur pelaporan kinerja-service
  * jadi login-only, sehingga tak ada kunci yang bisa dicerminkan tanpa
- * menyempitkan. Hitungan yang berlaku sekarang: dari **24** entri
- * [ACTIVITY_ITEMS], **2** ber-`capability = null` (`aktivitas`,
- * `lapor_komplain`) dan 22 sisanya ditentukan sepenuhnya oleh peta kemampuan
- * server. Daftar dua itu dikunci `ActivityRegistryTest`, jadi menambah item
+ * menyempitkan. Hitungan yang berlaku sekarang: dari **25** entri
+ * [ACTIVITY_ITEMS], **3** ber-`capability = null` (`aktivitas`,
+ * `lapor_komplain`, `pemasangan_ac`) dan 22 sisanya ditentukan sepenuhnya oleh peta
+ * kemampuan
+ * server. Daftar tiga itu dikunci `ActivityRegistryTest`, jadi menambah item
  * tanpa kunci akan memerahkan test — bukan diam-diam memperbesar angka ini.
  */
 internal val AKTIVITAS_INPUT_ROLES = ALL_LOGGED_IN
@@ -331,6 +359,34 @@ internal val ACTIVITY_ITEMS: List<ActivityItem> = listOf(
         backendGuard = "rust-shared capabilities.rs HOMESERVICE_TASK_ROLES",
         source = ActivitySource.HS_TUGAS_TEKNISI,
         navKey = "hs_teknisi",
+    ),
+    /**
+     * Tugas pemasangan AC (migrasi 253/255/256). Sisi PETUGAS dari modul yang
+     * sebelumnya web-saja.
+     *
+     * **`capability = null` dan `allowedRoles = ALL_LOGGED_IN` di sini BENAR,
+     * bukan kelonggaran yang terlewat.** `GET .../pemasangan-ac/tugas-saya`
+     * memang login-only dan SELF-SCOPED: ia mengembalikan hanya pengajuan yang
+     * menugaskan pemanggil, jadi tak ada yang bisa bocor lewat role. Server
+     * sengaja tak memberinya kunci kemampuan — anggota tim dipilih per-ORANG
+     * dari akun aktif, jadi tak ada daftar role yang benar untuk "petugas
+     * pemasangan" (keputusan yang sama dengan `DRIVER_TASKS_ROLES`).
+     *
+     * Yang menyempitkan tampilannya adalah [ActivityItem.jabatan] — lihat
+     * `AcInstallPlan.punyaJabatanPetugasPemasangan` untuk kenapa `teknisi`
+     * TIDAK bisa dinyatakan sebagai role.
+     */
+    ActivityItem(
+        id = "pemasangan_ac",
+        label = "Tugas Pemasangan AC",
+        subtitle = "Jadwal pemasangan yang ditugaskan ke kamu",
+        kind = ActivityKind.ANTRIAN,
+        capability = null,
+        allowedRoles = ALL_LOGGED_IN,
+        backendGuard = "inventory-service pemasangan_ac.rs tugas_saya_handler (login-only, self-scoped)",
+        source = ActivitySource.AC_INSTALL_TUGAS,
+        navKey = "pemasangan_ac",
+        jabatan = JABATAN_PETUGAS_PEMASANGAN,
     ),
     ActivityItem(
         id = "tarik_unit",
@@ -656,6 +712,7 @@ internal fun visibleActivityItems(
     effectiveRoles: Set<String>,
     capabilities: Map<String, Boolean>? = null,
     akunUji: Boolean = false,
+    divisi: String? = null,
 ): List<ActivityItem> = ACTIVITY_ITEMS.filter {
     if (it.hiddenFromActivity) return@filter false
     if (it.id in ITEM_KHUSUS_AKUN_UJI && !akunUji) {
@@ -664,7 +721,31 @@ internal fun visibleActivityItems(
         val tembus = TEMBUS_AKUN_UJI[it.id].orEmpty()
         if (effectiveRoles.none { role -> role in tembus }) return@filter false
     }
+    // Saringan JABATAN, DI ATAS gate role/kemampuan — bukan penggantinya.
+    // [divisi] default `null` disengaja, pola sama [akunUji]: pemanggil yang
+    // lupa mengopernya MENYEMBUNYIKAN item ber-jabatan, bukan membocorkannya
+    // ke seluruh karyawan.
+    it.jabatan?.let { perlu ->
+        if (!cocokJabatan(divisi, perlu)) return@filter false
+    }
     gateAllows(it.capability, it.allowedRoles, effectiveRoles, capabilities)
+}
+
+/**
+ * Cocokkan [divisi] (CSV `auth_users.divisi`) dengan himpunan jabatan yang
+ * dituntut item.
+ *
+ * Aturan pencocokannya hidup di `AcInstallPlan.punyaJabatanPetugasPemasangan`
+ * — cerminan `FIND_IN_SET(..., REPLACE(divisi,' ',''))` di server, per-elemen
+ * dan bukan `contains`. Ia dipanggil ulang di sini alih-alih ditulis ulang,
+ * supaya tak lahir dua aturan yang berselisih diam-diam.
+ */
+private fun cocokJabatan(divisi: String?, perlu: Set<String>): Boolean = when (perlu) {
+    JABATAN_PETUGAS_PEMASANGAN -> punyaJabatanPetugasPemasangan(divisi)
+    // Belum ada himpunan jabatan lain. Ditolak, bukan diloloskan: item baru
+    // ber-jabatan yang lupa menambah cabangnya di sini akan HILANG (terlihat,
+    // dan pemiliknya melapor) alih-alih tampil untuk semua orang (tak terlihat).
+    else -> false
 }
 
 /**

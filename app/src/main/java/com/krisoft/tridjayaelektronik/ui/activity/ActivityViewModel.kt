@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.krisoft.tridjayaelektronik.data.STATUS_DRAFT
 import com.krisoft.tridjayaelektronik.data.AbsensiRepository
+import com.krisoft.tridjayaelektronik.data.AcInstallRepository
 import com.krisoft.tridjayaelektronik.data.AuthRepository
 import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.CrmRepository
@@ -18,6 +19,7 @@ import com.krisoft.tridjayaelektronik.data.model.UserDto
 import com.krisoft.tridjayaelektronik.domain.indent.ListIndentUseCase
 import com.krisoft.tridjayaelektronik.domain.sales.KlasemenStandings
 import com.krisoft.tridjayaelektronik.ui.home.PenyegarKemampuan
+import com.krisoft.tridjayaelektronik.ui.acinstall.butuhJawabanSaya
 import com.krisoft.tridjayaelektronik.ui.home.effectiveRoles
 import com.krisoft.tridjayaelektronik.ui.home.sidikAkses
 import com.krisoft.tridjayaelektronik.ui.homeservice.HsMode
@@ -63,6 +65,7 @@ class ActivityViewModel @Inject constructor(
     private val crmRepository: CrmRepository,
     private val raportRepository: AktivitasRepository,
     private val homeServiceRepository: HomeServiceRepository,
+    private val acInstallRepository: AcInstallRepository,
     private val listIndentUseCase: ListIndentUseCase,
     private val opnameRepository: OpnameRepository,
     private val spkTodayCounter: SpkTodayCounter,
@@ -134,7 +137,15 @@ class ActivityViewModel @Inject constructor(
         // `roles` boleh berubah sesukanya, gerbangnya tetap memakai peta jam 08:00.
         // Tidak di-await: lihat [segarkanKemampuan].
         segarkanKemampuan(user)
-        val items = visibleActivityItems(roles, capabilities, akunUji(user?.name, user?.nik))
+        // `divisi` dioper karena sebagian item disaring per JABATAN, bukan role —
+        // lihat [ActivityItem.jabatan]. Lupa mengopernya menyembunyikan item itu
+        // (default `null`), bukan membocorkannya.
+        val items = visibleActivityItems(
+            roles,
+            capabilities,
+            akunUji(user?.name, user?.nik),
+            divisi = user?.divisi,
+        )
         val todayIso = KlasemenStandings.todayIso()
 
         val counts = mutableMapOf<ActivitySource, Int?>()
@@ -254,6 +265,18 @@ class ActivityViewModel @Inject constructor(
 
             // Antrian PIC. `.total` (bukan `items.size`) — server memotong `items`
             // ke `limit`, badge tak boleh ikut terpotong (pola DISCOUNT_PENDING).
+            // Tugas pemasangan AC. Angkanya yang BELUM dijawab, bukan `size` —
+            // alasannya di `AcInstallPlan.butuhJawabanSaya`. Hanya ditembak kalau
+            // itemnya memang tampil (yaitu: pemegang jabatan teknisi), jadi tak ada
+            // ongkos request untuk karyawan lain.
+            if (ActivitySource.AC_INSTALL_TUGAS in sources) jobs += async {
+                when (val r = acInstallRepository.tugasSaya()) {
+                    is AuthResult.Success ->
+                        counts[ActivitySource.AC_INSTALL_TUGAS] = butuhJawabanSaya(r.data, user?.id)
+                    is AuthResult.Failure -> failed += ActivitySource.AC_INSTALL_TUGAS
+                }
+            }
+
             if (ActivitySource.AKTIVITAS_REVIEW_PENDING in sources) jobs += async {
                 when (val r = raportRepository.antrianReview(tanggal = todayIso)) {
                     is AuthResult.Success -> counts[ActivitySource.AKTIVITAS_REVIEW_PENDING] = r.data.total

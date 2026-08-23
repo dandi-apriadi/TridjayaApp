@@ -170,6 +170,30 @@ Konsekuensi yang mengikat app:
   di panggilan pertama, tapi layarnya membacanya sebagai kegagalan. Antrian
   (`DeliveryQueueScreen`) mengelompokkan unit lewat `groupJobsBySpk`
   (`SpkBatch.kt`, cerminan `batch_prefix` backend + `utils/spkBatch.ts` web).
+- **SATU pengecualian yang disengaja: `setoran-kasir` (2026-08-22).** Endpoint
+  ini TIDAK fan-out di server dan tak akan pernah bisa, karena nominal tiap
+  barang berbeda — jadi fan-out-nya ada di KLIEN (`setoranKasirSpk`): satu foto
+  bukti diunggah SEKALI lalu N `POST` per unit memakai URL yang sama. Yang
+  membuatnya aman justru sifat yang bikin endpoint lain berbahaya, dan ketiganya
+  terbaca dari `record_kasir_setoran` (`inventory-service delivery/mysql.rs`):
+  `UPDATE … WHERE id = ? AND status = 'delivered'` — **status tak berubah**
+  (handler-nya menyebut dirinya NON-BLOCKING), **tak ada guard
+  `setoran_kasir_at IS NULL`** (mencatat ulang menimpa, bukan ditolak, jadi
+  percobaan ulang aman), dan **scope-nya per `id`** (tak ada validasi lintas-unit
+  seperti `units[]` milik `confirm_spk`). Sebelum ini kasir memotret slip setor
+  yang SAMA sebanyak jumlah barang, padahal antriannya sudah satu kartu per SPK
+  sejak 2026-08-06 — kartu yang tetap muncul setelah satu barang dikonfirmasi
+  terbaca sebagai gagal-simpan. Aturannya hidup sebagai fungsi murni teruji di
+  `SetoranKasirGate.kt` (`unitMenungguSetoran`, `setoranSpkRencana`); kalau salah
+  satu dari tiga sifat di atas berubah, yang benar adalah **menuntut endpoint
+  se-batch di server**, bukan menambal loop ini. Dua rincian yang mudah dikira
+  kelalaian: **nominal TIDAK di-prefill** dari `hargaTotal` (itu cuma sama dengan
+  uang yang diterima pada COD `full`; kredit menerima DP-nya saja dan COD `dp`
+  menerima sisanya, jadi prefill menaruh angka yang terlihat benar di dua dari
+  tiga jenis pembayaran), dan **gerbang render aksinya se-SPK**
+  (`unitMenungguSetoran(...).isNotEmpty()`, bukan `job.setoranKasirAt` unit yang
+  dibuka) — kalau tidak, kiriman yang separuh berhasil menutup aksi itu sama
+  sekali dan sisa barangnya tak bisa disetor dari kartu SPK mana pun.
 - **Tiga bentuk antrian, sengaja berbeda:**
   (a) **Kasir** (`pending_spk`) = SATU kartu per SPK (`SpkRingkasCard`), ketuk
   membuka detail; tombol konfirmasinya HANYA di detail. Kasir menyalin satu

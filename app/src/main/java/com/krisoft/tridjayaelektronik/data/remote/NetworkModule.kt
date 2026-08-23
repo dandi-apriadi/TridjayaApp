@@ -158,6 +158,12 @@ object NetworkModule {
     fun createHomeServiceApi(tokenStore: TokenStore): HomeServiceApi =
         authenticatedRetrofit(tokenStore).create(HomeServiceApi::class.java)
 
+    /** Pemasangan AC (sisi petugas). Menumpang wildcard gateway
+     *  `/api/inventory/delivery/{*rest}` yang sudah ada, jadi client-nya sama
+     *  dengan API lain — tak ada base URL atau timeout khusus. */
+    fun createAcInstallApi(tokenStore: TokenStore): AcInstallApi =
+        authenticatedRetrofit(tokenStore).create(AcInstallApi::class.java)
+
     fun createDeviceApi(tokenStore: TokenStore): DeviceApi =
         authenticatedRetrofit(tokenStore).create(DeviceApi::class.java)
 
