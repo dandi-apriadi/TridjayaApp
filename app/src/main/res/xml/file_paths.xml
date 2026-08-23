@@ -30,4 +30,9 @@
          sejak fiturnya mendarat 2026-07-29 — tak seorang pun pernah berhasil
          mengusulkan. Dijaga `FileProviderPathsTest`. -->
     <cache-path name="serial" path="serial/" />
+    <!-- Foto bukti pemasangan AC, ditulis `AcInstallScreen.kt` ke `cacheDir/ac-install/`.
+         Alasannya sama dengan `event`, `home_service`, dan `serial` di atas — dan
+         daftar itu sudah panjang justru karena entri ini gampang terlupa. Dijaga
+         `FileProviderPathsTest`. -->
+    <cache-path name="ac_install" path="ac-install/" />
 </paths>
