@@ -45,6 +45,7 @@ import com.krisoft.tridjayaelektronik.ui.homeservice.HomeServiceLaporScreen
 import com.krisoft.tridjayaelektronik.ui.homeservice.HomeServiceListScreen
 import com.krisoft.tridjayaelektronik.ui.homeservice.HsMode
 import com.krisoft.tridjayaelektronik.ui.aktivitas.AktivitasReviewScreen
+import com.krisoft.tridjayaelektronik.ui.aktivitas.AktivitasRiwayatScreen
 import com.krisoft.tridjayaelektronik.ui.aktivitas.AktivitasScreen
 import com.krisoft.tridjayaelektronik.ui.serials.SerialInputScreen
 // Berikut masih tinggal di package ui.home (hanya HomeNavHost yang pindah ke
@@ -72,6 +73,16 @@ const val ROUTE_OPNAME_VALIDASI = "home_opname_validasi"
 private const val ROUTE_ABSEN = "home_absen"
 private const val ROUTE_AKTIVITAS = "home_aktivitas"
 private const val ROUTE_AKTIVITAS_REVIEW = "home_aktivitas_review"
+
+/**
+ * Riwayat aktivitas milik sendiri. SENGAJA tak punya entri di
+ * [routeForNavKey] maupun di registri kartu: ia sub-layar dari
+ * [ROUTE_AKTIVITAS], dibuka dari tombol di dalamnya — persis seperti web, yang
+ * menaruh `karyawan/raport/history` sebagai sub-route tanpa menu sendiri.
+ * Menambahkannya ke `routeForNavKey` berarti membuka pintu deep-link notifikasi
+ * ke layar yang tak pernah jadi sasaran notifikasi apa pun.
+ */
+private const val ROUTE_AKTIVITAS_RIWAYAT = "home_aktivitas_riwayat"
 // Komplain (Home Service). Empat daftar berbagi SATU layar (`HsMode`), tapi
 // route-nya tetap terpisah supaya deep-link notif bisa menunjuk antrian yang
 // tepat dan tombol back tiap peran tak saling menimpa.
@@ -376,7 +387,15 @@ fun ActivityNavHost(
             AttendanceScreen(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_AKTIVITAS) {
-            AktivitasScreen(onBack = { navController.popBackStack() })
+            AktivitasScreen(
+                onBack = { navController.popBackStack() },
+                onLihatRiwayat = {
+                    navController.navigate(ROUTE_AKTIVITAS_RIWAYAT) { launchSingleTop = true }
+                },
+            )
+        }
+        composable(ROUTE_AKTIVITAS_RIWAYAT) {
+            AktivitasRiwayatScreen(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_AKTIVITAS_REVIEW) {
             AktivitasReviewScreen(onBack = { navController.popBackStack() })

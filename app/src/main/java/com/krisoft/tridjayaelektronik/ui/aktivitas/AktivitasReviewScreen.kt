@@ -482,9 +482,17 @@ private fun BarisAktivitas(
     }
 }
 
-/** Bukti raport di-serve terautentikasi — pola `AuthedImage` (Deadstock/Indent). */
+/**
+ * Bukti raport di-serve terautentikasi — pola `AuthedImage` (Deadstock/Indent).
+ *
+ * `internal`, bukan `private`: layar Riwayat Aktivitas
+ * ([AktivitasRiwayatScreen]) memuat bukti yang SAMA lewat endpoint yang sama.
+ * Menyalinnya ke sana berarti dua tempat yang harus sepakat soal header
+ * `Authorization` — dan yang lupa headernya tidak error, cuma menampilkan
+ * "Bukti gagal dimuat" selamanya.
+ */
 @Composable
-private fun AuthedEvidence(
+internal fun AuthedEvidence(
     url: String,
     token: String?,
     contentDescription: String = "Bukti aktivitas",
