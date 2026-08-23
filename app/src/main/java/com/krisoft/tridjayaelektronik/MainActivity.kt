@@ -530,8 +530,24 @@ private fun MainScreen(
         tabTersedia = destinations,
         landsOnSummary = landsOnSummary(effectiveRoles(sessionViewModel.cachedUser)),
     )
+    // DIPERSEMPIT ke EKSEKUTIF saja (review pra-landing 2026-08-23).
+    //
+    // Versi sebelumnya menerapkan pendaratan otomatis untuk SEMUA peran, dan
+    // itu membalik alasan yang ditulis kode lama: "supaya profil yang termuat
+    // belakangan tak membuat tab melompat sendiri sesudah user sudah
+    // melihat/menyentuh layarnya". `tabDipilihUser` hanya menyala kalau orang
+    // MENYENTUH pill/notifikasi/ubin — bukan kalau ia sekadar MELIHAT. Jadi
+    // manager/owner yang membuka app, membaca Activity beberapa detik, akan
+    // tersentak ke Operasional begitu `cachedUser` mendarat. Itu perubahan
+    // perilaku yang mengenai ~139 akun, menumpang di fitur superadmin-only,
+    // dan tak diminta siapa pun.
+    //
+    // EKSEKUTIF berbeda dan memang butuh jalur ini: tabnya BARU, jadi tak ada
+    // kebiasaan yang dilanggar, dan `petaKemampuan` selalu `null` pada start
+    // dingin (cerminnya murni in-memory) sehingga tanpa efek ini superadmin
+    // tak pernah mendarat di sana sama sekali.
     LaunchedEffect(tabPendaratan, tabDipilihUser) {
-        if (!tabDipilihUser) selected = tabPendaratan
+        if (!tabDipilihUser && tabPendaratan == AppDestination.EKSEKUTIF) selected = tabPendaratan
     }
     // Jaring pengaman terpisah dari auto-pendaratan: tab yang sedang dibuka bisa
     // LENYAP dari daftar di tengah sesi (akses dicabut admin → peta kemampuan
