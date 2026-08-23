@@ -8,6 +8,7 @@ import com.krisoft.tridjayaelektronik.data.model.ApiErrorResponse
 import com.krisoft.tridjayaelektronik.data.model.RefreshRequest
 import kotlinx.coroutines.runBlocking
 import okhttp3.Authenticator
+import okhttp3.CertificatePinner
 import okhttp3.Dispatcher
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -21,6 +22,36 @@ import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json as KJson
 
 object NetworkModule {
+
+    /**
+     * Audit S-1 (2026-08): certificate pinning SPKI untuk host produksi. Koneksi
+     * lolos bila SALAH SATU pin cocok dengan sertifikat di rantai yang disajikan
+     * server, dan tiga tingkatan dipasang sekaligus:
+     *  - leaf `CN=tridjaya.com` (rotasi rutin ~90 hari),
+     *  - intermediate Google Trust Services `WE1`,
+     *  - root `GTS Root R4` (stabil bertahun-tahun).
+     * Dengan begitu pembaruan leaf tidak pernah memutus app di lapangan — yang
+     * menahan koneksi adalah kunci publik intermediate/root yang stabil. App
+     * hanya boleh kehilangan ketiganya sekaligus jika domain pindah CA total;
+     * saat itu terjadi, rilis versi ber-pin baru SEBELUM rantai lama ditarik.
+     *
+     * Regenerasi pin (jalankan dari mesin dev):
+     *   openssl s_client -connect tridjaya.com:443 -servername tridjaya.com \
+     *     -showcerts </dev/null 2>/dev/null > chain.txt
+     *   # pisahkan tiap blok BEGIN/END CERTIFICATE ke file .pem, lalu per file:
+     *   openssl x509 -in cert.pem -pubkey -noout | openssl pkey -pubin -outform DER \
+     *     | openssl dgst -sha256 -binary | base64
+     *
+     * Build `-PlocalApi` (base URL localhost/IP LAN) otomatis tak terpengaruh:
+     * pin terikat pada hostname, bukan pada client.
+     */
+    private const val HOST_PRODUKSI = "tridjaya.com"
+
+    private fun certificatePinner(): CertificatePinner = CertificatePinner.Builder()
+        .add(HOST_PRODUKSI, "sha256/rzN988lCk9HeBwkB5NZ6LHlc/UNmGjukswQoZo8xW6I=")
+        .add(HOST_PRODUKSI, "sha256/kIdp6NNEd8wsugYyyIYFsi1ylMCED3hZbSR8ZFsa/A4=")
+        .add(HOST_PRODUKSI, "sha256/mEflZT5enoR1FuXLgYYGqnVEoZvmf9c2bVBpiOjYQ0c=")
+        .build()
 
     /**
      * `internal`, bukan `private`: unit test memakai INSTANS INI untuk mengunci perilaku
@@ -209,12 +240,18 @@ object NetworkModule {
                 HttpLoggingInterceptor.Level.NONE
             }
         }
+        // Audit S-2 (2026-08): pada level BODY, interceptor ini mencetak semua
+        // header request apa adanya — termasuk `Authorization: Bearer <JWT>`
+        // yang sah — ke logcat. Redact header-nya supaya log debug tetap
+        // berguna tanpa menyimpan sesi sungguhan di buffer log perangkat.
+        logging.redactHeader("Authorization")
         return OkHttpClient.Builder()
             .dispatcher(sharedDispatcher)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .writeTimeout(20, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
+            .certificatePinner(certificatePinner())
             // SEBELUM logging: interceptor aplikasi berjalan sesuai urutan
             // penambahannya, jadi kalau logging didaftarkan lebih dulu ia mencatat
             // request yang belum bertanda versi dan log debug jadi menyesatkan.
