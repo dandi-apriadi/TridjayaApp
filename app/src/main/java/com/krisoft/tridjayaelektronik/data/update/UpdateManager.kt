@@ -2,7 +2,10 @@ package com.krisoft.tridjayaelektronik.data.update
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import androidx.core.content.FileProvider
 import com.krisoft.tridjayaelektronik.BuildConfig
 import com.krisoft.tridjayaelektronik.data.remote.ApkApi
@@ -12,6 +15,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -167,6 +171,23 @@ class UpdateManager @Inject constructor(
                     IOException("Berkas update rusak dan sudah dihapus. Coba unduh ulang; kalau tetap gagal, minta APK-nya dikirim manual.")
                 )
             }
+            // Audit keamanan 2026-08 temuan 3.5: berkas yang PARSE sebagai APK
+            // belum tentu APK KITA. Tanpa cek ini, apa pun yang sampai ke berkas
+            // itu — server update yang disusupi, MITM pada jaringan yang belum
+            // ter-pin, atau berkas yang ditukar di penyimpanan bersama — akan
+            // diserahkan ke installer sistem dengan satu ketukan "Perbarui".
+            //
+            // Yang dibandingkan sertifikat penanda tangan, BUKAN hash berkas:
+            // hash APK berubah tiap rilis dan tak ada tempat tepercaya untuk
+            // menyimpannya, sedangkan sertifikatnya justru yang harus tetap.
+            // Ketidakcocokan = berkas DIHAPUS, bukan sekadar ditolak — supaya
+            // percobaan berikutnya tidak menemukannya lagi.
+            if (!ditandatanganiKitaSendiri(file)) {
+                file.delete()
+                return@withContext Result.failure(
+                    IOException("Berkas update DITOLAK: tanda tangannya bukan milik aplikasi ini. Berkas sudah dihapus — unduh ulang lewat aplikasi, jangan pasang APK dari sumber lain.")
+                )
+            }
             Result.success(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file))
         } catch (e: Exception) {
             // Sisa unduhan separuh jalan tak boleh ditinggal — percobaan berikutnya
@@ -174,6 +195,59 @@ class UpdateManager @Inject constructor(
             file.delete()
             Result.failure(e)
         }
+    }
+
+    /**
+     * Apakah APK di [file] ditandatangani sertifikat yang SAMA dengan aplikasi
+     * yang sedang berjalan (audit keamanan 2026-08, temuan 3.5).
+     *
+     * Dibandingkan sebagai HIMPUNAN sidik SHA-256 dan cukup BERIRISAN, bukan
+     * sama persis: sejak Android 9 sebuah aplikasi bisa memutar kuncinya, dan
+     * `signingCertificateHistory` memuat kunci lama maupun baru. Menuntut
+     * kesamaan persis akan menolak update yang sah tepat pada rilis rotasi —
+     * kegagalan yang baru ketahuan saat semua orang sudah tak bisa update.
+     *
+     * Gagal baca = `false` (fail-closed). Satu-satunya akibatnya update lewat
+     * app berhenti dan APK bisa dikirim manual; kebalikannya berarti memasang
+     * APK yang tak bisa dibuktikan asalnya.
+     */
+    private fun ditandatanganiKitaSendiri(file: File): Boolean {
+        val pm = context.packageManager
+        val flag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            @Suppress("DEPRECATION")
+            PackageManager.GET_SIGNATURES
+        }
+        return try {
+            val unduhan = pm.getPackageArchiveInfo(file.absolutePath, flag) ?: return false
+            val diri = pm.getPackageInfo(context.packageName, flag)
+            val sidikUnduhan = sidikSertifikat(unduhan)
+            val sidikDiri = sidikSertifikat(diri)
+            sidikUnduhan.isNotEmpty() && sidikDiri.isNotEmpty() && sidikUnduhan.any { it in sidikDiri }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Sidik SHA-256 semua sertifikat penanda tangan di [info]. */
+    private fun sidikSertifikat(info: PackageInfo): Set<String> {
+        val bytes: List<ByteArray> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val signing = info.signingInfo ?: return emptySet()
+            val daftar = if (signing.hasMultipleSigners()) {
+                signing.apkContentsSigners
+            } else {
+                // Riwayat, bukan cuma yang aktif — lihat alasan rotasi kunci di
+                // atas. Pada APK arsip daftar ini berisi penanda tangannya saja.
+                signing.signingCertificateHistory
+            }
+            daftar?.map { it.toByteArray() } ?: return emptySet()
+        } else {
+            @Suppress("DEPRECATION")
+            info.signatures?.map { it.toByteArray() } ?: return emptySet()
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        return bytes.map { digest.digest(it).joinToString("") { b -> "%02x".format(b) } }.toSet()
     }
 
     /** Fires the system package-installer for a previously-downloaded APK ([downloadApk]'s
