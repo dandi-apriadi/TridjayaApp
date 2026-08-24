@@ -92,7 +92,11 @@ import com.krisoft.tridjayaelektronik.ui.session.SessionViewModel
 import com.krisoft.tridjayaelektronik.data.update.UpdateDownloadState
 import com.krisoft.tridjayaelektronik.data.update.UpdateStatus
 import com.krisoft.tridjayaelektronik.ui.settings.SettingsScreen
+import kotlinx.coroutines.delay
+import com.krisoft.tridjayaelektronik.ui.splash.BATAS_TUNGGU_SESI_MS
 import com.krisoft.tridjayaelektronik.ui.splash.SplashScreen
+import com.krisoft.tridjayaelektronik.ui.splash.TujuanSplash
+import com.krisoft.tridjayaelektronik.ui.splash.tujuanSetelahSplash
 import com.krisoft.tridjayaelektronik.ui.update.UpdateDialog
 import com.krisoft.tridjayaelektronik.ui.update.UpdateViewModel
 import com.krisoft.tridjayaelektronik.ui.update.bolehTampilkanPrompt
@@ -221,6 +225,9 @@ private fun TridjayaNavHost(
     // validates/refreshes this in the background and the value here updates live if that fails.
     val isLoggedIn by sessionViewModel.sessionState.collectAsState()
     val mustChangePassword by sessionViewModel.mustChangePassword.collectAsState()
+    // Audit 3.3: `isLoggedIn` masih `false` sampai sesi dibaca dari disk, dan
+    // `false` di jendela itu TIDAK berarti "belum login".
+    val sesiTerbaca by sessionViewModel.sesiTerbaca.collectAsState()
 
     val updateStatus by updateViewModel.status.collectAsState()
     val versiPromptDitutup by updateViewModel.versiPromptDitutup.collectAsState()
@@ -272,6 +279,16 @@ private fun TridjayaNavHost(
             route == ROUTE_CHANGE_PW -> navController.navigate(ROUTE_MAIN) {
                 popUpTo(0) { inclusive = true }; launchSingleTop = true
             }
+            // JARING PENGAMAN audit 3.3: sudah login tapi masih terduduk di layar
+            // Login. Sebelum ini tak ada cabang yang menanganinya, jadi splash
+            // yang memutuskan terlalu cepat (sesi belum terbaca) meninggalkan
+            // orang di Login dengan sesi yang masih sah — dan satu-satunya jalan
+            // keluar adalah mengetik ulang password. Gerbang splash di bawah
+            // mencegahnya terjadi; cabang ini yang memperbaikinya kalau tetap
+            // terjadi lewat jalan lain.
+            route == ROUTE_LOGIN -> navController.navigate(ROUTE_MAIN) {
+                popUpTo(0) { inclusive = true }; launchSingleTop = true
+            }
         }
     }
 
@@ -283,19 +300,35 @@ private fun TridjayaNavHost(
         exitTransition = { fadeOut(tween(400)) }
     ) {
         composable(ROUTE_SPLASH) {
-            SplashScreen(
-                onFinished = {
-                    val dest = when {
-                        !isLoggedIn -> ROUTE_LOGIN
-                        mustChangePassword -> ROUTE_CHANGE_PW
-                        else -> ROUTE_MAIN
-                    }
-                    navController.navigate(dest) {
-                        popUpTo(ROUTE_SPLASH) { inclusive = true }
-                        launchSingleTop = true
-                    }
+            // Animasi splash dan pembacaan sesi berjalan PARALEL; yang
+            // menavigasi adalah yang selesai TERAKHIR. `animasiSelesai`
+            // dipegang di sini (bukan di dalam `SplashScreen`) karena
+            // `onFinished` bisa datang lebih dulu daripada penanda sesi.
+            var animasiSelesai by remember { mutableStateOf(false) }
+            var batasTungguLewat by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                delay(BATAS_TUNGGU_SESI_MS)
+                batasTungguLewat = true
+            }
+            LaunchedEffect(animasiSelesai, sesiTerbaca, batasTungguLewat, isLoggedIn, mustChangePassword) {
+                if (!animasiSelesai) return@LaunchedEffect
+                val tujuan = tujuanSetelahSplash(
+                    sesiTerbaca = sesiTerbaca,
+                    batasTungguLewat = batasTungguLewat,
+                    login = isLoggedIn,
+                    wajibGantiPassword = mustChangePassword,
+                ) ?: return@LaunchedEffect
+                val dest = when (tujuan) {
+                    TujuanSplash.LOGIN -> ROUTE_LOGIN
+                    TujuanSplash.GANTI_PASSWORD -> ROUTE_CHANGE_PW
+                    TujuanSplash.UTAMA -> ROUTE_MAIN
                 }
-            )
+                navController.navigate(dest) {
+                    popUpTo(ROUTE_SPLASH) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }
+            SplashScreen(onFinished = { animasiSelesai = true })
         }
         composable(ROUTE_LOGIN) {
             LoginScreen(

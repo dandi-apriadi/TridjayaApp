@@ -57,6 +57,23 @@ class TokenStore(private val context: Context) {
     private val _mustChangePassword = MutableStateFlow(false)
     val mustChangePasswordState: StateFlow<Boolean> = _mustChangePassword.asStateFlow()
 
+    /**
+     * `true` begitu sesi selesai dibaca dari disk (termasuk migrasi legacy) —
+     * penanda bahwa [sessionState] SUDAH BOLEH DIPERCAYA (audit keamanan
+     * 2026-08 temuan 3.3).
+     *
+     * KENAPA PERLU PENANDA TERPISAH. `_sessionState` lahir `false`, dan `false`
+     * di situ punya DUA arti yang tak bisa dibedakan pemanggil: "tidak ada
+     * sesi" dan "belum dibaca". Splash yang memutuskan login-vs-main pada saat
+     * yang kedua mengirim orang yang SUDAH login ke layar Login — lalu
+     * `LaunchedEffect` gate tidak menariknya kembali (cabangnya cuma menangani
+     * kasus logout), jadi ia terjebak mengetik ulang password padahal sesinya
+     * masih sah. Balapannya nyata: `warmUp()` jalan di `Dispatchers.IO` tanpa
+     * koordinasi apa pun dengan komposisi pertama.
+     */
+    private val _sesiTerbaca = MutableStateFlow(false)
+    val sesiTerbaca: StateFlow<Boolean> = _sesiTerbaca.asStateFlow()
+
     init {
         // Keep the mirror + flows live with any external write. Does NOT flip `loaded`:
         // the one-time migration in load() must run before we trust the store to be seeded.
@@ -257,6 +274,10 @@ class TokenStore(private val context: Context) {
             loaded = true
             _sessionState.value = false
             _mustChangePassword.value = false
+            // Logout adalah jawaban PASTI atas "apa sesinya?", jadi penandanya
+            // ikut naik: splash sesudah logout tak boleh menunggu load yang
+            // tak akan pernah datang.
+            _sesiTerbaca.value = true
             baru
         }
         // Yang disimpan adalah `cache`, BUKAN `PersistedSession()` konstan —
@@ -315,6 +336,9 @@ class TokenStore(private val context: Context) {
         loaded = true
         _sessionState.value = updated.accessToken.isNotBlank()
         _mustChangePassword.value = updated.accessToken.isNotBlank() && updated.mustChangePassword
+        // Alasan sama dengan di `clear`: penulisan sesi (mis. login berhasil)
+        // adalah jawaban pasti, bukan keadaan "belum tahu".
+        _sesiTerbaca.value = true
         // Persist the latest mirror. DUA mekanisme yang berbeda, jangan dibaca
         // sebagai satu:
         //  - menulis `cache` (bukan potret yang ditangkap saat menjadwalkan)
@@ -374,6 +398,10 @@ class TokenStore(private val context: Context) {
         loaded = true
         _sessionState.value = cache.accessToken.isNotBlank()
         _mustChangePassword.value = cache.accessToken.isNotBlank() && cache.mustChangePassword
+        // TERAKHIR, sesudah kedua flag di atas terisi: penanda ini berjanji
+        // "nilainya sudah benar", jadi menaikkannya lebih dulu mengembalikan
+        // balapan yang sama dalam bentuk lain.
+        _sesiTerbaca.value = true
     }
 
     /** One-time move of the legacy EncryptedSharedPreferences session into the DataStore. */

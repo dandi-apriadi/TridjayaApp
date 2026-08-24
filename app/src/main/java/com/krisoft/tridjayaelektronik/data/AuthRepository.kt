@@ -260,6 +260,9 @@ class AuthRepository @Inject constructor(
     /** Reactive login state — flips to false on logout or when a background refresh fails. */
     val sessionState: StateFlow<Boolean> get() = tokenStore.sessionState
 
+    /** Penanda "sesi sudah dibaca dari disk" — lihat [TokenStore.sesiTerbaca]. */
+    val sesiTerbaca: StateFlow<Boolean> get() = tokenStore.sesiTerbaca
+
     /** Reactive "server requires a password change" flag — drives the forced change-password gate. */
     val mustChangePasswordState: StateFlow<Boolean> get() = tokenStore.mustChangePasswordState
 

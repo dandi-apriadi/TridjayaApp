@@ -30,6 +30,15 @@ class SessionViewModel @Inject constructor(
 
     val sessionState: StateFlow<Boolean> = observeSessionStateUseCase()
 
+    /**
+     * `true` begitu sesi selesai dibaca dari disk. Splash MENAHAN keputusan
+     * login-vs-main sampai penanda ini naik (audit 3.3) — `sessionState` yang
+     * masih `false` karena belum dibaca tak bisa dibedakan dari "tidak ada
+     * sesi", dan memutuskan di jendela itu mengirim orang yang sudah login ke
+     * layar Login.
+     */
+    val sesiTerbaca: StateFlow<Boolean> = authRepository.sesiTerbaca
+
     /** When true (and logged in), the app must show the forced change-password gate. */
     val mustChangePassword: StateFlow<Boolean> = observeMustChangePasswordUseCase()
 
