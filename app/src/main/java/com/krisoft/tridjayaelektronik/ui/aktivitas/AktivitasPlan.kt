@@ -160,3 +160,57 @@ internal fun rowStatus(item: AktivitasItemDto?): AktivitasRowStatus = when {
  */
 internal fun submittedByIndex(items: List<AktivitasItemDto>): Map<Int, AktivitasItemDto> =
     items.associateBy { it.jobdeskIndex }
+
+/**
+ * Baris terkirim yang BOLEH ditempelkan ke daftar aktivitas [aktivitas] yang
+ * sedang dirender.
+ *
+ * **Kenapa index saja TIDAK cukup — dan ini bug yang muncul begitu jabatan
+ * seseorang diganti.** Raport disimpan server ber-`jobdeskIndex`, yaitu posisi
+ * di dalam daftar aktivitas DIVISI SAAT ITU. Kalau orangnya dipindah jabatan,
+ * daftar yang dirender berganti tapi baris lamanya tetap ada untuk tanggal yang
+ * sama — dan `jobdeskIndex = 3` milik divisi LAMA lalu menempel ke aktivitas
+ * ke-3 divisi BARU, yaitu pekerjaan yang sama sekali berbeda.
+ *
+ * Akibatnya bukan sekadar tampilan salah: barisnya terbaca "sudah dikirim"
+ * (bahkan "disetujui"), jadi orangnya TIDAK mengisinya — lalu dinilai kurang
+ * atas pekerjaan yang memang tak pernah ia laporkan. Persis kelas kekeliruan
+ * yang sudah tercatat di [pilihAktivitasUntukInput] ("Ia mengisi yang salah,
+ * lalu dinilai kurang"), cuma lewat pintu lain.
+ *
+ * **Penjaganya TEKS aktivitas, bukan nama divisi.** `jobdeskText` adalah
+ * satu-satunya kolom yang benar-benar menyebut PEKERJAAN apa yang dilaporkan;
+ * `divisiName` menyebut divisi saat pengiriman, yang bisa berbeda ejaan dari
+ * nama posisi di master tanpa berarti barisnya milik orang lain.
+ *
+ * **Arah amannya MEMBUANG, bukan meloloskan.** Kalau teksnya tak cocok, baris
+ * itu dianggap bukan milik aktivitas ini dan barisnya tampil BELUM — orangnya
+ * mengisi ulang, dan server upsert sehingga pengisian ulang aman. Kebalikannya
+ * (meloloskan yang meragukan) menghasilkan pekerjaan yang tak pernah dikerjakan
+ * tapi terlihat selesai, dan itu tak bisa diperbaiki siapa pun karena tak ada
+ * yang tahu ia salah.
+ */
+internal fun terkirimUntukAktivitas(
+    items: List<AktivitasItemDto>,
+    aktivitas: List<String>,
+): Map<Int, AktivitasItemDto> =
+    submittedByIndex(items).filter { (index, item) ->
+        val teksBaris = aktivitas.getOrNull(index) ?: return@filter false
+        samaTeksAktivitas(teksBaris, item.jobdeskText)
+    }
+
+/**
+ * Pembanding teks aktivitas: spasi berlebih diciutkan dan besar-kecil huruf
+ * diabaikan.
+ *
+ * Longgar HANYA pada hal kosmetik, dan itu disengaja. Master aktivitas diketik
+ * admin lewat `app_settings`, jadi perbedaan spasi ganda atau kapitalisasi
+ * adalah kejadian sehari-hari yang TIDAK berarti aktivitasnya berganti —
+ * menolaknya akan membuat baris yang sah tampil BELUM tiap kali ada yang
+ * merapikan ketikan. Perbedaan kata tetap dianggap aktivitas yang berbeda.
+ */
+private fun samaTeksAktivitas(a: String, b: String): Boolean =
+    ciutkanSpasi(a).equals(ciutkanSpasi(b), ignoreCase = true)
+
+private fun ciutkanSpasi(teks: String): String =
+    teks.trim().split(Regex("""\s+""")).joinToString(" ")

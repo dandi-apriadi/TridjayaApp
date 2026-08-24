@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.krisoft.tridjayaelektronik.data.AuthRepository
 import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.AktivitasRepository
+import com.krisoft.tridjayaelektronik.data.model.UserDto
 import com.krisoft.tridjayaelektronik.data.model.AktivitasItemDto
 import com.krisoft.tridjayaelektronik.data.model.AktivitasPositionDto
 import com.krisoft.tridjayaelektronik.domain.sales.KlasemenStandings
@@ -145,7 +146,6 @@ class AktivitasViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             val user = authRepository.cachedUser
-            val divisi = user?.divisi.orEmpty()
             val today = KlasemenStandings.todayIso()
 
             // TIGA panggilan tak saling bergantung — jalankan bareng.
@@ -157,14 +157,33 @@ class AktivitasViewModel @Inject constructor(
             val positionsResult: AuthResult<List<AktivitasPositionDto>>
             val todayResult: AuthResult<List<AktivitasItemDto>>
             val penempatan: PenempatanSaya
+            val profilResult: AuthResult<UserDto>
             coroutineScope {
                 val positions = async { repository.aktivitasPositions() }
                 val terkirim = async { repository.raportOfDay(today, user?.id) }
                 val tempat = async { repository.penempatanSaya() }
+                // Profil SEGAR dari server, bukan `cachedUser`.
+                //
+                // `divisi` adalah jalur CADANGAN daftar aktivitas (dipakai orang
+                // yang belum punya baris `kpi_assignments`), dan cache-nya cuma
+                // ikut segar saat rotasi token — ~15 menit sekali, atau tak
+                // sama sekali kalau app dibuka lalu ditutup di antaranya. Jadi
+                // jabatan yang baru diganti admin bisa belum sampai ke layar
+                // ini, dan orangnya mengisi daftar aktivitas jabatan LAMA.
+                //
+                // Ikut fan-out, bukan berurutan: ia menentukan daftar yang
+                // dirender, jadi memanggilnya belakangan menambah satu
+                // round-trip di jalur yang dibuka tiap pagi.
+                val profil = async { authRepository.profile() }
                 positionsResult = positions.await()
                 todayResult = terkirim.await()
                 penempatan = tempat.await()
+                profilResult = profil.await()
             }
+            // FAIL-SOFT ke cache: profil yang sekejap gagal diambil tak boleh
+            // mengosongkan daftar aktivitas orang yang sedang mengisinya.
+            val divisi = (profilResult as? AuthResult.Success)?.data?.divisi
+                ?: user?.divisi.orEmpty()
 
             when (positionsResult) {
                 is AuthResult.Failure -> {
@@ -195,8 +214,14 @@ class AktivitasViewModel @Inject constructor(
                             aktivitas = posisi?.jobdesks.orEmpty(),
                             // Gagal memuat yang sudah terkirim TIDAK mengunci layar:
                             // user tetap boleh mengirim (server upsert, aman diulang).
+                            // Disaring terhadap daftar yang SEDANG dirender:
+                            // baris raport milik jabatan lama ber-index sama
+                            // akan menempel ke aktivitas yang berbeda kalau
+                            // dipetakan lewat index saja. Lihat
+                            // [terkirimUntukAktivitas].
                             submitted = (todayResult as? AuthResult.Success)
-                                ?.let { r -> submittedByIndex(r.data) }.orEmpty(),
+                                ?.let { r -> terkirimUntukAktivitas(r.data, posisi?.jobdesks.orEmpty()) }
+                                .orEmpty(),
                         )
                     }
                 }
@@ -513,8 +538,12 @@ class AktivitasViewModel @Inject constructor(
                         kirim = null,
                         message = null,
                         pilihan = state.pilihan - index,
+                        // Penjaga yang sama dengan `refresh()`: dipetakan
+                        // terhadap daftar yang SEDANG dirender, bukan lewat
+                        // index saja.
                         submitted = (terkirim as? AuthResult.Success)
-                            ?.let { submittedByIndex(it.data) } ?: state.submitted,
+                            ?.let { terkirimUntukAktivitas(it.data, state.aktivitas) }
+                            ?: state.submitted,
                     )
                 }
             }

@@ -4,6 +4,7 @@ import com.krisoft.tridjayaelektronik.data.model.AktivitasPositionDto
 import com.krisoft.tridjayaelektronik.data.model.AktivitasItemDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -61,6 +62,89 @@ class AktivitasPlanTest {
         assertNull(peta[1])
         assertEquals("2", peta[2]?.id)
     }
+
+    // ── Baris terkirim vs jabatan yang berganti ─────────────────────────────
+
+    private fun kirim(index: Int, teks: String) =
+        AktivitasItemDto(jobdeskIndex = index, jobdeskText = teks)
+
+    @Test
+    fun `baris yang teksnya cocok tetap menempel`() {
+        val aktivitas = listOf("Sapu gudang", "Cek stok")
+        val hasil = terkirimUntukAktivitas(listOf(kirim(0, "Sapu gudang"), kirim(1, "Cek stok")), aktivitas)
+        assertEquals(setOf(0, 1), hasil.keys)
+    }
+
+    /**
+     * INTI perbaikan ini. Orang dipindah jabatan; raport hari itu masih memuat
+     * baris divisi LAMA. Dipetakan lewat index saja, `jobdeskIndex = 1` menempel
+     * ke aktivitas ke-1 divisi BARU — pekerjaan yang sama sekali berbeda — dan
+     * barisnya terbaca "sudah dikirim". Orangnya lalu TIDAK mengisinya, dan
+     * dinilai kurang atas pekerjaan yang tak pernah ia laporkan.
+     */
+    @Test
+    fun `baris jabatan lama tidak menempel ke aktivitas jabatan baru`() {
+        val aktivitasBaru = listOf("Antar unit", "Isi bensin")
+        val raportLama = listOf(kirim(0, "Sapu gudang"), kirim(1, "Cek stok"))
+        assertTrue(terkirimUntukAktivitas(raportLama, aktivitasBaru).isEmpty())
+    }
+
+    /** Sebagian cocok: yang cocok menempel, yang tidak dibuang. */
+    @Test
+    fun `hanya baris yang benar-benar cocok yang lolos`() {
+        val aktivitas = listOf("Antar unit", "Isi bensin")
+        val raport = listOf(kirim(0, "Antar unit"), kirim(1, "Cek stok"))
+        val hasil = terkirimUntukAktivitas(raport, aktivitas)
+        assertEquals(setOf(0), hasil.keys)
+    }
+
+    /** Index di luar daftar sekarang tak punya baris untuk ditempeli. */
+    @Test
+    fun `index di luar daftar dibuang`() {
+        val hasil = terkirimUntukAktivitas(listOf(kirim(5, "Apa saja")), listOf("Antar unit"))
+        assertTrue(hasil.isEmpty())
+    }
+
+    /**
+     * Longgar HANYA pada hal kosmetik: master aktivitas diketik admin, jadi
+     * spasi ganda dan kapitalisasi berubah adalah kejadian sehari-hari yang
+     * TIDAK berarti aktivitasnya berganti. Menolaknya membuat baris sah tampil
+     * BELUM tiap kali ada yang merapikan ketikan.
+     */
+    @Test
+    fun `beda spasi dan kapitalisasi tetap dianggap sama`() {
+        val aktivitas = listOf("Cek  Stok   Gudang")
+        val hasil = terkirimUntukAktivitas(listOf(kirim(0, "  cek stok gudang ")), aktivitas)
+        assertEquals(setOf(0), hasil.keys)
+    }
+
+    /** Beda KATA tetap aktivitas yang berbeda — kelonggarannya berhenti di spasi. */
+    @Test
+    fun `beda kata tetap dianggap aktivitas berbeda`() {
+        val hasil = terkirimUntukAktivitas(listOf(kirim(0, "Cek stok gudang")), listOf("Cek stok toko"))
+        assertTrue(hasil.isEmpty())
+    }
+
+    /**
+     * Daftar aktivitas kosong (penempatan tanpa divisi aktivitas) tak boleh
+     * menempelkan apa pun — layar memang sedang tak punya baris.
+     */
+    @Test
+    fun `daftar aktivitas kosong tak menempelkan apa pun`() {
+        assertTrue(terkirimUntukAktivitas(listOf(kirim(0, "Apa saja")), emptyList()).isEmpty())
+    }
+
+    /**
+     * Arah amannya MEMBUANG: teks kosong dari server lama tak boleh dianggap
+     * cocok dengan aktivitas mana pun. Orangnya mengisi ulang (server upsert,
+     * aman), alih-alih melihat pekerjaan yang tak pernah dilaporkan sebagai
+     * selesai.
+     */
+    @Test
+    fun `teks kosong tidak dianggap cocok`() {
+        assertTrue(terkirimUntukAktivitas(listOf(kirim(0, "")), listOf("Antar unit")).isEmpty())
+    }
+
 }
 
 /**
