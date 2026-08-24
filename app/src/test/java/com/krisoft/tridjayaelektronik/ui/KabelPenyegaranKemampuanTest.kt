@@ -58,6 +58,7 @@ class KabelPenyegaranKemampuanTest {
 
     private val activityViewModel by lazy { sumber("ui/activity/ActivityViewModel.kt") }
     private val homeViewModel by lazy { sumber("ui/home/HomeViewModel.kt") }
+    private val eksekutifViewModel by lazy { sumber("ui/eksekutif/EksekutifViewModel.kt") }
 
     // ── ActivityViewModel ────────────────────────────────────────────────────
 
@@ -254,6 +255,51 @@ class KabelPenyegaranKemampuanTest {
             "regex ber-\\s* wajib memaafkan ganti baris — kalau tidak, pemformatan ulang " +
                 "yang tak mengubah arti akan memerahkan build",
             Regex("""\bsegarkanKemampuan\s*\(""").containsMatchIn(terformat),
+        )
+    }
+
+    // ── EksekutifViewModel ───────────────────────────────────────────────────
+
+    /**
+     * **Bentuknya SENGAJA berbeda dari dua VM di atas, jangan diseragamkan.**
+     *
+     * `ActivityViewModel`/`HomeViewModel` memakai petanya untuk gerbang di
+     * layarnya sendiri, jadi keduanya WAJIB memasang `capabilities = peta` lalu
+     * `load()` ulang. `EksekutifViewModel` tidak: gerbang tab Eksekutif dinilai
+     * `MainActivity` dari cermin `AuthRepository.petaKemampuanTerakhir`, dan
+     * layarnya sendiri tak punya satu pun item ber-gate.
+     *
+     * Yang dijaga di sini karena itu cuma dua: penyegarnya DIPANGGIL, dan
+     * pemicunya sidik akses. Menuntut `capabilities = ...` di sini akan memaksa
+     * menambah field yang tak pernah dibaca — permukaan tanpa manfaat.
+     */
+    @Test
+    fun `EksekutifViewModel menyegarkan kemampuan di dalam muat()`() {
+        val badan = badanFungsi(eksekutifViewModel, "muat", "EksekutifViewModel.kt")
+
+        wajibMemanggil(
+            badan = badan,
+            nama = "segarkanKemampuan",
+            di = "EksekutifViewModel.muat()",
+            kenapa = "superadmin MENDARAT di tab ini dan bisa tak pernah membuka " +
+                "Activity/Operasional lagi; tanpa panggilan ini cermin peta kemampuan " +
+                "beku seumur proses, sehingga akses yang DICABUT tetap menampilkan " +
+                "tab-nya (lalu dijawab 403) dan akses BARU tak pernah terbaca",
+        )
+    }
+
+    @Test
+    fun `segarkanKemampuan EksekutifViewModel memakai penyegar dan sidik akses`() {
+        val badan = badanFungsi(eksekutifViewModel, "segarkanKemampuan", "EksekutifViewModel.kt")
+
+        wajibMemanggil(badan, "sidikAkses", "EksekutifViewModel.segarkanKemampuan()", PEMICU)
+        wajibCocok(
+            badan = badan,
+            pola = Regex("""penyegarKemampuan\s*\.\s*segarkan\s*\("""),
+            di = "EksekutifViewModel.segarkanKemampuan()",
+            kenapa = "penjaga badai-request DAN penjaga peta-kosong dua-duanya hidup di " +
+                "PenyegarKemampuan; memanggil authRepository.capabilities() langsung " +
+                "melewati keduanya",
         )
     }
 

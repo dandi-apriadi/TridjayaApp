@@ -93,12 +93,43 @@ internal fun statusSetelahCek(sebelum: UpdateStatus, hasil: UpdateStatus): Updat
  * versi 85 yang terbit sesudahnya dalam sesi yang sama — dan sesi di sini berarti seumur Activity,
  * bukan sekejap.
  *
- * Pembaruan WAJIB tak pernah bisa ditutup: `UpdateDialog` memang tak memberi tombol "Nanti" saat
- * `force`, tapi aturannya ditegakkan di sini juga supaya penanda basi dari prompt opsional
- * sebelumnya tak bisa menyembunyikannya.
+ * Pembaruan WAJIB dulu selalu tampil begitu terdeteksi — mengunci seluruh app sejak unduhan
+ * dimulai. Sekarang [unduhanSiapDilihat] menahannya sampai unduhan diam-diam di latar selesai
+ * (`ReadyToInstall`) atau gagal (`Failed`): karyawan tetap memakai app selagi unduhan berjalan,
+ * dan dialog blokir baru muncul saat memang ada yang perlu ditekan penggunanya. Tetap tak pernah
+ * bisa DITUTUP — `UpdateDialog` tak memberi tombol "Nanti" saat `force`, dan aturan itu ditegakkan
+ * di sini juga supaya penanda basi dari prompt opsional sebelumnya tak bisa menyembunyikannya.
  */
-internal fun bolehTampilkanPrompt(available: UpdateStatus.Available, versiDitutup: Long?): Boolean =
-    available.force || versiDitutup == null || available.latestVersionCode > versiDitutup
+internal fun bolehTampilkanPrompt(
+    available: UpdateStatus.Available,
+    versiDitutup: Long?,
+    /**
+     * Versi yang promptnya ditunda SEMENTARA (Back / ketuk di luar dialog).
+     * Dibersihkan tiap pemeriksaan yang selesai, jadi paling lama satu jeda
+     * [JEDA_CEK_SUKSES_MS] — bukan seumur Activity seperti [versiDitutup].
+     *
+     * Dipisah dari [versiDitutup] karena keduanya menyatakan niat yang berbeda:
+     * menekan "Nanti" adalah keputusan, sedangkan ketukan meleset di luar kotak
+     * dialog bukan. Sebelum pemisahan ini keduanya mengunci sama kerasnya, dan
+     * satu ketukan tak sengaja bisa menyembunyikan pembaruan berhari-hari.
+     */
+    versiDitundaSementara: Long? = null,
+    /**
+     * Hanya relevan untuk `force`: apakah unduhan latar sudah `ReadyToInstall`/`Failed` (siap
+     * ditampilkan) — bukan lagi `Idle`/`Downloading`. Default `true` supaya pemanggil pembaruan
+     * OPSIONAL (yang tak pernah mengunduh diam-diam; unduhannya baru mulai setelah "Perbarui
+     * Sekarang" ditekan) dan test lama tetap berlaku tanpa perlu mengoper argumen ini.
+     *
+     * `Boolean`, bukan `UpdateDownloadState` — pola yang sama dengan `sedangMengunduh` di
+     * [unduhanBasi]: varian `ReadyToInstall` membawa `android.net.Uri`, yang melempar
+     * `RuntimeException("Stub!")` di unit test JVM repo ini.
+     */
+    unduhanSiapDilihat: Boolean = true,
+): Boolean {
+    if (available.force) return unduhanSiapDilihat
+    if (versiDitundaSementara == available.latestVersionCode) return false
+    return versiDitutup == null || available.latestVersionCode > versiDitutup
+}
 
 /**
  * Apakah berkas/keadaan unduhan yang tersimpan sudah menunjuk versi yang salah.

@@ -295,6 +295,29 @@ private fun OpnameSessionRow(session: OpnameSessionDto, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            // Jendela waktu ikut di kartu, bukan cuma di layar detail: petugas
+            // memilih sesi mana yang dibuka DARI SINI, dan sesi yang jendelanya
+            // belum buka menolak SETIAP scan (`jendela_belum_mulai`).
+            //
+            // Barisnya TERPISAH, bukan disambung ke baris kode di atas: baris
+            // itu `maxLines = 1`, jadi jendela yang ditempel di ekornya justru
+            // bagian pertama yang dipotong ellipsis di layar sempit.
+            //
+            // `labelJendela` menjawab null untuk sesi TANPA jendela, dan itu
+            // berarti "boleh kapan saja" — bukan "sudah lewat tenggat". Seluruh
+            // sesi pra-migrasi 196 begitu, jadi barisnya memang tak dirender
+            // sama sekali; jangan diganti teks pengganti macam "tanpa jendela".
+            labelJendela(session.mulaiAt, session.selesaiAt)?.let { jendela ->
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Jendela $jendela",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Spacer(modifier = Modifier.height(10.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             Spacer(modifier = Modifier.height(8.dp))

@@ -30,12 +30,36 @@ class SessionViewModel @Inject constructor(
 
     val sessionState: StateFlow<Boolean> = observeSessionStateUseCase()
 
+    /**
+     * `true` begitu sesi selesai dibaca dari disk. Splash MENAHAN keputusan
+     * login-vs-main sampai penanda ini naik (audit 3.3) — `sessionState` yang
+     * masih `false` karena belum dibaca tak bisa dibedakan dari "tidak ada
+     * sesi", dan memutuskan di jendela itu mengirim orang yang sudah login ke
+     * layar Login.
+     */
+    val sesiTerbaca: StateFlow<Boolean> = authRepository.sesiTerbaca
+
     /** When true (and logged in), the app must show the forced change-password gate. */
     val mustChangePassword: StateFlow<Boolean> = observeMustChangePasswordUseCase()
 
     /** Profil dari cache sesi (sinkron, tanpa network) — dipakai `MainScreen` memilih tab
      *  awal (Activity vs Operasional) dari role efektif saat komposisi pertama. */
     val cachedUser get() = authRepository.cachedUser
+
+    /**
+     * Peta kemampuan untuk gerbang TAB (`AppDestination.visibleBottomNavItems`).
+     *
+     * Sengaja hanya MENERUSKAN cermin milik [AuthRepository] — ViewModel ini
+     * di-scope ke root `TridjayaNavHost` dan hidup seumur proses, jadi kalau ia
+     * mengambil sendiri, petanya beku sampai app dimatikan. Yang mengisi cermin
+     * itu `ActivityViewModel`/`HomeViewModel` lewat `PenyegarKemampuan`, yang
+     * memang mengambil ulang tiap sidik akses atau identitas token berubah.
+     *
+     * `null` = belum pernah berhasil diambil. Di keadaan itu gerbangnya jatuh ke
+     * daftar role lokal (cadangan offline), BUKAN fail-closed — lihat
+     * `AuthRepository.petaKemampuanTerakhir`.
+     */
+    val petaKemampuan: StateFlow<Map<String, Boolean>?> = authRepository.petaKemampuanTerakhir
 
     init {
         if (sessionState.value) {

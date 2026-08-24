@@ -16,6 +16,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.krisoft.tridjayaelektronik.ui.acinstall.AcInstallScreen
 import com.krisoft.tridjayaelektronik.ui.attendance.AttendanceScreen
 import com.krisoft.tridjayaelektronik.ui.deadstock.DeadstockScreen
 import com.krisoft.tridjayaelektronik.ui.event.EventLeadScreen
@@ -24,6 +25,7 @@ import com.krisoft.tridjayaelektronik.ui.opname.OpnameListScreen
 import com.krisoft.tridjayaelektronik.ui.opname.OpnameValidasiScreen
 import com.krisoft.tridjayaelektronik.ui.sales.SalesScreen
 import com.krisoft.tridjayaelektronik.data.model.DeliveryStatusKey
+import com.krisoft.tridjayaelektronik.data.model.KontrolSaringan
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.AkiListScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.CreateSpkScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.DiscountApprovalScreen
@@ -45,6 +47,7 @@ import com.krisoft.tridjayaelektronik.ui.homeservice.HomeServiceLaporScreen
 import com.krisoft.tridjayaelektronik.ui.homeservice.HomeServiceListScreen
 import com.krisoft.tridjayaelektronik.ui.homeservice.HsMode
 import com.krisoft.tridjayaelektronik.ui.aktivitas.AktivitasReviewScreen
+import com.krisoft.tridjayaelektronik.ui.aktivitas.AktivitasRiwayatScreen
 import com.krisoft.tridjayaelektronik.ui.aktivitas.AktivitasScreen
 import com.krisoft.tridjayaelektronik.ui.serials.SerialInputScreen
 // Berikut masih tinggal di package ui.home (hanya HomeNavHost yang pindah ke
@@ -72,6 +75,16 @@ const val ROUTE_OPNAME_VALIDASI = "home_opname_validasi"
 private const val ROUTE_ABSEN = "home_absen"
 private const val ROUTE_AKTIVITAS = "home_aktivitas"
 private const val ROUTE_AKTIVITAS_REVIEW = "home_aktivitas_review"
+
+/**
+ * Riwayat aktivitas milik sendiri. SENGAJA tak punya entri di
+ * [routeForNavKey] maupun di registri kartu: ia sub-layar dari
+ * [ROUTE_AKTIVITAS], dibuka dari tombol di dalamnya — persis seperti web, yang
+ * menaruh `karyawan/raport/history` sebagai sub-route tanpa menu sendiri.
+ * Menambahkannya ke `routeForNavKey` berarti membuka pintu deep-link notifikasi
+ * ke layar yang tak pernah jadi sasaran notifikasi apa pun.
+ */
+private const val ROUTE_AKTIVITAS_RIWAYAT = "home_aktivitas_riwayat"
 // Komplain (Home Service). Empat daftar berbagi SATU layar (`HsMode`), tapi
 // route-nya tetap terpisah supaya deep-link notif bisa menunjuk antrian yang
 // tepat dan tombol back tiap peran tak saling menimpa.
@@ -81,6 +94,10 @@ private const val ROUTE_HS_TEKNISI = "home_hs_teknisi"
 private const val ROUTE_HS_TARIK = "home_hs_tarik"
 private const val ROUTE_HS_DRIVER = "home_hs_driver"
 private const val ROUTE_HS_DETAIL = "home_hs_detail/{id}"
+
+/** Tugas pemasangan AC (sisi petugas). Prefiks `home_` mengikuti seluruh route
+ *  anak tabel ini — lihat catatan penamaan di CLAUDE.md. */
+private const val ROUTE_PEMASANGAN_AC = "home_pemasangan_ac"
 
 private fun hsDetailRoute(id: String) = "home_hs_detail/${Uri.encode(id)}"
 private const val ROUTE_GAJI = "home_gaji"
@@ -187,6 +204,7 @@ internal fun routeForNavKey(navKey: String): String? = when (navKey) {
     "hs_teknisi" -> ROUTE_HS_TEKNISI
     "hs_tarik" -> ROUTE_HS_TARIK
     "hs_driver" -> ROUTE_HS_DRIVER
+    "pemasangan_ac" -> ROUTE_PEMASANGAN_AC
     // Bukti chat harian: layar karyawan (kirim) vs antrian kepala cabang (periksa).
     "indent" -> ROUTE_INDENT
     // Daftar sesi opname cabang (petugas yang ikut menghitung). Route-nya SUDAH
@@ -376,7 +394,15 @@ fun ActivityNavHost(
             AttendanceScreen(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_AKTIVITAS) {
-            AktivitasScreen(onBack = { navController.popBackStack() })
+            AktivitasScreen(
+                onBack = { navController.popBackStack() },
+                onLihatRiwayat = {
+                    navController.navigate(ROUTE_AKTIVITAS_RIWAYAT) { launchSingleTop = true }
+                },
+            )
+        }
+        composable(ROUTE_AKTIVITAS_RIWAYAT) {
+            AktivitasRiwayatScreen(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_AKTIVITAS_REVIEW) {
             AktivitasReviewScreen(onBack = { navController.popBackStack() })
@@ -404,6 +430,9 @@ fun ActivityNavHost(
                     },
                 )
             }
+        }
+        composable(ROUTE_PEMASANGAN_AC) {
+            AcInstallScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = ROUTE_HS_DETAIL,
@@ -488,7 +517,11 @@ fun ActivityNavHost(
             )
         }
         composable(ROUTE_DLV_PDI) {
+            // Cabang BOLEH di sini: rantai peran PDI non-history sengaja tidak
+            // mengisi `filter.kode_dealer`, jadi penjaga `is_none()` di server
+            // memakai pilihan klien apa adanya — murni menyempitkan.
             DeliveryQueueScreen("Antri PDI", DeliveryStatusKey.PENDING_PDI, onBack = { navController.popBackStack() },
+                kontrolSaringan = KontrolSaringan(cari = true, cabang = true, urut = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }
         composable(ROUTE_DLV_AKI) {
@@ -505,20 +538,37 @@ fun ActivityNavHost(
             )
         }
         composable(ROUTE_DLV_KASIR) {
+            // SENGAJA TANPA `cabang`. Rantai kasir mengisi `filter.cabang_bayar`,
+            // BUKAN `kode_dealer`, jadi penjaga `is_none()` di server tidak
+            // menahan pilihan klien dan kedua klausa di-AND di SQL — memilih
+            // cabang lain menghasilkan daftar KOSONG tanpa error, yang terbaca
+            // sebagai "SPK saya hilang".
             DeliveryQueueScreen("Antri Kasir", DeliveryStatusKey.PENDING_SPK, onBack = { navController.popBackStack() },
+                kontrolSaringan = KontrolSaringan(cari = true, urut = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }
         composable(ROUTE_DLV_NOTE) {
             DeliveryQueueScreen("Surat Jalan", DeliveryStatusKey.PENDING_DELIVERY_NOTE, onBack = { navController.popBackStack() },
+                kontrolSaringan = KontrolSaringan(cari = true, cabang = true, urut = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }
         composable(ROUTE_DLV_SCHEDULE) {
+            // `metode` HANYA di sini — server membacanya cuma di tahap ini, dan
+            // artinya MEMBALIK default (kosong = buang self_pickup +
+            // sales_delivery). Chip-nya melebarkan daftar, bukan menyempitkan.
             DeliveryQueueScreen("Penjadwalan", DeliveryStatusKey.PENDING_SCHEDULING, onBack = { navController.popBackStack() },
+                kontrolSaringan = KontrolSaringan(cari = true, cabang = true, urut = true, metode = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }
         composable(ROUTE_DLV_DRIVER) {
             // Driver: backend meng-scope antrian (assigned + in_transit) berdasarkan role, tanpa filter status.
+            // HANYA `cari`. JANGAN beri `urut`: layar ini punya pengurutan
+            // manifest manual (`moveLoadSpk` → POST /delivery/driver/reorder),
+            // dan urutan muatan ITULAH arti daftarnya — `urut=terlama` akan
+            // menabraknya. Pemilih cabang pun tak berguna: muatan satu driver
+            // hampir selalu satu cabang.
             DeliveryQueueScreen("Tugas Antar", status = null, reorderable = true, asDriver = true, onBack = { navController.popBackStack() },
+                kontrolSaringan = KontrolSaringan(cari = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }
         composable(ROUTE_DLV_PENDING_PAYMENT) {
@@ -526,13 +576,19 @@ fun ActivityNavHost(
             // "gantung 24 jam" dihitung di kartu Activity, bukan di sini — kasir
             // tetap perlu bisa menutup yang baru sebelum jatuh tempo.
             DeliveryQueueScreen("Konfirmasi Pembayaran", status = null, view = "pending_payment", onBack = { navController.popBackStack() },
+                kontrolSaringan = KontrolSaringan(cari = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }
         composable(ROUTE_DLV_HISTORY) {
             // SATU-SATUNYA pemakai `periodeFilter`: riwayat itu arsip, jadi
             // menyaringnya per periode aman. Enam layar lain di berkas ini
             // adalah antrian kerja — lihat KDoc `periodeFilter`.
+            // TANPA `cabang`: di jalur history rantai peran SUDAH mengisi
+            // `kode_dealer`, jadi penjaga `is_none()` membuat pilihan klien
+            // diabaikan diam-diam — kontrolnya jadi tombol mati rasa. Kontrol
+            // yang berbohong lebih merusak daripada kontrol yang tidak ada.
             DeliveryQueueScreen("Riwayat SPK", status = null, view = "history", periodeFilter = true,
+                kontrolSaringan = KontrolSaringan(cari = true),
                 onBack = { navController.popBackStack() },
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }

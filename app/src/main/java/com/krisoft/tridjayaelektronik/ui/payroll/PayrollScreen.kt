@@ -1,6 +1,11 @@
 package com.krisoft.tridjayaelektronik.ui.payroll
 
+import android.content.Intent
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Payments
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -53,6 +59,30 @@ import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveErrorState
 import com.krisoft.tridjayaelektronik.ui.theme.SkeletonCard
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 
+/**
+ * Pasang `FLAG_SECURE` selama layar ini hidup, lepas saat ditinggalkan (audit
+ * keamanan 2026-08 temuan 3.4).
+ *
+ * Slip gaji memuat nominal gaji seseorang. Tanpa flag ini, aplikasi lain yang
+ * memegang izin perekaman layar — dan siapa pun yang memegang HP-nya sebentar —
+ * bisa menyalinnya utuh. Dipasang PER LAYAR, bukan app-wide: mematikan tangkap
+ * layar di seluruh app akan mencabut cara petugas lapangan mengirim bukti
+ * kendala ke grup, yang justru dipakai tiap hari.
+ *
+ * `onDispose` WAJIB melepasnya. Flag ini milik Window, bukan Composable — kalau
+ * tak dilepas, seluruh app kehilangan kemampuan tangkap layar sampai proses
+ * dimatikan, dan gejalanya "screenshot tiba-tiba mati" tanpa satu pun error.
+ */
+@Composable
+private fun LayarRahasia() {
+    val context = LocalContext.current
+    DisposableEffect(Unit) {
+        val window = (context as? android.app.Activity)?.window
+        window?.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+}
+
 private val EarningColor = Color(0xFF12B76A)
 private val DeductionColor = Color(0xFFF04438)
 
@@ -72,6 +102,7 @@ fun PayrollScreen(
     onBack: () -> Unit,
     viewModel: PayrollViewModel = hiltViewModel()
 ) {
+    LayarRahasia()
     val state by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.load() }
     var selectedId by remember { mutableStateOf<Long?>(null) }
@@ -187,6 +218,8 @@ private fun PayslipDetailScreen(
     // Detail adalah state-swap di dalam route Slip Gaji (bukan nav destination sendiri) —
     // tanpa ini system back akan pop seluruh route, bukan kembali ke daftar (pola IndentDetailScreen).
     BackHandler(onBack = onBack)
+    LayarRahasia()
+    val context = LocalContext.current
 
     TridjayaCollapsibleHeader(title = "Detail Slip Gaji", onBack = onBack) { contentModifier ->
         when {
@@ -229,6 +262,50 @@ private fun PayslipDetailScreen(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // PENGGANTI SCREENSHOT, bukan tambahan. Layar ini memasang
+                    // FLAG_SECURE (audit 3.4) sehingga tangkap layar diblokir
+                    // sistem; tanpa tombol ini karyawan kehilangan satu-satunya
+                    // cara menyimpan slip gajinya sendiri.
+                    //
+                    // PDF dirakit DI PERANGKAT dari data yang sudah ada di layar
+                    // — tak ada endpoint baru yang mengalirkan angka gaji, dan
+                    // ia tetap bekerja saat sinyal buruk.
+                    Button(
+                        onClick = {
+                            runCatching {
+                                val berkas = tulisSlipGajiPdf(context, detail)
+                                val uri = FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.fileprovider",
+                                    berkas,
+                                )
+                                val kirim = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/pdf"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    putExtra(Intent.EXTRA_SUBJECT, berkas.name)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(
+                                    Intent.createChooser(kirim, "Simpan / bagikan slip gaji")
+                                )
+                            }.onFailure {
+                                // Tak ada penangan PDF / izin URI ditolak. Keduanya
+                                // dilempar SINKRON dari startActivity — tanpa
+                                // penjaga ini satu ketukan menutup app.
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Tidak ada aplikasi untuk menyimpan PDF di HP ini.",
+                                    android.widget.Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Simpan / bagikan PDF")
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))

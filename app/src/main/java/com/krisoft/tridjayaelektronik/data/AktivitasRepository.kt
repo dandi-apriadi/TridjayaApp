@@ -126,6 +126,43 @@ class AktivitasRepository @Inject constructor(
     }
 
     /**
+     * Baris yang MASIH menunggu penilaian sepanjang rentang [dari]..[sampai]
+     * (inklusif, `yyyy-MM-dd`) — bahan lencana angka per hari di layar PIC.
+     *
+     * `tanggal` SENGAJA tidak dikirim: server memenangkannya atas rentang, jadi
+     * mengirim keduanya membuat lencana tujuh hari melaporkan satu hari yang
+     * sama tujuh kali (cerminan `doRefresh` di `PicAktivitasDashboardPage.tsx`,
+     * yang juga memuat rentangnya sekali lalu menghitung per hari di klien).
+     *
+     * Satu panggilan, bukan tujuh: tujuh permintaan berurutan di jaringan
+     * lapangan berarti tujuh peluang gagal untuk satu papan angka, dan
+     * kegagalan sebagian akan menampilkan lencana yang saling bertentangan.
+     *
+     * [limit] mengikuti plafon server (2.000 setelah clamp). Pemotongan TIDAK
+     * disembunyikan — pemanggil membandingkan `total` dengan `items.size`
+     * (lihat `hitungPendingPerHari`).
+     */
+    suspend fun antrianPendingRentang(
+        dari: String,
+        sampai: String,
+        limit: Int = 2000,
+    ): AuthResult<AktivitasListData> = try {
+        val response = api.list(
+            tanggal = null,
+            tanggalFrom = dari,
+            tanggalTo = sampai,
+            karyawanId = null,
+            limit = limit,
+            status = "pending",
+        )
+        val data = response.body()?.data
+        if (response.isSuccessful && data != null) AuthResult.Success(data)
+        else parseError(response, "Gagal memuat ringkasan antrian")
+    } catch (e: Exception) {
+        AuthResult.Failure("network_error", e.message ?: "Tidak bisa terhubung ke server")
+    }
+
+    /**
      * Putusan PIC atas satu baris. [skor] boleh `null` — server mengisi sendiri
      * (`rejected` → 0, selainnya 100). Tolak WAJIB ber-[komentar]: itu satu-
      * satunya cara karyawan tahu apa yang harus diperbaiki.

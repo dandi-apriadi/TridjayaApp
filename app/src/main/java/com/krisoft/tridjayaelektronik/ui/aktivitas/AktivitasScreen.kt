@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Assignment
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
@@ -88,6 +90,17 @@ import java.io.File
 @Composable
 fun AktivitasScreen(
     onBack: () -> Unit,
+    /**
+     * Buka riwayat aktivitas milik sendiri. Default no-op supaya pemanggil
+     * lama (dan preview) tak wajib mengopernya.
+     *
+     * Riwayat hidup di layar TERPISAH, bukan sebagai navigasi tanggal di layar
+     * ini — alasannya di `AktivitasRiwayatPlan.kt`: app sengaja tak pernah
+     * mengirim field `tanggal` saat submit, jadi tombol kirim yang tampil di
+     * bawah judul tanggal lampau akan menulis baris ke HARI INI tanpa satu pun
+     * error di layar.
+     */
+    onLihatRiwayat: () -> Unit = {},
     viewModel: AktivitasViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -198,6 +211,31 @@ fun AktivitasScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item { Ringkasan(state) }
+                    // Pintu masuk riwayat. Ditaruh DI ATAS daftar aktivitas
+                    // (bukan di kaki halaman): daftar bisa sepuluh baris
+                    // ber-foto, dan tombol di bawahnya praktis tak pernah
+                    // ditemukan — itu persis nasib "Lihat History Bukti" di web
+                    // sebelum dinaikkan.
+                    //
+                    // DIGERBANG: gerbang BACA `GET /raport-harian` (`LIST_ROLES`)
+                    // lebih SEMPIT dari gerbang kartu ini (`ALL_LOGGED_IN`) —
+                    // MENGIRIM laporan login-only, MEMBACA daftarnya tidak.
+                    // Tanpa gerbang ini pemegang `sales`/`kasir`/`driver`
+                    // melihat tombol yang layarnya dijawab 403.
+                    if (state.bolehLihatRiwayat) item {
+                        ExpressiveOutlinedButton(
+                            onClick = onLihatRiwayat,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(
+                                Icons.Rounded.History,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("Lihat Riwayat Aktivitas")
+                        }
+                    }
                     // Hari Minggu diberitahukan DI DEPAN, bukan setelah orang
                     // memotret, memilih 10 foto, dan menunggu seluruh unggahan
                     // selesai. Web sudah lama menutupnya di klien; app-lah yang

@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FactCheck
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -37,6 +38,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.krisoft.tridjayaelektronik.data.VALIDASI_APPROVED
+import com.krisoft.tridjayaelektronik.data.VALIDASI_PENDING
+import com.krisoft.tridjayaelektronik.data.VALIDASI_REJECTED
 import com.krisoft.tridjayaelektronik.data.model.ManualUnitDto
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.BuktiFotoThumbnail
 import com.krisoft.tridjayaelektronik.ui.theme.ClayCard
@@ -70,6 +74,13 @@ fun OpnameValidasiScreen(
                 isRefreshing = state.isLoading && state.items.isNotEmpty(),
                 onRefresh = viewModel::load
             ) {
+              Column(modifier = Modifier.fillMaxSize()) {
+                // Baris chip DI LUAR `when` — aturan yang sama dengan antrian
+                // delivery: kalau kontrolnya ikut hilang saat hasil nol, orang
+                // yang membuka tab "Ditolak" yang kebetulan kosong tak punya
+                // jalan kembali ke "Menunggu".
+                ValidasiStatusChips(dipilih = state.status, onPilih = viewModel::gantiStatus)
+                Box(modifier = Modifier.weight(1f)) {
                 when {
                     state.isLoading && state.items.isEmpty() -> {
                         Column(modifier = Modifier.padding(top = 8.dp)) {
@@ -93,8 +104,16 @@ fun OpnameValidasiScreen(
                         ScrollableCenter {
                             ExpressiveEmptyState(
                                 icon = { Icon(Icons.Rounded.FactCheck, contentDescription = null) },
-                                title = "Tak ada unit menunggu validasi",
-                                subtitle = "Unit opname yang diketik manual akan muncul di sini"
+                                title = when (state.status) {
+                                    VALIDASI_APPROVED -> "Belum ada unit disetujui"
+                                    VALIDASI_REJECTED -> "Belum ada unit ditolak"
+                                    else -> "Tak ada unit menunggu validasi"
+                                },
+                                subtitle = when (state.status) {
+                                    VALIDASI_PENDING -> "Unit opname yang diketik manual akan muncul di sini"
+                                    // Kosong di tab riwayat ≠ tak ada pekerjaan.
+                                    else -> "Riwayat keputusan pada tab ini masih kosong. Kembali ke \"Menunggu\" untuk antrian yang aktif."
+                                }
                             )
                         }
                     }
@@ -134,6 +153,8 @@ fun OpnameValidasiScreen(
                         }
                     }
                 }
+                }
+              }
             }
         }
     }
@@ -307,6 +328,43 @@ private fun FotoSlot(
                 if (url.isNullOrBlank()) "Tanpa foto bukti." else "Belum dimuat.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error
+            )
+        }
+    }
+}
+
+/**
+ * Chip status antrian validasi manual.
+ *
+ * Nilainya cerminan `list_manual_units_handler` (`inventory-service opname.rs`)
+ * yang menerima PERSIS `pending|approved|rejected` dan menolak sisanya dengan
+ * 400 — jadi jangan menuliskan literal baru di sini, pakai konstanta.
+ *
+ * `onClick` memanggil `onPilih(kunci)` LANGSUNG, bukan pola toggle
+ * `dipilih?.let(onPilih)` yang dipakai `OpnameListScreen`. Pola itu benar di
+ * sana karena status boleh dilepas ke "Semua"; di sini tak ada keadaan
+ * tanpa-status, jadi menyalinnya menghasilkan chip yang mati rasa saat ditekan.
+ */
+@Composable
+private fun ValidasiStatusChips(
+    dipilih: String,
+    onPilih: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        listOf(
+            VALIDASI_PENDING to "Menunggu",
+            VALIDASI_APPROVED to "Disetujui",
+            VALIDASI_REJECTED to "Ditolak",
+        ).forEach { (kunci, label) ->
+            FilterChip(
+                selected = dipilih == kunci,
+                onClick = { onPilih(kunci) },
+                label = { Text(label) },
             )
         }
     }

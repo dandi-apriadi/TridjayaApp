@@ -17,6 +17,7 @@ import com.krisoft.tridjayaelektronik.data.model.CreateDeliveryBody
 import com.krisoft.tridjayaelektronik.data.model.CreateDeliveryItemBody
 import com.krisoft.tridjayaelektronik.data.model.DeliverBody
 import com.krisoft.tridjayaelektronik.data.model.DeliveryJobDto
+import com.krisoft.tridjayaelektronik.data.model.SaringanAntrian
 import com.krisoft.tridjayaelektronik.data.model.DeliveryNoteBody
 import com.krisoft.tridjayaelektronik.data.model.PdiBody
 import com.krisoft.tridjayaelektronik.data.model.PdiChecklistItemBody
@@ -60,6 +61,12 @@ sealed interface AkiPhotoState {
 data class DeliveryFlowUiState(
     val loading: Boolean = false,
     val items: List<DeliveryJobDto> = emptyList(),
+    /**
+     * Baris yang lolos saringan SEBELUM `LIMIT` (server `total`). `null` =
+     * server lama yang belum mengirimnya — perlakukan sebagai "tidak tahu",
+     * bukan nol. Dipakai indikator "Menampilkan N dari M".
+     */
+    val totalAntrian: Int? = null,
     val detail: DeliveryJobDto? = null,
     /** Karyawan yang sudah menangani unit yang sedang dibuka. Gagal dimuat =
      *  dibiarkan kosong tanpa pesan error: ini informasi pelengkap, tak boleh
@@ -273,6 +280,14 @@ class DeliveryFlowViewModel @Inject constructor(
 
     /** Foto serah-terima terkompres siap upload (dipisah dari state). */
     private var deliverPhotoBytes: ByteArray? = null
+
+    /**
+     * URL foto bukti setoran yang SUDAH terunggah, ditahan supaya percobaan
+     * ulang [setoranKasirSpk] setelah kiriman separuh tidak mengunggah foto yang
+     * sama dua kali. Dikosongkan tiap slot fotonya berubah (jepret ulang / ganti
+     * job) — kalau tidak, foto SPK sebelumnya ikut terkirim ke SPK berikutnya.
+     */
+    private var setoranPhotoUrl: String? = null
     private var pdiPhotoBytes: ByteArray? = null
     private var cashPhotoBytes: ByteArray? = null
 
@@ -284,19 +299,30 @@ class DeliveryFlowViewModel @Inject constructor(
         asDriver: Boolean = false,
         dari: String? = null,
         sampai: String? = null,
+        saringan: SaringanAntrian = SaringanAntrian.KOSONG,
     ) {
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             when (
-                val res = repository.list(
+                val res = repository.listDenganTotal(
                     status = status,
                     view = view,
                     asDriver = asDriver,
                     dari = dari,
                     sampai = sampai,
+                    saringan = saringan,
                 )
             ) {
-                is AuthResult.Success -> _state.update { it.copy(loading = false, items = res.data, error = null) }
+                is AuthResult.Success -> _state.update {
+                    it.copy(
+                        loading = false,
+                        items = res.data.items,
+                        // `total` server, BUKAN `items.size` — daftar dipotong
+                        // di 200 dan tanpa angka ini layar tak punya cara tahu.
+                        totalAntrian = res.data.total,
+                        error = null,
+                    )
+                }
                 is AuthResult.Failure -> _state.update { it.copy(loading = false, error = res.message) }
             }
         }
@@ -354,6 +380,7 @@ class DeliveryFlowViewModel @Inject constructor(
         deliverPhotoBytes = null
         pdiPhotoBytes = null
         cashPhotoBytes = null
+        setoranPhotoUrl = null
         refreshDetail(id)
     }
 
@@ -827,6 +854,7 @@ class DeliveryFlowViewModel @Inject constructor(
     fun onDeliverPhotoCaptured(file: File) = viewModelScope.launch {
         val prepared = watermarked(file, "TRIDJAYA · SERAH TERIMA")
         deliverPhotoBytes = prepared?.first
+        setoranPhotoUrl = null
         _state.update { it.copy(deliverPhoto = prepared?.second, deliverPhotoConfirmed = false) }
     }
 
@@ -836,6 +864,7 @@ class DeliveryFlowViewModel @Inject constructor(
 
     fun retakeDeliverPhoto() {
         deliverPhotoBytes = null
+        setoranPhotoUrl = null
         _state.update { it.copy(deliverPhoto = null, deliverPhotoConfirmed = false) }
     }
 
@@ -1173,20 +1202,66 @@ class DeliveryFlowViewModel @Inject constructor(
 
     /**
      * Kasir: konfirmasi uang penjualan sudah diterima (semua jenis pembayaran,
-     * bukan cuma COD). Foto bukti dipakai dari slot `deliverPhoto` yang sama —
-     * job berstatus `delivered` tak pernah bersamaan dengan job in_transit di
-     * layar yang sama, pola persis [selfPickupComplete].
+     * bukan cuma COD) — SATU KALI untuk SELURUH SPK sejak 2026-08-22. Foto bukti
+     * dipakai dari slot `deliverPhoto` yang sama — job berstatus `delivered` tak
+     * pernah bersamaan dengan job in_transit di layar yang sama, pola persis
+     * [selfPickupComplete].
+     *
+     * **Yang diperbaiki:** dulu satu unit per panggilan, jadi kasir memotret slip
+     * setor yang SAMA sebanyak jumlah barang di SPK — padahal antrian sudah
+     * menampilkannya sebagai satu kartu per SPK sejak 2026-08-06, sehingga
+     * kartunya tetap muncul setelah satu barang dikonfirmasi dan terbaca sebagai
+     * gagal-simpan. Yang berubah cuma jumlah pekerjaan manusia: nominal tetap
+     * DIKIRIM PER UNIT (tiap barang beda harganya) dan server tetap mencatat per
+     * baris `delivery_jobs`.
+     *
+     * Fan-out-nya di KLIEN, dan justru di endpoint ini itu aman — tiga alasannya
+     * (status tak berubah, tak ada guard `IS NULL`, scope per `id`) ditulis di
+     * `SetoranKasirGate.kt`. Jangan menyalin polanya ke tahap lain tanpa membaca
+     * catatan itu; di sana loop per unit memang terlarang.
+     *
+     * Foto diunggah SEKALI lalu URL-nya dipakai ulang seluruh unit, dan
+     * [setoranPhotoUrl] menahannya melewati kegagalan supaya percobaan ulang tak
+     * menumpuk foto tanpa induk di `uploads/delivery` — keluhan yang persis sama
+     * dengan yang tercatat di [SETORAN_NOMINAL_MINIMUM].
+     *
+     * **Kiriman separuh bukan kegagalan total, dan tak boleh terbaca begitu.**
+     * Server tak punya transaksi lintas unit, jadi unit ke-2 bisa gagal setelah
+     * unit ke-1 tersimpan. Karena itu: jumlah yang berhasil disebut apa adanya,
+     * `batchUnits` dimuat ulang supaya unit yang sudah beres HILANG dari daftar,
+     * dan tekanan tombol berikutnya cuma menagih sisanya. Tanpa itu kasir
+     * mengulang seluruh SPK dan menimpa catatan yang sudah benar dengan angka
+     * yang diketik ulang.
      */
-    fun setoranKasir(id: String, nominal: Double, onDone: () -> Unit) = action {
+    fun setoranKasirSpk(kiriman: List<SetoranKiriman>, onDone: () -> Unit) = action {
+        if (kiriman.isEmpty()) return@action AuthResult.Failure("validation", "Tak ada barang yang menunggu setoran")
         val bytes = deliverPhotoBytes ?: return@action AuthResult.Failure("validation", "Foto bukti wajib diambil")
-        val photoUrl = when (val up = repository.uploadPhoto(bytes, "setoran_${System.currentTimeMillis()}.jpg")) {
-            is AuthResult.Success -> up.data
-            is AuthResult.Failure -> return@action up
+        val photoUrl = setoranPhotoUrl
+            ?: when (val up = repository.uploadPhoto(bytes, "setoran_${System.currentTimeMillis()}.jpg")) {
+                is AuthResult.Success -> up.data.also { setoranPhotoUrl = it }
+                is AuthResult.Failure -> return@action up
+            }
+        var berhasil = 0
+        var pesanGagal: String? = null
+        for (k in kiriman) {
+            val res = repository.setoranKasir(
+                k.id,
+                com.krisoft.tridjayaelektronik.data.model.SetoranKasirBody(nominalDiterima = k.nominal, photoUrl = photoUrl),
+            )
+            when (res) {
+                is AuthResult.Success -> berhasil++
+                // Pesan PERTAMA saja: tiga unit yang gagal karena sebab yang sama
+                // menghasilkan satu kalimat, bukan tiga kalimat kembar.
+                is AuthResult.Failure -> if (pesanGagal == null) pesanGagal = res.message
+            }
         }
-        repository.setoranKasir(
-            id,
-            com.krisoft.tridjayaelektronik.data.model.SetoranKasirBody(nominalDiterima = nominal, photoUrl = photoUrl),
-        ).mapOk { onDone() }
+        val gagalPesan = pesanGagal ?: return@action AuthResult.Success(Unit).mapOk { onDone() }
+        _state.value.detail?.let { loadBatchUnits(it) }
+        AuthResult.Failure(
+            "partial",
+            "Tersimpan $berhasil dari ${kiriman.size} barang. Sisanya gagal: $gagalPesan " +
+                "Tekan lagi untuk mengirim sisanya — yang sudah tersimpan tidak diulang.",
+        )
     }
 
     fun issueDeliveryNote(id: String, sourceBranch: String, onDone: () -> Unit) = action {

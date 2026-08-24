@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.EventBusy
 import androidx.compose.material.icons.rounded.RateReview
 import androidx.compose.material3.AlertDialog
@@ -60,6 +62,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.ClayCard
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveEmptyState
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveErrorState
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveFilledButton
+import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveTextField
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveOutlinedButton
 import com.krisoft.tridjayaelektronik.ui.theme.ScrollableCenter
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
@@ -94,15 +97,24 @@ fun AktivitasReviewScreen(
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         TridjayaPullRefresh(
             isRefreshing = state.loading && state.grup.isNotEmpty(),
-            onRefresh = { viewModel.muat() },
+            // Tarik-segarkan = satu-satunya gerakan yang berarti "muat ULANG
+            // semuanya", jadi hanya di sini angka lencana ikut ditarik lagi.
+            onRefresh = { viewModel.muat(segarkanLencana = true) },
             modifier = contentModifier,
         ) {
             Column(Modifier.fillMaxSize()) {
                 FilterBar(
                     tanggal = state.tanggal,
                     status = state.status,
+                    hariTerakhir = state.hariTerakhir,
+                    lencanaPending = state.lencanaPending,
+                    lencanaTerpotong = state.lencanaTerpotong,
                     onGeserHari = { viewModel.geserHari(it) },
+                    onPilihHari = { viewModel.gantiTanggal(it) },
                     onStatus = { viewModel.gantiStatus(it) },
+                    cari = state.cari,
+                    onKetikCari = { viewModel.ketikCari(it) },
+                    onTerapkanCari = { viewModel.terapkanCari() },
                 )
                 // `weight(1f)`: isi di bawah memakai fillMaxSize, dan tanpa
                 // pembatas ini ia meminta tinggi penuh layar SETELAH filter —
@@ -112,7 +124,10 @@ fun AktivitasReviewScreen(
                         state = state,
                         navBottom = navBottom,
                         token = viewModel.bearerToken(),
-                        onMuatUlang = { viewModel.muat() },
+                        // "Coba lagi" muncul saat pemuatan gagal — dan yang gagal
+                        // bisa saja justru permintaan lencananya, jadi tombol ini
+                        // ikut memaksa penarikan ulang angkanya.
+                        onMuatUlang = { viewModel.muat(segarkanLencana = true) },
                         onSetuju = { setujuId = it },
                         onTolak = { tolakId = it; alasan = "" },
                     )
@@ -270,8 +285,23 @@ private fun DialogSetuju(onBatal: () -> Unit, onSetuju: () -> Unit) {
 private fun FilterBar(
     tanggal: String,
     status: String,
+    hariTerakhir: List<String>,
+    lencanaPending: Map<String, Int>,
+    lencanaTerpotong: Boolean,
     onGeserHari: (Int) -> Unit,
+    onPilihHari: (String) -> Unit,
     onStatus: (String) -> Unit,
+    /**
+     * Kotak cari (2026-08-23). Jalurnya SUDAH utuh sejak lama —
+     * `AktivitasReviewViewModel.ketikCari`/`terapkanCari`, `state.cari`, dan
+     * `AktivitasRepository.antrianReview` yang meneruskannya ke `@Query("q")`
+     * dengan trim — tapi tak ada satu pun yang memanggilnya: kotaknya tak
+     * pernah dirender. Server memang memakai `q` (LIKE atas nama karyawan /
+     * teks aktivitas / cabang / divisi).
+     */
+    cari: String,
+    onKetikCari: (String) -> Unit,
+    onTerapkanCari: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -288,6 +318,50 @@ private fun FilterBar(
                 Icon(Icons.Rounded.ChevronRight, contentDescription = "Hari berikutnya")
             }
         }
+        // Chip tujuh hari berlencana angka — cerminan `getLast7Days()` di
+        // `PicAktivitasDashboardPage.tsx`. Panah −1/+1 di atas SENGAJA
+        // dipertahankan: chip cuma menjangkau seminggu, sedangkan PIC yang
+        // menyusul kerja lama tetap harus bisa mundur lebih jauh.
+        if (hariTerakhir.isNotEmpty()) {
+            val kemarin = hariTerakhir.getOrNull(hariTerakhir.lastIndex - 1).orEmpty()
+            val hariIni = hariTerakhir.last()
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(vertical = 4.dp),
+            ) {
+                items(hariTerakhir, key = { it }) { hari ->
+                    // Lencana HANYA saat ada yang menunggu, dan `trailingIcon`
+                    // dibiarkan NULL saat tak ada — slot kosong tetap memakan
+                    // padding chip, jadi hari tanpa antrian akan terlihat
+                    // seperti punya lencana yang gagal dimuat.
+                    val jumlah = lencanaPending[hari]?.takeIf { it > 0 }
+                    FilterChip(
+                        selected = tanggal == hari,
+                        onClick = { onPilihHari(hari) },
+                        label = { Text(labelChipHari(hari, hariIni, kemarin)) },
+                        trailingIcon = jumlah?.let { n ->
+                            {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.error,
+                                    shape = RoundedCornerShape(50),
+                                ) {
+                                    Text(
+                                        // `+` = daftar rentangnya dipotong server,
+                                        // jadi angkanya batas bawah. Tanpa tanda
+                                        // itu PIC membaca potongan sebagai total.
+                                        if (lencanaTerpotong) "$n+" else "$n",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Black,
+                                        color = MaterialTheme.colorScheme.onError,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                    )
+                                }
+                            }
+                        },
+                    )
+                }
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("pending" to "Menunggu", "approved" to "Disetujui", "rejected" to "Ditolak", "all" to "Semua")
                 .forEach { (kunci, label) ->
@@ -298,6 +372,32 @@ private fun FilterBar(
                     )
                 }
         }
+        // Submit pada tombol, BUKAN tiap ketikan: daftar ini menembak server,
+        // dan `terapkanCari` KDoc-nya sudah menetapkan aturan itu. Repo ini tak
+        // punya helper debounce bersama, jadi mengetik-per-huruf berarti satu
+        // request per huruf.
+        ExpressiveTextField(
+            value = cari,
+            onValueChange = onKetikCari,
+            placeholder = "Cari nama karyawan / aktivitas / cabang…",
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            trailingIcon = {
+                // Tombol cari SELALU ada. Versi pertama menampilkan "hapus"
+                // saja begitu ada teks, sehingga teks yang diketik tak punya
+                // jalan untuk dikirim — kelas cacat yang sama dengan yang
+                // sedang diperbaiki di berkas ini.
+                Row {
+                    if (cari.isNotBlank()) {
+                        IconButton(onClick = { onKetikCari(""); onTerapkanCari() }) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Hapus pencarian")
+                        }
+                    }
+                    IconButton(onClick = onTerapkanCari) {
+                        Icon(Icons.Rounded.Search, contentDescription = "Cari")
+                    }
+                }
+            },
+        )
     }
 }
 
@@ -482,9 +582,17 @@ private fun BarisAktivitas(
     }
 }
 
-/** Bukti raport di-serve terautentikasi — pola `AuthedImage` (Deadstock/Indent). */
+/**
+ * Bukti raport di-serve terautentikasi — pola `AuthedImage` (Deadstock/Indent).
+ *
+ * `internal`, bukan `private`: layar Riwayat Aktivitas
+ * ([AktivitasRiwayatScreen]) memuat bukti yang SAMA lewat endpoint yang sama.
+ * Menyalinnya ke sana berarti dua tempat yang harus sepakat soal header
+ * `Authorization` — dan yang lupa headernya tidak error, cuma menampilkan
+ * "Bukti gagal dimuat" selamanya.
+ */
 @Composable
-private fun AuthedEvidence(
+internal fun AuthedEvidence(
     url: String,
     token: String?,
     contentDescription: String = "Bukti aktivitas",

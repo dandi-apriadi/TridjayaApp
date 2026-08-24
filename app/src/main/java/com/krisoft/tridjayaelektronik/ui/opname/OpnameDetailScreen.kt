@@ -1148,6 +1148,25 @@ private fun SerialRequestsSheet(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                // Umur antrian ikut di baris status, bukan di
+                                // kaki kartu: yang dicari pengusul saat membuka
+                                // panel ini adalah "usulanku sudah berapa lama
+                                // diam", dan itu harus terbaca bersama
+                                // statusnya. Vonisnya milik server — lihat
+                                // `labelUmurUsulan`.
+                                labelUmurUsulan(req.status, req.umurAntrianJam, req.mandek)?.let { umur ->
+                                    Text(
+                                        text = umur,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (req.mandek) {
+                                            Color(0xFFB5670C)
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                }
                                 Text(
                                     text = statusUsulanLabel(req.status),
                                     style = MaterialTheme.typography.labelSmall,

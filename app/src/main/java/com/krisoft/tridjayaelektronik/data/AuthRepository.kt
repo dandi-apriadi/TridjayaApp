@@ -10,6 +10,7 @@ import com.krisoft.tridjayaelektronik.data.model.ResetPasswordRequest
 import com.krisoft.tridjayaelektronik.data.model.UserDto
 import com.krisoft.tridjayaelektronik.data.remote.AuthApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -59,6 +60,17 @@ class AuthRepository @Inject constructor(
                 val session = response.body()?.data
                     ?: return AuthResult.Failure("unknown_error", "Response kosong dari server")
                 tokenStore.saveLogin(session)
+                // Cermin peta kemampuan WAJIB dikosongkan di sini, bukan cuma di
+                // `logout()`. Jalur berakhirnya sesi yang NORMAL adalah
+                // `tokenStore.clear()` langsung dari interceptor OkHttp saat
+                // refresh token ditolak — `logout()` tak pernah lewat. Di HP
+                // dinas yang dipakai bergantian, cermin superadmin yang
+                // tertinggal membuat karyawan berikutnya MENDARAT di tab
+                // Eksekutif sampai pengambilan pertamanya selesai. Servernya
+                // tetap menolak (403), jadi datanya tak bocor — tapi tab yang
+                // sekejap terlihat lalu hilang terbaca sebagai bug, dan
+                // ongkos menutupnya satu baris.
+                _petaKemampuanTerakhir.value = null
                 AuthResult.Success(session.user)
             } else {
                 parseError(response)
@@ -79,12 +91,45 @@ class AuthRepository @Inject constructor(
      *  `null`. Yang dilakukan pemanggil atas `null` BERBEDA-BEDA — `gateAllows`
      *  jatuh ke gate role lokal, pembaca ber-`?.let` membiarkan gerbangnya apa
      *  adanya; [petaKemampuanSah] merinci efeknya per pembaca. */
-    suspend fun capabilities(): Map<String, Boolean>? = try {
-        val response = api.capabilities()
-        if (response.isSuccessful) petaKemampuanSah(response.body()?.data?.capabilities) else null
-    } catch (_: Exception) {
-        null
+    suspend fun capabilities(): Map<String, Boolean>? {
+        val peta = try {
+            val response = api.capabilities()
+            if (response.isSuccessful) petaKemampuanSah(response.body()?.data?.capabilities) else null
+        } catch (_: Exception) {
+            null
+        }
+        // Cermin hanya ditulis saat BERHASIL — lihat KDoc di bawah.
+        if (peta != null) _petaKemampuanTerakhir.value = peta
+        return peta
     }
+
+    private val _petaKemampuanTerakhir = MutableStateFlow<Map<String, Boolean>?>(null)
+
+    /**
+     * Cermin baca-saja dari peta kemampuan yang TERAKHIR berhasil diambil, untuk
+     * pemakai di luar ViewModel — hari ini hanya gerbang TAB di `MainActivity`.
+     *
+     * **Kenapa cermin, bukan panggilan `capabilities()` langsung.** Pemanggil
+     * ber-scope seumur proses (root `MainScreen`) yang mengambil sendiri akan
+     * membekukan petanya sampai app dimatikan: akses baru tak pernah membuka
+     * tab-nya, akses yang dicabut tetap menampilkannya lalu dijawab 403. Itu
+     * persis bug yang ditutup `PenyegarKemampuan`, dan `PembacaPetaKemampuanTest`
+     * menjaga daftar tertutup pemanggilnya justru supaya pintu itu tak dibuka
+     * lewat berkas lain. Cermin ini menumpang penyegaran yang SUDAH benar —
+     * `ActivityViewModel`/`HomeViewModel` mengambil ulang tiap sidik akses atau
+     * identitas token berubah — tanpa menambah pembaca kedelapan.
+     *
+     * **`null` = belum pernah berhasil.** Perhatikan: di keadaan itu `gateAllows`
+     * JATUH KE DAFTAR ROLE LOKAL, bukan fail-closed — cabang kemampuannya cuma
+     * dimasuki bila petanya bukan `null`. Fail-closed berlaku untuk kunci yang
+     * ABSEN dari peta yang ADA. Dua keadaan berbeda, dan menyamakannya sudah
+     * membuat tiga komentar di repo ini salah sekaligus.
+     *
+     * Nilainya TIDAK pernah dikosongkan oleh pengambilan yang gagal (alasan sama
+     * dengan `PenyegarKemampuan`: peta baik tak boleh tergantikan peta kosong).
+     * Yang mengosongkannya: [logout] dan [login] yang berhasil.
+     */
+    val petaKemampuanTerakhir: StateFlow<Map<String, Boolean>?> = _petaKemampuanTerakhir
 
     suspend fun profile(): AuthResult<UserDto> {
         return try {
@@ -137,6 +182,13 @@ class AuthRepository @Inject constructor(
             // Best-effort: clear local session regardless of server reachability.
         } finally {
             tokenStore.clear()
+            // Peta kemampuan ikut dibuang di sini, bukan dibiarkan basi: HP ini
+            // dipakai bergantian, dan cermin yang tertinggal akan memberi user
+            // BERIKUTNYA tab yang bukan haknya selama beberapa ratus milidetik
+            // sebelum pengambilan pertamanya selesai. Servernya tetap menolak,
+            // tapi "tab yang sekejap terlihat lalu hilang" adalah kebocoran
+            // informasi yang tak perlu dan terbaca sebagai bug.
+            _petaKemampuanTerakhir.value = null
             // Wipe every cached table (stock, leads, dashboard cache, sync meta) so the next
             // login — possibly a different user on a shared device — never sees stale or
             // another account's data before the first fresh sync completes.
@@ -207,6 +259,9 @@ class AuthRepository @Inject constructor(
 
     /** Reactive login state — flips to false on logout or when a background refresh fails. */
     val sessionState: StateFlow<Boolean> get() = tokenStore.sessionState
+
+    /** Penanda "sesi sudah dibaca dari disk" — lihat [TokenStore.sesiTerbaca]. */
+    val sesiTerbaca: StateFlow<Boolean> get() = tokenStore.sesiTerbaca
 
     /** Reactive "server requires a password change" flag — drives the forced change-password gate. */
     val mustChangePasswordState: StateFlow<Boolean> get() = tokenStore.mustChangePasswordState

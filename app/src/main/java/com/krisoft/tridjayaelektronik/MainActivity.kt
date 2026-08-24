@@ -79,6 +79,8 @@ import com.krisoft.tridjayaelektronik.ui.activity.landsOnSummary
 import com.krisoft.tridjayaelektronik.ui.activity.routeForNavKey
 import com.krisoft.tridjayaelektronik.ui.home.effectiveRoles
 import com.krisoft.tridjayaelektronik.ui.home.findLifecycle
+import com.krisoft.tridjayaelektronik.ui.eksekutif.EKSEKUTIF_ROUTE_ROOT
+import com.krisoft.tridjayaelektronik.ui.eksekutif.EksekutifNavHost
 import com.krisoft.tridjayaelektronik.ui.inventory.InventoryNavHost
 import com.krisoft.tridjayaelektronik.ui.inventory.SEARCH_ROUTE_ROOT
 import com.krisoft.tridjayaelektronik.ui.login.ChangePasswordScreen
@@ -87,9 +89,14 @@ import com.krisoft.tridjayaelektronik.ui.login.LoginScreen
 import com.krisoft.tridjayaelektronik.ui.login.ResetPasswordScreen
 import com.krisoft.tridjayaelektronik.ui.navigation.AppDestination
 import com.krisoft.tridjayaelektronik.ui.session.SessionViewModel
+import com.krisoft.tridjayaelektronik.data.update.UpdateDownloadState
 import com.krisoft.tridjayaelektronik.data.update.UpdateStatus
 import com.krisoft.tridjayaelektronik.ui.settings.SettingsScreen
+import kotlinx.coroutines.delay
+import com.krisoft.tridjayaelektronik.ui.splash.BATAS_TUNGGU_SESI_MS
 import com.krisoft.tridjayaelektronik.ui.splash.SplashScreen
+import com.krisoft.tridjayaelektronik.ui.splash.TujuanSplash
+import com.krisoft.tridjayaelektronik.ui.splash.tujuanSetelahSplash
 import com.krisoft.tridjayaelektronik.ui.update.UpdateDialog
 import com.krisoft.tridjayaelektronik.ui.update.UpdateViewModel
 import com.krisoft.tridjayaelektronik.ui.update.bolehTampilkanPrompt
@@ -218,9 +225,13 @@ private fun TridjayaNavHost(
     // validates/refreshes this in the background and the value here updates live if that fails.
     val isLoggedIn by sessionViewModel.sessionState.collectAsState()
     val mustChangePassword by sessionViewModel.mustChangePassword.collectAsState()
+    // Audit 3.3: `isLoggedIn` masih `false` sampai sesi dibaca dari disk, dan
+    // `false` di jendela itu TIDAK berarti "belum login".
+    val sesiTerbaca by sessionViewModel.sesiTerbaca.collectAsState()
 
     val updateStatus by updateViewModel.status.collectAsState()
     val versiPromptDitutup by updateViewModel.versiPromptDitutup.collectAsState()
+    val versiDitundaSementara by updateViewModel.versiDitundaSementara.collectAsState()
     val updateDownload by updateViewModel.download.collectAsState()
 
     // Pemeriksaan pembaruan diulang tiap app kembali ke foreground. Tanpa ini pemeriksaannya
@@ -268,6 +279,16 @@ private fun TridjayaNavHost(
             route == ROUTE_CHANGE_PW -> navController.navigate(ROUTE_MAIN) {
                 popUpTo(0) { inclusive = true }; launchSingleTop = true
             }
+            // JARING PENGAMAN audit 3.3: sudah login tapi masih terduduk di layar
+            // Login. Sebelum ini tak ada cabang yang menanganinya, jadi splash
+            // yang memutuskan terlalu cepat (sesi belum terbaca) meninggalkan
+            // orang di Login dengan sesi yang masih sah — dan satu-satunya jalan
+            // keluar adalah mengetik ulang password. Gerbang splash di bawah
+            // mencegahnya terjadi; cabang ini yang memperbaikinya kalau tetap
+            // terjadi lewat jalan lain.
+            route == ROUTE_LOGIN -> navController.navigate(ROUTE_MAIN) {
+                popUpTo(0) { inclusive = true }; launchSingleTop = true
+            }
         }
     }
 
@@ -279,19 +300,35 @@ private fun TridjayaNavHost(
         exitTransition = { fadeOut(tween(400)) }
     ) {
         composable(ROUTE_SPLASH) {
-            SplashScreen(
-                onFinished = {
-                    val dest = when {
-                        !isLoggedIn -> ROUTE_LOGIN
-                        mustChangePassword -> ROUTE_CHANGE_PW
-                        else -> ROUTE_MAIN
-                    }
-                    navController.navigate(dest) {
-                        popUpTo(ROUTE_SPLASH) { inclusive = true }
-                        launchSingleTop = true
-                    }
+            // Animasi splash dan pembacaan sesi berjalan PARALEL; yang
+            // menavigasi adalah yang selesai TERAKHIR. `animasiSelesai`
+            // dipegang di sini (bukan di dalam `SplashScreen`) karena
+            // `onFinished` bisa datang lebih dulu daripada penanda sesi.
+            var animasiSelesai by remember { mutableStateOf(false) }
+            var batasTungguLewat by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                delay(BATAS_TUNGGU_SESI_MS)
+                batasTungguLewat = true
+            }
+            LaunchedEffect(animasiSelesai, sesiTerbaca, batasTungguLewat, isLoggedIn, mustChangePassword) {
+                if (!animasiSelesai) return@LaunchedEffect
+                val tujuan = tujuanSetelahSplash(
+                    sesiTerbaca = sesiTerbaca,
+                    batasTungguLewat = batasTungguLewat,
+                    login = isLoggedIn,
+                    wajibGantiPassword = mustChangePassword,
+                ) ?: return@LaunchedEffect
+                val dest = when (tujuan) {
+                    TujuanSplash.LOGIN -> ROUTE_LOGIN
+                    TujuanSplash.GANTI_PASSWORD -> ROUTE_CHANGE_PW
+                    TujuanSplash.UTAMA -> ROUTE_MAIN
                 }
-            )
+                navController.navigate(dest) {
+                    popUpTo(ROUTE_SPLASH) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }
+            SplashScreen(onFinished = { animasiSelesai = true })
         }
         composable(ROUTE_LOGIN) {
             LoginScreen(
@@ -344,11 +381,15 @@ private fun TridjayaNavHost(
         }
     }
 
-    // Update gate — a force update blocks the whole app (over any screen incl. login) and its
-    // download already auto-started (UpdateViewModel detects it); an optional update shows a
-    // dismissible prompt, download starts on tap. AlertDialog renders in its own window above the
-    // NavHost. "Nanti" kini menutup SATU VERSI saja (`bolehTampilkanPrompt`), bukan seluruh sesi:
-    // menutup prompt 84 tak boleh ikut menelan prompt 85 yang terbit sesudahnya.
+    // Update gate — pembaruan wajib TAK LAGI mengunci layar sejak terdeteksi: unduhannya
+    // (auto-mulai, lihat `UpdateViewModel.jalankanCek`) berjalan diam-diam di latar sementara
+    // karyawan tetap memakai app seperti biasa. Dialog blokir baru muncul setelah berkasnya siap
+    // dipasang (`ReadyToInstall`) atau gagal (`Failed`) — bukan lagi selama `Idle`/`Downloading`.
+    // Pembaruan opsional tak berubah: dialog tawarannya harus tampil DULU supaya orang bisa
+    // menekan "Perbarui Sekarang", karena di jalur itu unduhan baru mulai setelah ketukan itu.
+    // AlertDialog merender di jendelanya sendiri di atas NavHost. "Nanti" kini menutup SATU VERSI
+    // saja (`bolehTampilkanPrompt`), bukan seluruh sesi: menutup prompt 84 tak boleh ikut menelan
+    // prompt 85 yang terbit sesudahnya.
     //
     // `UpdateStatus.Unknown` (pemeriksaan gagal: 401/403/5xx, offline, timeout, TLS, gagal parse —
     // lihat `UpdateManager.check`) sengaja TIDAK menampilkan apa pun di sini. Orang sedang
@@ -356,23 +397,41 @@ private fun TridjayaNavHost(
     // ulangnya lebih cepat (`JEDA_CEK_GAGAL_MS`), dan jalur yang pengguna sendiri yang memintanya
     // — "Cek Pembaruan" di Settings — tetap melaporkan kegagalan apa adanya lewat
     // `updateCheckMessage`, jadi kegagalan tak pernah menyamar jadi "sudah versi terbaru".
-    (updateStatus as? UpdateStatus.Available)?.let { available ->
-        if (bolehTampilkanPrompt(available, versiPromptDitutup)) {
-            UpdateDialog(
-                available = available,
-                download = updateDownload,
-                onUpdate = { updateViewModel.startDownload() },
-                onDismiss = if (available.force) null else ({ updateViewModel.dismissOptional() })
-            )
-        }
+    val updateTersedia = updateStatus as? UpdateStatus.Available
+    // Dihitung SEKALI lalu dipakai dua kali: merender dialognya, DAN menahan
+    // popup ultah di bawah. Sebelumnya popup ultah punya syaratnya sendiri
+    // (`!forceUpdate`), jadi dialog update OPSIONAL bisa tertimbun ucapan ulang
+    // tahun — tombolnya tak bisa ditekan, persis kegagalan yang alasannya sudah
+    // ditulis untuk kasus wajib.
+    val downloadSiapDilihat = updateDownload is UpdateDownloadState.ReadyToInstall ||
+        updateDownload is UpdateDownloadState.Failed
+    val promptUpdateTampil = updateTersedia != null &&
+        bolehTampilkanPrompt(updateTersedia, versiPromptDitutup, versiDitundaSementara, downloadSiapDilihat)
+
+    if (updateTersedia != null && promptUpdateTampil) {
+        UpdateDialog(
+            available = updateTersedia,
+            download = updateDownload,
+            onUpdate = { updateViewModel.startDownload() },
+            // "Nanti" = penolakan sengaja → kunci untuk versi ini.
+            onDismiss = if (updateTersedia.force) null else ({ updateViewModel.dismissOptional() }),
+            // Back / ketuk di luar = tak sengaja → tunda sampai pemeriksaan berikutnya.
+            onTundaSementara = if (updateTersedia.force) null else ({ updateViewModel.tundaSementara() }),
+        )
     }
 
     // Ucapan ulang tahun — sekali sehari, di atas layar mana pun setelah login
     // (cerminan popup web). Ditahan saat gate paksa-update sedang tampil: dua
     // dialog bertumpuk membuat tombol update tak bisa ditekan, dan update wajib
     // jelas lebih mendesak daripada ucapan.
-    val forceUpdate = (updateStatus as? UpdateStatus.Available)?.force == true
-    if (isLoggedIn && !mustChangePassword && !forceUpdate) {
+    // Ditahan selagi prompt update TAMPIL — bukan cuma saat update WAJIB.
+    // Alasannya sama persis dengan yang sudah ditulis untuk kasus wajib: dua
+    // dialog bertumpuk membuat tombol di bawahnya tak bisa ditekan. Yang salah
+    // di versi lama adalah SYARATNYA, bukan niatnya — ia memakai `force`,
+    // sehingga justru dialog opsional (yang tombolnya bisa diabaikan orang
+    // tanpa akibat) yang tertimbun, dan itu terbaca sebagai "update tak
+    // muncul".
+    if (isLoggedIn && !mustChangePassword && !promptUpdateTampil) {
         BirthdayPopupHost()
     }
 }
@@ -388,11 +447,17 @@ private fun DestinationContent(
     inventoryOpenListSignal: Int,
     inventoryOpenSearchSignal: Int,
     activityTabSelectedSignal: Int,
+    eksekutifTabSelectedSignal: Int,
+    eksekutifNav: NavHostController,
     activityNav: NavHostController,
     summaryNav: NavHostController,
     inventoryNav: NavHostController
 ) {
     when (destination) {
+        AppDestination.EKSEKUTIF -> EksekutifNavHost(
+            navController = eksekutifNav,
+            tabSelectedSignal = eksekutifTabSelectedSignal,
+        )
         AppDestination.ACTIVITY -> ActivityNavHost(
             startDestination = ACTIVITY_ROUTE_ROOT,
             onOpenSummaryTab = onOpenSummaryTab,
@@ -452,20 +517,94 @@ private fun MainScreen(
 ) {
     RequestOperationalPermissions()
 
-    val destinations = AppDestination.bottomNavItems
-    // Tab awal ditentukan SEKALI dari role efektif saat komposisi pertama (lihat
-    // doc `landsOnSummary` di ActivityRegistry.kt) — bukan dievaluasi ulang tiap
-    // recomposition, supaya profil yang termuat belakangan tak membuat tab
-    // melompat sendiri sesudah user sudah melihat/menyentuh layarnya. Profil
-    // belum termuat saat itu (cachedUser null) → jatuh ke default lama,
-    // `destinations.first()` (Activity).
-    var selected by remember {
-        val initial = if (landsOnSummary(effectiveRoles(sessionViewModel.cachedUser))) {
-            AppDestination.SUMMARY
-        } else {
-            destinations.first()
+    // Peta kemampuan hanya DITERUSKAN dari cermin `AuthRepository` (diisi
+    // `ActivityViewModel`/`HomeViewModel` lewat `PenyegarKemampuan`) — MainScreen
+    // TIDAK boleh mengambilnya sendiri: ia hidup seumur proses, jadi pengambilan
+    // sekali di sini berarti gerbang tab beku sampai app dimatikan. Lihat
+    // `PembacaPetaKemampuanTest`.
+    //
+    // `null` = belum pernah berhasil diambil, dan di sana gerbangnya JATUH KE
+    // DAFTAR ROLE LOKAL (`gateAllows` hanya memasuki cabang kemampuan bila
+    // petanya bukan null) — BUKAN fail-closed. Fail-closed berlaku untuk kunci
+    // yang ABSEN dari peta yang ADA. Dua keadaan berbeda; jangan disamakan.
+    val petaKemampuan by sessionViewModel.petaKemampuan.collectAsState()
+    val destinations = AppDestination.visibleBottomNavItems(
+        effectiveRoles(sessionViewModel.cachedUser),
+        petaKemampuan,
+    )
+    // Tab awal DULU ditentukan sekali saja di komposisi pertama, dan komentar di
+    // sini menerangkan alasannya: supaya profil yang termuat belakangan tak
+    // membuat tab melompat sesudah user melihat/menyentuh layarnya.
+    //
+    // Alasan itu masih benar, TAPI premisnya tak lagi memadai sejak ada tab
+    // ber-gate. Gerbangnya fail-closed dan bergantung pada `GET /api/me/
+    // capabilities` yang tiba SESUDAH komposisi pertama — jadi "sekali di awal"
+    // berarti tab Eksekutif tak akan pernah jadi layar pertama, padahal justru
+    // itu yang diminta. (Bug lama yang sekaligus tertutup: `cachedUser` juga
+    // masih `null` di komposisi pertama pada start dingin, jadi manager/owner
+    // pun sudah lama mendarat di Activity alih-alih Operasional.)
+    //
+    // Yang dilakukan sekarang: hitung ulang tab pendaratan tiap kali pengetahuan
+    // bertambah, tapi TERAPKAN hanya selama user belum memilih tab sendiri.
+    // Begitu ia menyentuh pill (atau membuka notifikasi, atau menekan ubin yang
+    // memindah tab), `tabDipilihUser` menyala dan hitungan ini berhenti
+    // mengganggu — itulah bagian dari alasan lama yang tetap dipegang.
+    var selected by remember { mutableStateOf(AppDestination.ACTIVITY) }
+    // `remember`, BUKAN `rememberSaveable` — sengaja seumur `selected`. Kalau
+    // penanda ini bertahan rotasi sementara `selected` tidak, layar kembali ke
+    // ACTIVITY lalu MENETAP di sana karena auto-pendaratan sudah dianggap
+    // "dibatalkan user" — yaitu tab yang salah, permanen, hanya karena HP
+    // diputar. Keduanya lahir & mati bersama.
+    var tabDipilihUser by remember { mutableStateOf(false) }
+    /**
+     * Satu-satunya jalan mengubah tab atas kehendak user. Memakainya (bukan
+     * `selected = …` langsung) yang membuat auto-pendaratan berhenti — kalau ada
+     * pemanggil yang lupa, layarnya akan "ditarik balik" ke tab awal pada emisi
+     * peta kemampuan berikutnya.
+     */
+    val pilihTab: (AppDestination) -> Unit = { tujuan ->
+        tabDipilihUser = true
+        selected = tujuan
+    }
+    val tabPendaratan = AppDestination.tabAwal(
+        tabTersedia = destinations,
+        landsOnSummary = landsOnSummary(effectiveRoles(sessionViewModel.cachedUser)),
+    )
+    // DIPERSEMPIT ke EKSEKUTIF saja (review pra-landing 2026-08-23).
+    //
+    // Versi sebelumnya menerapkan pendaratan otomatis untuk SEMUA peran, dan
+    // itu membalik alasan yang ditulis kode lama: "supaya profil yang termuat
+    // belakangan tak membuat tab melompat sendiri sesudah user sudah
+    // melihat/menyentuh layarnya". `tabDipilihUser` hanya menyala kalau orang
+    // MENYENTUH pill/notifikasi/ubin — bukan kalau ia sekadar MELIHAT. Jadi
+    // manager/owner yang membuka app, membaca Activity beberapa detik, akan
+    // tersentak ke Operasional begitu `cachedUser` mendarat. Itu perubahan
+    // perilaku yang mengenai ~139 akun, menumpang di fitur superadmin-only,
+    // dan tak diminta siapa pun.
+    //
+    // EKSEKUTIF berbeda dan memang butuh jalur ini: tabnya BARU, jadi tak ada
+    // kebiasaan yang dilanggar, dan `petaKemampuan` selalu `null` pada start
+    // dingin (cerminnya murni in-memory) sehingga tanpa efek ini superadmin
+    // tak pernah mendarat di sana sama sekali.
+    LaunchedEffect(tabPendaratan, tabDipilihUser) {
+        if (!tabDipilihUser && tabPendaratan == AppDestination.EKSEKUTIF) selected = tabPendaratan
+    }
+    // Jaring pengaman terpisah dari auto-pendaratan: tab yang sedang dibuka bisa
+    // LENYAP dari daftar di tengah sesi (akses dicabut admin → peta kemampuan
+    // segar → EKSEKUTIF hilang). Tanpa ini `selected` menunjuk tab yang tak lagi
+    // punya tombol di pill — isinya tetap terender dan tak ada cara keluar
+    // selain tombol back. Berlaku juga sesudah user memilih tab sendiri; itu
+    // memang maksudnya.
+    LaunchedEffect(destinations) {
+        // Syarat `selected in bottomNavItems` WAJIB, dan ketiadaannya adalah bug
+        // yang merusak fitur yang sudah jalan: `INVENTORY` SENGAJA bukan anggota
+        // `bottomNavItems` (ia dibuka dari ubin Activity/Akses Cepat, bukan dari
+        // pill) tapi tetap destination yang sah. Tanpa syarat ini predikatnya
+        // SELALU benar saat orang membuka "Cari Barang", dan efeknya menendang
+        // mereka kembali ke tab pertama seketika.
+        if (selected in AppDestination.bottomNavItems && selected !in destinations) {
+            selected = destinations.firstOrNull() ?: AppDestination.ACTIVITY
         }
-        mutableStateOf(initial)
     }
     // Bumped by Home's "Akses Cepat" Inventory tile — see the LaunchedEffect inside
     // InventoryNavHost for why the actual navigate() call lives there, not here.
@@ -486,32 +625,47 @@ private fun MainScreen(
     // menaikkan counter (ActivityScreen sendiri sudah punya `LaunchedEffect(Unit)`
     // untuk itu → tanpa guard ini keduanya akan fetch dobel di layar pertama).
     var activityTabSelectedTrigger by remember { mutableStateOf(0) }
+    // Kembarannya untuk tab Eksekutif, dan alasannya lebih tajam di sana: papan
+    // itu menampilkan UMUR salinan GS ("data 7 menit lalu") yang dihitung server
+    // saat request. Tab ini tetap ter-compose seumur sesi, jadi tanpa sinyal
+    // ini labelnya ikut membeku — layar dengan sengaja menyatakan datanya segar
+    // padahal sudah berjam-jam, yang lebih buruk daripada tak menyebut umur
+    // sama sekali.
+    var eksekutifTabSelectedTrigger by remember { mutableStateOf(0) }
     var previousSelectedForActivitySignal by remember { mutableStateOf<AppDestination?>(null) }
     LaunchedEffect(selected) {
+        val sebelumnya = previousSelectedForActivitySignal
         if (selected == AppDestination.ACTIVITY &&
-            previousSelectedForActivitySignal != null &&
-            previousSelectedForActivitySignal != AppDestination.ACTIVITY
+            sebelumnya != null &&
+            sebelumnya != AppDestination.ACTIVITY
         ) {
             activityTabSelectedTrigger++
+        }
+        if (selected == AppDestination.EKSEKUTIF &&
+            sebelumnya != null &&
+            sebelumnya != AppDestination.EKSEKUTIF
+        ) {
+            eksekutifTabSelectedTrigger++
         }
         previousSelectedForActivitySignal = selected
     }
 
     // Hoisted so we can watch each tab's inner route and hide the floating nav on detail screens.
+    val eksekutifNav = rememberNavController()
     val activityNav = rememberNavController()
     val summaryNav = rememberNavController()
     val inventoryNav = rememberNavController()
     // "Semua menu →" di Activity = pindah tab, bukan navigasi dalam tab.
-    val onOpenSummaryTab: () -> Unit = { selected = AppDestination.SUMMARY }
+    val onOpenSummaryTab: () -> Unit = { pilihTab(AppDestination.SUMMARY) }
     val onQuickAccessInventory: () -> Unit = {
-        selected = AppDestination.INVENTORY
+        pilihTab(AppDestination.INVENTORY)
         inventoryOpenListTrigger++
     }
     // Ubin "Cari Semua" (Activity → PINTASAN). Tab yang sama dengan "Cari Barang", tujuan
     // berbeda: SENGAJA tidak menaikkan `inventoryOpenListTrigger`, sebab sinyal itulah yang
     // mem-pop SEARCH_ROUTE_ROOT dan membuat pencarian gabungan tak terjangkau sejak 41f570d.
     val onQuickAccessSearch: () -> Unit = {
-        selected = AppDestination.INVENTORY
+        pilihTab(AppDestination.INVENTORY)
         inventoryOpenSearchTrigger++
     }
 
@@ -536,11 +690,11 @@ private fun MainScreen(
                     ?.takeIf { it.startsWith("hs_") }
                     ?.let { routeForNavKey(it) }
                 if (komplen != null) {
-                    selected = AppDestination.ACTIVITY
+                    pilihTab(AppDestination.ACTIVITY)
                     activityNav.navigate(komplen) { launchSingleTop = true }
                     return@LaunchedEffect
                 }
-                selected = AppDestination.ACTIVITY
+                pilihTab(AppDestination.ACTIVITY)
                 activityNav.navigate(ROUTE_SPK_HUB) { launchSingleTop = true }
                 // Deep-link halus: buka LANGSUNG halaman tahap terkait (di atas hub, jadi
                 // back → hub). Route dari payload FCM (delivery_notif route_for_kind).
@@ -567,7 +721,7 @@ private fun MainScreen(
             "approval" -> {
                 val sub = pendingNotifRoute?.let { routeForNavKey(it) }
                 if (sub != null) {
-                    selected = AppDestination.ACTIVITY
+                    pilihTab(AppDestination.ACTIVITY)
                     activityNav.navigate(sub) { launchSingleTop = true }
                 }
             }
@@ -579,7 +733,7 @@ private fun MainScreen(
             "crm" -> {
                 val sub = routeForNavKey("crm")
                 if (sub != null) {
-                    selected = AppDestination.ACTIVITY
+                    pilihTab(AppDestination.ACTIVITY)
                     activityNav.navigate(sub) { launchSingleTop = true }
                 }
             }
@@ -588,6 +742,7 @@ private fun MainScreen(
         onConsumeNotifChannel()
     }
 
+    val eksekutifEntry by eksekutifNav.currentBackStackEntryAsState()
     val activityEntry by activityNav.currentBackStackEntryAsState()
     val summaryEntry by summaryNav.currentBackStackEntryAsState()
     val inventoryEntry by inventoryNav.currentBackStackEntryAsState()
@@ -595,6 +750,7 @@ private fun MainScreen(
     // Show the bottom nav only on each tab's root list screen — hide it on any pushed detail
     // (product/lead/ranking/add) and on Settings, so those full-screen sub-pages own the frame.
     val showBottomNav = when (selected) {
+        AppDestination.EKSEKUTIF -> eksekutifEntry?.destination?.route == EKSEKUTIF_ROUTE_ROOT
         AppDestination.ACTIVITY -> activityEntry?.destination?.route == ACTIVITY_ROUTE_ROOT
         AppDestination.SUMMARY -> summaryEntry?.destination?.route == HOME_ROUTE_DASHBOARD
         // Inventory tak lagi punya slot di pill (tombol Cari dihapus 2026-07-29) — ia dibuka
@@ -614,12 +770,14 @@ private fun MainScreen(
     // list), then fall back to Activity, and only exit from Activity's root. Reading the observed
     // entry keeps `canPopSelected` fresh across navigations.
     val selectedNav: NavHostController? = when (selected) {
+        AppDestination.EKSEKUTIF -> eksekutifNav
         AppDestination.ACTIVITY -> activityNav
         AppDestination.SUMMARY -> summaryNav
         AppDestination.INVENTORY -> inventoryNav
         AppDestination.SETTINGS -> null
     }
     val selectedEntry = when (selected) {
+        AppDestination.EKSEKUTIF -> eksekutifEntry
         AppDestination.ACTIVITY -> activityEntry
         AppDestination.SUMMARY -> summaryEntry
         AppDestination.INVENTORY -> inventoryEntry
@@ -637,7 +795,7 @@ private fun MainScreen(
             icon = destination.icon,
             label = destination.label,
             selected = selected == destination,
-            onClick = { selected = destination }
+            onClick = { pilihTab(destination) }
         )
 
         Box(
@@ -690,14 +848,16 @@ private fun MainScreen(
                         ) {
                             DestinationContent(
                                 destination = destination,
-                                onSettingsBack = { selected = AppDestination.ACTIVITY },
-                                onCloseSearch = { selected = AppDestination.ACTIVITY },
+                                onSettingsBack = { pilihTab(AppDestination.ACTIVITY) },
+                                onCloseSearch = { pilihTab(AppDestination.ACTIVITY) },
                                 onQuickAccessInventory = onQuickAccessInventory,
                                 onQuickAccessSearch = onQuickAccessSearch,
                                 onOpenSummaryTab = onOpenSummaryTab,
                                 inventoryOpenListSignal = inventoryOpenListTrigger,
                                 inventoryOpenSearchSignal = inventoryOpenSearchTrigger,
                                 activityTabSelectedSignal = activityTabSelectedTrigger,
+                                eksekutifTabSelectedSignal = eksekutifTabSelectedTrigger,
+                                eksekutifNav = eksekutifNav,
                                 activityNav = activityNav,
                                 summaryNav = summaryNav,
                                 inventoryNav = inventoryNav
@@ -729,13 +889,14 @@ private fun MainScreen(
     BackHandler(enabled = canPopSelected || selected != AppDestination.ACTIVITY) {
         when {
             canPopSelected -> selectedNav?.popBackStack()
-            else -> selected = AppDestination.ACTIVITY
+            else -> pilihTab(AppDestination.ACTIVITY)
         }
     }
 }
 
 /** Left-to-right screen order used to decide which side a tab slides in from on switch. */
 private fun tabOrder(destination: AppDestination): Int = when (destination) {
+    AppDestination.EKSEKUTIF -> -1
     AppDestination.ACTIVITY -> 0
     AppDestination.SUMMARY -> 1
     AppDestination.INVENTORY -> 2

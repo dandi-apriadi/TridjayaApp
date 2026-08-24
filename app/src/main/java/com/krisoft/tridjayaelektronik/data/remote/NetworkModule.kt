@@ -24,21 +24,22 @@ import kotlinx.serialization.json.Json as KJson
 object NetworkModule {
 
     /**
-     * Audit keamanan 2026-08 temuan S-1: certificate pinning SPKI untuk host
-     * produksi. Koneksi lolos bila SALAH SATU pin cocok dengan sertifikat di
-     * rantai yang disajikan server, dan tiga tingkatan dipasang sekaligus:
+     * Audit S-1 (2026-08): certificate pinning SPKI untuk host produksi. Koneksi
+     * lolos bila SALAH SATU pin cocok dengan sertifikat di rantai yang disajikan
+     * server, dan tiga tingkatan dipasang sekaligus:
      *  - leaf `CN=tridjaya.com` (rotasi rutin ~90 hari),
      *  - intermediate Google Trust Services `WE1`,
      *  - root `GTS Root R4` (stabil bertahun-tahun).
      * Dengan begitu pembaruan leaf tidak pernah memutus app di lapangan — yang
      * menahan koneksi adalah kunci publik intermediate/root yang stabil. App
-     * hanya kehilangan ketiganya sekaligus bila domain pindah CA total; saat itu
-     * terjadi, rilis versi ber-pin baru SEBELUM rantai lama ditarik.
+     * hanya boleh kehilangan ketiganya sekaligus jika domain pindah CA total;
+     * saat itu terjadi, rilis versi ber-pin baru SEBELUM rantai lama ditarik.
      *
-     * KETIGA PIN DI BAWAH DIVERIFIKASI ULANG TERHADAP RANTAI LIVE 2026-08-24.
-     * Salah satu pin yang keliru = app TIDAK BISA konek sama sekali di lapangan,
-     * dan tak ada jalan memperbaikinya selain rilis APK baru — jadi jangan
-     * pernah menyunting daftar ini tanpa menjalankan ulang prosedur di bawah dan
+     * KETIGA PIN DI BAWAH DIVERIFIKASI ULANG TERHADAP RANTAI LIVE 2026-08-24
+     * (`openssl s_client` langsung ke tridjaya.com, bukan disalin percaya).
+     * Satu pin yang keliru = app TIDAK BISA konek sama sekali di lapangan, dan
+     * tak ada jalan memperbaikinya selain rilis APK baru — jadi jangan pernah
+     * menyunting daftar ini tanpa menjalankan ulang prosedur di bawah dan
      * mencocokkan keluarannya baris per baris.
      *
      * Regenerasi pin (jalankan dari mesin dev):
@@ -106,6 +107,15 @@ object NetworkModule {
             .readTimeout(8, TimeUnit.SECONDS)
             .writeTimeout(8, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
+            // Audit S-2 lanjutan (2026-08-23): `redactHeader("Authorization")` di
+            // baseClientBuilder() cuma menutup HEADER. Pada level BODY (aktif di
+            // build debug) interceptor ini tetap mencetak seluruh badan request —
+            // `RefreshRequest.refreshToken` mentah — dan badan respons —
+            // `access_token`/`refresh_token` baru — apa adanya ke logcat. Client
+            // ini HANYA memanggil /api/auth/refresh (lihat komentar di atas), jadi
+            // membuang loggernya di sini tak mengurangi kegunaan log debug untuk
+            // trafik lain — pola sama createProspekUploadApi/createAktivitasUploadApi.
+            .apply { interceptors().removeAll { it is HttpLoggingInterceptor } }
             .build()
         val plainAuthApi = buildRetrofit(refreshClient).create(AuthApi::class.java)
 
@@ -121,8 +131,28 @@ object NetworkModule {
         return buildRetrofit(client)
     }
 
-    fun createAuthApi(tokenStore: TokenStore): AuthApi =
-        authenticatedRetrofit(tokenStore).create(AuthApi::class.java)
+    /**
+     * Audit S-2 lanjutan (2026-08-23): client TERPISAH dari yang dipakai API lain,
+     * sama seperti `createProspekUploadApi`/`createAktivitasUploadApi` — bukan
+     * karena badannya besar, tapi karena badannya RAHASIA. `AuthApi` membawa
+     * `LoginRequest.password`, `ChangePasswordRequest.oldPassword`/`newPassword`,
+     * dan `ResetPasswordRequest.newPassword` mentah di body; client bersama
+     * (`baseClientBuilder()`) mencetak badan APA ADANYA ke logcat di build debug
+     * — `redactHeader("Authorization")` cuma menutup HEADER, sama sekali tak
+     * menyentuh body. Token cabut lewat revoke; password sering dipakai ulang di
+     * sistem lain (72,3% password=username, catatan audit GS 2026-08-15), jadi
+     * kebocorannya lebih berbahaya daripada kebocoran header yang sudah ditutup.
+     */
+    fun createAuthApi(tokenStore: TokenStore): AuthApi {
+        val base = authenticatedRetrofit(tokenStore)
+        val authClient = (base.callFactory() as OkHttpClient).newBuilder()
+            .apply { interceptors().removeAll { it is HttpLoggingInterceptor } }
+            .build()
+        return base.newBuilder()
+            .client(authClient)
+            .build()
+            .create(AuthApi::class.java)
+    }
 
     fun createInventoryApi(tokenStore: TokenStore): InventoryApi =
         authenticatedRetrofit(tokenStore).create(InventoryApi::class.java)
@@ -135,6 +165,9 @@ object NetworkModule {
 
     fun createAbsensiApi(tokenStore: TokenStore): AbsensiApi =
         authenticatedRetrofit(tokenStore).create(AbsensiApi::class.java)
+
+    fun createEksekutifApi(tokenStore: TokenStore): EksekutifApi =
+        authenticatedRetrofit(tokenStore).create(EksekutifApi::class.java)
 
     fun createEventApi(tokenStore: TokenStore): EventApi =
         authenticatedRetrofit(tokenStore).create(EventApi::class.java)
@@ -195,6 +228,12 @@ object NetworkModule {
     fun createHomeServiceApi(tokenStore: TokenStore): HomeServiceApi =
         authenticatedRetrofit(tokenStore).create(HomeServiceApi::class.java)
 
+    /** Pemasangan AC (sisi petugas). Menumpang wildcard gateway
+     *  `/api/inventory/delivery/{*rest}` yang sudah ada, jadi client-nya sama
+     *  dengan API lain — tak ada base URL atau timeout khusus. */
+    fun createAcInstallApi(tokenStore: TokenStore): AcInstallApi =
+        authenticatedRetrofit(tokenStore).create(AcInstallApi::class.java)
+
     fun createDeviceApi(tokenStore: TokenStore): DeviceApi =
         authenticatedRetrofit(tokenStore).create(DeviceApi::class.java)
 
@@ -240,11 +279,10 @@ object NetworkModule {
                 HttpLoggingInterceptor.Level.NONE
             }
         }
-        // Audit S-2 (2026-08): pada level BODY interceptor ini mencetak SEMUA
+        // Audit S-2 (2026-08): pada level BODY, interceptor ini mencetak semua
         // header request apa adanya — termasuk `Authorization: Bearer <JWT>`
-        // yang sah — ke logcat, dan buffer log perangkat bisa dibaca proses
-        // lain pada perangkat ber-root/ber-ADB. Redact header-nya supaya log
-        // debug tetap berguna tanpa menyimpan sesi sungguhan.
+        // yang sah — ke logcat. Redact header-nya supaya log debug tetap
+        // berguna tanpa menyimpan sesi sungguhan di buffer log perangkat.
         logging.redactHeader("Authorization")
         return OkHttpClient.Builder()
             .dispatcher(sharedDispatcher)

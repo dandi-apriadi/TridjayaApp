@@ -31,6 +31,17 @@ import java.io.File
  *    `init`. Petanya karena itu berumur satu KUNJUNGAN layar Indent, bukan satu
  *    detail. Pulih sendiri dengan keluar-masuk layar.
  *
+ * **`ui/eksekutif/EksekutifViewModel` (2026-08-23) adalah pembaca dengan alasan
+ * yang BERBEDA dari semuanya** — ia satu-satunya yang mengambil peta TANPA
+ * memakainya untuk gerbang apa pun di layarnya sendiri. Yang dijaganya adalah
+ * cermin `AuthRepository.petaKemampuanTerakhir`, yaitu penentu apakah TAB
+ * Eksekutif tampil. Superadmin mendarat LANGSUNG di tab itu; kalau ia tak pernah
+ * membuka Activity/Operasional lagi, kedua penyegar yang ada tak pernah `load()`
+ * ulang dan cerminnya beku seumur proses — akses yang dicabut tetap menampilkan
+ * tab-nya (lalu dijawab 403), akses baru tak pernah terbaca. Karena itu ia WAJIB
+ * lewat `PenyegarKemampuan`, sama seperti dua VM tab lainnya. Mencabutnya
+ * dengan alasan "hasilnya tak dipakai" akan membuka lagi persis lubang itu.
+ *
  * **Yang dijaga berkas ini adalah pindahnya salah satu dari mereka ke scope yang
  * hidup lebih lama.** Menaikkan VM mana pun di atas ke root tab (yang tetap
  * ter-compose seumur proses, lihat `visitedDestinations` di `MainActivity`)
@@ -73,6 +84,8 @@ class PembacaPetaKemampuanTest {
             "VM route ROUTE_KPI yang di-push lalu di-pop; mati bersama layarnya",
         "ui/indent/IndentDetailScreen.kt" to
             "VM menempel ROUTE_INDENT; peta berumur satu kunjungan layar Indent",
+        "ui/eksekutif/EksekutifViewModel.kt" to
+            "tab kept-alive — WAJIB lewat PenyegarKemampuan; ia MENULIS cermin gerbang tab, bukan membaca gerbang layarnya sendiri",
     )
 
     @Test

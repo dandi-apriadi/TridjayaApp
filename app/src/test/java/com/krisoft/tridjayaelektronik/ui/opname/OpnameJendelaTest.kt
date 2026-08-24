@@ -1,5 +1,6 @@
 package com.krisoft.tridjayaelektronik.ui.opname
 
+import com.krisoft.tridjayaelektronik.data.model.OpnameSessionDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -93,5 +94,35 @@ class OpnameJendelaTest {
         // Pemanggil harus bisa membedakan "tanpa batas" dari "sudah lewat".
         assertNull(labelJendela(null, null))
         assertNull(labelJendela("", ""))
+    }
+
+    /**
+     * Kartu daftar sesi (`OpnameListScreen`) memakai label yang SAMA dengan
+     * layar detail, dan sumbernya `OpnameSessionDto` — bukan `OpnameDetailDto`.
+     *
+     * Dua DTO itu terpisah (endpoint detail mem-flatten sesi ke objek yang sama
+     * dengan `items`), jadi field jendela harus ada di KEDUANYA. Kalau salah
+     * satunya tertinggal, gejalanya bukan galat kompilasi melainkan kartu yang
+     * diam-diam tak pernah menampilkan jendela.
+     */
+    @Test
+    fun `dto daftar membawa jendela dan bisa dilabeli`() {
+        val sesi = OpnameSessionDto(
+            id = "s-1",
+            kodeOpname = "OPN-20260809-0001",
+            mulaiAt = "2026-08-09T08:00:00",
+            selesaiAt = "2026-08-09T17:00:00",
+        )
+        assertEquals("09/08 08:00-17:00", labelJendela(sesi.mulaiAt, sesi.selesaiAt))
+    }
+
+    @Test
+    fun `sesi daftar tanpa selesaiAt bukan sesi terlambat`() {
+        // Peringatan ini ditulis eksplisit di `OpnameJendela.kt`: `selesaiAt`
+        // kosong = boleh kapan saja (seluruh sesi pra-migrasi 196), jadi
+        // kartunya menyebut "mulai …" dan TIDAK boleh menyiratkan tenggat.
+        val sesi = OpnameSessionDto(id = "s-1", mulaiAt = "2026-08-09T08:00:00")
+        assertEquals("mulai 09/08 08:00", labelJendela(sesi.mulaiAt, sesi.selesaiAt))
+        assertNull(labelJendela(OpnameSessionDto(id = "s-2").mulaiAt, null))
     }
 }

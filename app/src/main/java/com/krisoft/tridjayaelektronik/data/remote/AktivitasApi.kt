@@ -45,7 +45,24 @@ interface AktivitasApi {
      */
     @GET("api/raport-harian")
     suspend fun list(
-        @Query("tanggal") tanggal: String,
+        /**
+         * SATU hari. Boleh `null`, dan itu bukan kelalaian: server MENANG-kan
+         * `tanggal` atas rentang — begitu ia terisi, `tanggal_from`/`tanggal_to`
+         * dibuang diam-diam (`aktivitas_harian/service.rs`, keduanya cuma
+         * dibaca saat `tanggal_filter.is_none()`). Jadi pemanggil rentang wajib
+         * TIDAK mengirimnya sama sekali; Retrofit menghilangkan query param
+         * bernilai `null`.
+         */
+        @Query("tanggal") tanggal: String? = null,
+        /**
+         * Rentang tanggal inklusif (`yyyy-MM-dd`), dipakai lencana angka per
+         * hari di layar PIC. `tanggal_from > tanggal_to` dijawab 422, dan
+         * keduanya diabaikan bila [tanggal] terisi — lihat catatan di atas.
+         * Ejaan snake_case mengikuti `ListAktivitasQuery` (nol `serde(rename)`
+         * di sana).
+         */
+        @Query("tanggal_from") tanggalFrom: String? = null,
+        @Query("tanggal_to") tanggalTo: String? = null,
         @Query("karyawan_id") karyawanId: String? = null,
         @Query("limit") limit: Int = 200,
         /** `pending|approved|rejected|all` — nilai lain dijawab 422 oleh server. */

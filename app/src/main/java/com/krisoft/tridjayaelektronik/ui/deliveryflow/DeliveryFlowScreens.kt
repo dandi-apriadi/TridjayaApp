@@ -100,6 +100,9 @@ import com.krisoft.tridjayaelektronik.data.model.formatWaktuId
 import com.krisoft.tridjayaelektronik.data.model.CreateDeliveryBody
 import com.krisoft.tridjayaelektronik.data.model.KontributorDto
 import com.krisoft.tridjayaelektronik.data.model.DeliveryJobDto
+import com.krisoft.tridjayaelektronik.data.model.KontrolSaringan
+import com.krisoft.tridjayaelektronik.data.model.SaringanAntrian
+import com.krisoft.tridjayaelektronik.data.model.indikatorTerpotong
 import com.krisoft.tridjayaelektronik.data.model.DeliveryStatusKey
 import com.krisoft.tridjayaelektronik.data.model.parseTimestampMillis
 import com.krisoft.tridjayaelektronik.ui.home.formatRupiahShort
@@ -335,20 +338,36 @@ fun DeliveryQueueScreen(
      * pendek lalu menyimpulkan sudah beres.
      */
     periodeFilter: Boolean = false,
+    /**
+     * Kontrol saringan yang dirender di atas daftar — bendera EKSPLISIT per
+     * rute, disetel di `ActivityNavHost`. Default nihil supaya layar yang belum
+     * disetel tak berubah sama sekali.
+     *
+     * TIDAK disimpulkan dari `status`/role: `kodeDealer` diabaikan server di
+     * Riwayat PDI dan justru MENGOSONGKAN daftar di Antri Kasir (rantai kasir
+     * mengisi `cabang_bayar`, bukan `kode_dealer`, lalu keduanya di-AND). Lihat
+     * KDoc `SaringanAntrian`.
+     */
+    kontrolSaringan: KontrolSaringan = KontrolSaringan.NIHIL,
     onBack: () -> Unit,
     onOpen: (String) -> Unit,
     viewModel: DeliveryFlowViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
     var periode by remember { mutableStateOf(PeriodeSpk.HARI_INI) }
+    var saringan by remember { mutableStateOf(SaringanAntrian.KOSONG) }
     // Dihitung ulang tiap recomposition (bukan di-`remember`): `muatUlang` di
     // bawah ikut dibuat ulang bersamanya, jadi pull-to-refresh dan tombol
     // coba-lagi selalu membawa periode TERPILIH — bukan rentang yang
     // ter-capture saat komposisi pertama.
     val rentang = if (periodeFilter) rentangPeriode(periode) else RentangTanggal(null, null)
-    // `rentang` WAJIB ikut jadi kunci; tanpa itu memilih chip lain tak memuat apa pun.
-    LaunchedEffect(status, view, rentang) { viewModel.loadQueue(status, view, asDriver, rentang.dari, rentang.sampai) }
-    val muatUlang = { viewModel.loadQueue(status, view, asDriver, rentang.dari, rentang.sampai) }
+    // `rentang` DAN `saringan` WAJIB ikut jadi kunci; tanpa itu memilih chip /
+    // menekan cari tak memuat apa pun, dan pull-to-refresh menjatuhkan pilihan
+    // yang sedang aktif.
+    LaunchedEffect(status, view, rentang, saringan) {
+        viewModel.loadQueue(status, view, asDriver, rentang.dari, rentang.sampai, saringan)
+    }
+    val muatUlang = { viewModel.loadQueue(status, view, asDriver, rentang.dari, rentang.sampai, saringan) }
 
     // ── Aksi level-SPK (2026-08-06) ──────────────────────────────────────────
     // Backend mem-FAN-OUT surat jalan, penugasan driver, konfirmasi kasir,
@@ -396,6 +415,22 @@ fun DeliveryQueueScreen(
               // lalu mendapat nol hasil tak punya jalan kembali ke "Semua" dan
               // membacanya sebagai data yang hilang.
               if (periodeFilter) PeriodeFilterRow(dipilih = periode, onPilih = { periode = it })
+              // Alasan yang sama dengan baris chip di atas: bilah saringan DI
+              // LUAR `when`, supaya orang yang menyaring ke satu cabang lalu
+              // mendapat nol hasil masih punya jalan kembali.
+              SaringanAntrianBar(
+                  kontrol = kontrolSaringan,
+                  saringan = saringan,
+                  onUbah = { saringan = it },
+              )
+              // "Menampilkan N dari M" — diam kalau daftarnya utuh ATAU kalau
+              // server belum mengirim `total` (APK baru di atas server lama).
+              IndikatorTerpotongRow(
+                  indikatorTerpotong(
+                      ditampilkan = state.items.size,
+                      total = state.totalAntrian,
+                  )
+              )
               Box(modifier = Modifier.weight(1f)) {
                 when {
                 state.loading && state.items.isEmpty() ->
@@ -412,8 +447,16 @@ fun DeliveryQueueScreen(
                             icon = { Icon(Icons.Rounded.LocalShipping, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp)) },
                             title = "Antrian kosong",
                             // Kosong karena disaring ≠ kosong karena tak ada datanya.
-                            subtitle = if (periodeFilter) "Tidak ada SPK pada periode ini (${periode.keterangan}). Ganti periode di atas."
-                            else "Belum ada job pada tahap ini."
+                            // Urutan ini disengaja: saringan yang BARU SAJA
+                            // ditekan orangnya lebih menjelaskan hasil nol
+                            // daripada periode yang mungkin sudah lama dipilih.
+                            subtitle = when {
+                                saringan.adaYangAktif ->
+                                    "Tidak ada yang cocok dengan saringan di atas. Hapus pencarian atau pilih \"Semua cabang\"."
+                                periodeFilter ->
+                                    "Tidak ada SPK pada periode ini (${periode.keterangan}). Ganti periode di atas."
+                                else -> "Belum ada job pada tahap ini."
+                            }
                         )
                     }
                 else -> Column(modifier = Modifier.fillMaxSize()) {
@@ -1234,7 +1277,17 @@ fun DeliveryJobDetailScreen(id: String, onBack: () -> Unit, viewModel: DeliveryF
                         // Unit sudah sampai konsumen tapi uangnya belum tercatat masuk.
                         // Berlaku SEMUA jenis pembayaran (2026-07-28) — sebelumnya
                         // non-COD tak punya titik konfirmasi sama sekali.
-                        job.status == DeliveryStatusKey.DELIVERED && access.kasir && job.setoranKasirAt.isNullOrBlank() ->
+                        //
+                        // Syaratnya SE-SPK, bukan `job.setoranKasirAt` unit ini saja
+                        // (2026-08-22). Sejak formnya menutup seluruh SPK sekali jalan,
+                        // memakai unit yang dibuka sebagai syarat meninggalkan lubang:
+                        // kiriman yang separuh berhasil membuat unit yang dibuka
+                        // tersetor sementara saudaranya belum, lalu layar ini menutup
+                        // aksinya sama sekali — sisa barang tak bisa disetor dari kartu
+                        // SPK mana pun. `unitMenungguSetoran` sendiri fail-soft ke satu
+                        // unit, jadi perilaku lama tetap berlaku saat batch tak termuat.
+                        job.status == DeliveryStatusKey.DELIVERED && access.kasir &&
+                            unitMenungguSetoran(state.batchUnits, job).isNotEmpty() ->
                             SetoranKasirAction(job, viewModel, state.submitting)
                         // Diskon DITOLAK = SPK kembali ke sales (2026-08-06). Sebelum
                         // ini penolakan otomatis melepas unit ke antrian PDI; sekarang
@@ -2250,15 +2303,21 @@ private fun RevisiDiskonAction(
 
 @Composable
 private fun SetoranKasirAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, submitting: Boolean) {
-    val id = job.id
-    var nominal by rememberSaveable { mutableStateOf("") }
+    val state by vm.state.collectAsState()
+    // Unit se-SPK yang masih menunggu setoran; FAIL-SOFT ke satu unit kalau
+    // `batchUnits` belum/gagal termuat — aturan lengkapnya di `SetoranKasirGate.kt`.
+    val menunggu = unitMenungguSetoran(state.batchUnits, job)
+    val multi = menunggu.size > 1
     val context = LocalContext.current
-    val file = remember { File(context.cacheDir, "delivery/setoran_$id.jpg").apply { parentFile?.mkdirs() } }
+    val file = remember { File(context.cacheDir, "delivery/setoran_${job.id}.jpg").apply { parentFile?.mkdirs() } }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
-    val photoState by vm.state.collectAsState()
     val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onDeliverPhotoCaptured(file) }
+    // Nominal per unit-id. Kunci `job.id` supaya berpindah SPK mengosongkan
+    // isian — kalau tidak, angka SPK sebelumnya ikut terkirim (pola sama
+    // [ConfirmSpkAction], dan alasan Saver-nya ada di [petaJawabanSaver]).
+    val nominal = rememberSaveable(job.id, saver = petaJawabanSaver) { mutableStateMapOf<String, String>() }
 
-    photoState.deliverPhoto?.takeIf { !photoState.deliverPhotoConfirmed }?.let { bmp ->
+    state.deliverPhoto?.takeIf { !state.deliverPhotoConfirmed }?.let { bmp ->
         PhotoReviewDialog(bmp, onRetake = { vm.retakeDeliverPhoto() }, onConfirm = { vm.confirmDeliverPhoto() })
     }
 
@@ -2279,39 +2338,73 @@ private fun SetoranKasirAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, s
             color = MaterialTheme.colorScheme.primary,
         )
     }
-    // Kebalikan dari catatan fan-out di tahap lain, dan justru karena itu
-    // WAJIB ada: antrian "Konfirmasi Pembayaran" kini satu baris per SPK
-    // (2026-08-06), sedangkan `POST /setoran-kasir` tetap menutup SATU unit.
-    // Tanpa kalimat ini, kartu SPK yang tetap muncul setelah dikonfirmasi
-    // terbaca sebagai gagal-simpan, padahal sisa barangnya memang belum.
-    Text(
-        "Berlaku untuk BARANG INI saja — barang lain di SPK yang sama " +
-            "dikonfirmasi sendiri-sendiri (nominal tiap barang beda).",
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.SemiBold, color = Color(0xFFB5670C),
-    )
-    Spacer(Modifier.height(10.dp))
-    Text(
-        "${job.namaBarang ?: job.kodeBarang ?: "-"}${job.tipe?.let { " · $it" } ?: ""}",
-        style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
-    )
-    Spacer(Modifier.height(10.dp))
-    MoneyTextField(nominal, { nominal = it }, label = "Nominal diterima (wajib) *", modifier = Modifier.fillMaxWidth())
-    Spacer(Modifier.height(10.dp))
-    PhotoBox(photoState.deliverPhoto, "Foto bukti (wajib)") { cam.launch(uri) }
+    if (multi) {
+        Spacer(Modifier.height(4.dp))
+        SpkFanOutNote(
+            "${menunggu.size} barang dalam SPK ini dikonfirmasi sekaligus — SATU foto bukti " +
+                "setor untuk semuanya, nominalnya tetap diisi per barang.",
+        )
+    }
+    menunggu.forEach { u ->
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "${u.namaBarang ?: u.kodeBarang ?: u.kodePengiriman}${u.tipe?.let { " · $it" } ?: ""}",
+            style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
+        )
+        // Angka RUJUKAN, sengaja bukan prefill kolom. `hargaTotal` cuma sama
+        // dengan uang yang diterima kasir pada COD full; kredit menerima DP-nya
+        // saja dan COD `dp` menerima sisanya. Mengisikannya otomatis menaruh
+        // angka yang TERLIHAT benar di dua dari tiga jenis pembayaran, dan kasir
+        // yang percaya kolom terisi tak punya cara tahu ia salah.
+        rujukanSetoran(u)?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.height(6.dp))
+        MoneyTextField(
+            nominal[u.id].orEmpty(), { v -> nominal[u.id] = v },
+            // Label menyebut barangnya saat lebih dari satu: kolom bernama sama
+            // semua tak bisa dibedakan isinya.
+            label = if (multi) {
+                "Diterima untuk ${u.namaBarang ?: u.kodeBarang ?: u.kodePengiriman} (wajib) *"
+            } else {
+                "Nominal diterima (wajib) *"
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    Spacer(Modifier.height(12.dp))
+    PhotoBox(state.deliverPhoto, if (multi) "Foto bukti setor — satu untuk SPK ini (wajib)" else "Foto bukti (wajib)") { cam.launch(uri) }
     Spacer(Modifier.height(14.dp))
-    val hasPhoto = photoState.deliverPhoto != null && photoState.deliverPhotoConfirmed
-    // Seluruh aturannya (termasuk KENAPA nominal harus > 0, bukan >= 0) hidup di
-    // `SetoranKasirGate.kt` sebagai fungsi murni yang diuji — jangan menyalinnya
-    // balik ke sini.
-    val gate = setoranKasirGate(nominal, hasPhoto)
+    val hasPhoto = state.deliverPhoto != null && state.deliverPhotoConfirmed
+    // Seluruh aturannya (termasuk KENAPA nominal harus > 0, bukan >= 0, dan
+    // kenapa fan-out klien boleh di endpoint ini) hidup di `SetoranKasirGate.kt`
+    // sebagai fungsi murni yang diuji — jangan menyalinnya balik ke sini.
+    val rencana = setoranSpkRencana(menunggu.map { SetoranBaris(it.id, nominal[it.id].orEmpty()) }, hasPhoto)
     ExpressiveFilledButton(
-        onClick = { vm.setoranKasir(id, nominal.toDoubleOrNull() ?: 0.0) {} },
-        enabled = !submitting && gate.bolehKirim, modifier = Modifier.fillMaxWidth(),
+        onClick = { vm.setoranKasirSpk(rencana.kiriman) {} },
+        enabled = !submitting && rencana.bolehKirim, modifier = Modifier.fillMaxWidth(),
     ) {
         if (submitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-        else Text(gate.label)
+        else Text(rencana.label)
     }
+}
+
+/**
+ * Baris angka rujukan di bawah nama barang — FAKTA dari server saja, tanpa satu
+ * pun angka turunan. `null` = tak ada yang bisa disebutkan (server lama), dan
+ * barisnya tidak dirender sama sekali.
+ *
+ * Sengaja TIDAK menampilkan "sisa yang harus ditagih": penurunannya berbeda per
+ * jenis pembayaran (kredit lewat fincoy tak menagih sisa ke konsumen sama
+ * sekali), jadi satu rumus di sini akan salah untuk sebagian SPK tanpa terlihat
+ * salah.
+ */
+private fun rujukanSetoran(u: DeliveryJobDto): String? {
+    val bagian = buildList {
+        u.hargaTotal?.takeIf { it > 0 }?.let { add("Harga ${rupiah(it)}") }
+        u.kasirDpDiterima?.takeIf { it > 0 }?.let { add("DP sudah diterima ${rupiah(it)}") }
+    }
+    return bagian.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
 @Composable

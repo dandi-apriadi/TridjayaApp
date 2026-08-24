@@ -1,0 +1,129 @@
+package com.krisoft.tridjayaelektronik.ui.eksekutif
+
+import android.net.Uri
+import androidx.compose.animation.core.EaseInOutQuart
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+
+const val EKSEKUTIF_ROUTE_ROOT = "eksekutif_papan"
+private const val ROUTE_CABANG = "eksekutif_cabang/{kodeDealer}"
+
+/**
+ * `kode_dealer` bentuknya `D-01` — tak ada karakter yang perlu di-escape hari
+ * ini, tapi ia datang dari server dan bukan dari konstanta di sini. Encode-nya
+ * ongkos nol; melewatkannya adalah kelas bug yang sudah menjatuhkan app di
+ * `InventoryNavHost` (kode barang ber-`/` memecah pola rute lalu `navigate`
+ * melempar `IllegalArgumentException`).
+ */
+private fun ruteCabang(kodeDealer: String) = "eksekutif_cabang/${Uri.encode(kodeDealer)}"
+
+/**
+ * Tab "Eksekutif" — papan pantau lintas cabang untuk superadmin.
+ *
+ * Dua route, bukan state-swap di dalam satu layar: pill bawah HARUS hilang di
+ * layar detail (`MainActivity.showBottomNav` menilainya dari route), dan
+ * state-swap tak punya route untuk dinilai.
+ *
+ * **Satu ViewModel dipakai bersama kedua route**, diambil lewat entri back-stack
+ * route AKAR. Kalau tiap route punya instansnya sendiri, layar detail akan
+ * memuat ulang seluruh papan hanya untuk tahu rentang tanggal yang sedang
+ * dipilih — dan pilihan rentang di detail tak akan pernah sampai ke papan.
+ */
+@Composable
+fun EksekutifNavHost(
+    navController: NavHostController = rememberNavController(),
+    /**
+     * Dinaikkan `MainActivity` tiap tab ini BERUBAH MENJADI terpilih. Nilai
+     * awalnya (0) sengaja tak memicu apa pun — `init` ViewModel sudah memuat
+     * sekali, dan tanpa penjaga itu pembukaan pertama menembak dua kali.
+     */
+    tabSelectedSignal: Int = 0,
+) {
+    NavHost(
+        navController = navController,
+        startDestination = EKSEKUTIF_ROUTE_ROOT,
+        // Transisi sub-layar Rhythm yang sama dengan NavHost tab lain.
+        enterTransition = {
+            fadeIn(tween(300)) + slideInVertically(
+                initialOffsetY = { it / 4 },
+                animationSpec = tween(350, easing = EaseInOutQuart),
+            )
+        },
+        exitTransition = { fadeOut(tween(300)) },
+        popEnterTransition = { fadeIn(tween(300)) },
+        popExitTransition = {
+            fadeOut(tween(300)) + slideOutVertically(
+                targetOffsetY = { it / 4 },
+                animationSpec = tween(350, easing = EaseInOutQuart),
+            )
+        },
+    ) {
+        composable(EKSEKUTIF_ROUTE_ROOT) { entry ->
+            val viewModel: EksekutifViewModel = hiltViewModel(entry)
+            // Tab ini tetap ter-compose seumur sesi (`visitedDestinations` di
+            // MainActivity), jadi kembali ke sini TIDAK memicu daur hidup apa
+            // pun dan datanya bisa berjam-jam basi — termasuk label umur salinan
+            // GS, yang justru menyatakan dirinya segar. `LaunchedEffect(signal)`
+            // di ujung rantai adalah pola yang sama dengan tab Activity.
+            LaunchedEffect(tabSelectedSignal) {
+                if (tabSelectedSignal > 0) viewModel.muat()
+            }
+            EksekutifScreen(
+                viewModel = viewModel,
+                // Hanya BERPINDAH. Pemuatannya dimiliki `LaunchedEffect(kode)` di
+                // route detail — satu pemilik, supaya jalur normal dan jalur
+                // pemulihan sesudah process death memakai kode yang sama dan tak
+                // ada permintaan ganda pada tiap ketukan.
+                onBukaCabang = { kode ->
+                    navController.navigate(ruteCabang(kode)) { launchSingleTop = true }
+                },
+            )
+        }
+        composable(ROUTE_CABANG) { entriIni ->
+            // ViewModel milik route AKAR, di-`remember` dengan kunci
+            // `NavBackStackEntry` layar INI — bukan `navController`.
+            //
+            // Bedanya bukan gaya: `navController` adalah objek yang sama seumur
+            // NavHost, jadi meng-`remember`-nya menahan entri AKAR yang mungkin
+            // sudah dibuang dan dibuat ulang (proses di-restore, atau tumpukan
+            // di-pop lalu diisi lagi) — ViewModel yang dipakai layar ini lalu
+            // menempel pada entri MATI, sehingga `pilihRentang` di sini tak
+            // pernah sampai ke papan. Lint `UnrememberedGetBackStackEntry`
+            // menolak bentuk yang salah, dan itu satu-satunya pemeriksa yang
+            // menangkapnya — gejalanya di lapangan cuma "layarnya tak ikut
+            // berubah", tanpa galat.
+            val akar = remember(entriIni) {
+                navController.getBackStackEntry(EKSEKUTIF_ROUTE_ROOT)
+            }
+            val viewModel: EksekutifViewModel = hiltViewModel(akar)
+            // Argumen route DIBACA, bukan sekadar dititipkan lewat state.
+            // Sesudah process death, `savedInstanceState` memulihkan back stack
+            // tapi ViewModel-nya lahir kosong — layar ini akan menganggur
+            // permanen tanpa satu pun galat kalau kode dealer-nya hanya hidup di
+            // memori. `LaunchedEffect(kode)` memuatnya ulang; kalau state-nya
+            // memang sudah benar, `bukaCabang` cuma menembak sekali lagi.
+            val kode = entriIni.arguments?.getString("kodeDealer").orEmpty()
+            LaunchedEffect(kode) {
+                if (kode.isNotBlank()) viewModel.bukaCabang(kode)
+            }
+            EksekutifCabangScreen(
+                viewModel = viewModel,
+                onBack = {
+                    viewModel.tutupCabang()
+                    navController.popBackStack()
+                },
+            )
+        }
+    }
+}
