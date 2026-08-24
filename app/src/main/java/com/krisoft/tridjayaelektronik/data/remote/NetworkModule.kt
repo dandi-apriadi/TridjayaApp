@@ -35,6 +35,13 @@ object NetworkModule {
      * hanya boleh kehilangan ketiganya sekaligus jika domain pindah CA total;
      * saat itu terjadi, rilis versi ber-pin baru SEBELUM rantai lama ditarik.
      *
+     * KETIGA PIN DI BAWAH DIVERIFIKASI ULANG TERHADAP RANTAI LIVE 2026-08-24
+     * (`openssl s_client` langsung ke tridjaya.com, bukan disalin percaya).
+     * Satu pin yang keliru = app TIDAK BISA konek sama sekali di lapangan, dan
+     * tak ada jalan memperbaikinya selain rilis APK baru — jadi jangan pernah
+     * menyunting daftar ini tanpa menjalankan ulang prosedur di bawah dan
+     * mencocokkan keluarannya baris per baris.
+     *
      * Regenerasi pin (jalankan dari mesin dev):
      *   openssl s_client -connect tridjaya.com:443 -servername tridjaya.com \
      *     -showcerts </dev/null 2>/dev/null > chain.txt
