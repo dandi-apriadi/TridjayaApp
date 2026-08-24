@@ -35,4 +35,10 @@
          daftar itu sudah panjang justru karena entri ini gampang terlupa. Dijaga
          `FileProviderPathsTest`. -->
     <cache-path name="ac_install" path="ac-install/" />
+    <!-- Slip gaji yang diekspor jadi PDF, ditulis `SlipGajiPdf.kt` ke
+         `cacheDir/slip-gaji/`. Layar Slip Gaji memasang FLAG_SECURE (audit 3.4)
+         sehingga screenshot diblokir — ekspor PDF inilah penggantinya, jadi
+         entri yang hilang di sini mencabut satu-satunya cara karyawan menyimpan
+         slipnya. Dijaga `FileProviderPathsTest`. -->
+    <cache-path name="slip_gaji" path="slip-gaji/" />
 </paths>
