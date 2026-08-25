@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.ConfirmationNumber
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -230,15 +231,30 @@ fun KuponGebyarScreen(
 @Composable
 private fun RingkasanCabang(state: KuponGebyarUiState) {
     if (state.namaCabang.isBlank() && state.total == 0) return
+    val capaian = teksCapaian(state.sudahDikirim, state.jumlahKupon, state.persen)
+    val rasio = rasioCapaian(state.persen)
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-        Text(
-            text = buildString {
-                if (state.namaCabang.isNotBlank()) append("Cabang: ${state.namaCabang} · ")
-                append("${state.sudahDikirim} sudah dikirim · ${state.total} tersisa")
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (state.namaCabang.isNotBlank()) {
+            Text(
+                text = "Cabang: ${state.namaCabang}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (capaian != null && rasio != null) {
+            Text(
+                text = capaian,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            LinearProgressIndicator(
+                progress = { rasio },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp, bottom = 2.dp),
+            )
+        }
         if (state.tanpaNomor > 0) {
             // Dipisah supaya cabang tak terlihat lalai untuk sebab yang bukan
             // salahnya: nomornya memang tak ada di sistem, jadi undangannya

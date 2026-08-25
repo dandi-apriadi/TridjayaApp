@@ -101,3 +101,30 @@ internal fun adaHalamanLagi(sudahDimuat: Int, total: Int): Boolean = sudahDimuat
  */
 internal fun pesanBuktiTertunda(asli: String): String =
     "$asli Fotonya sudah terunggah — pakai \"Simpan ulang\", tak perlu memotret lagi."
+
+/**
+ * Teks indikator capaian cabang.
+ *
+ * `null` = tak ada yang bisa dilaporkan (cabang tanpa konsumen berhak). Itu
+ * BUKAN 0%: cabang tanpa pekerjaan tidak sedang tertinggal, dan menulis nol
+ * menyuruh orang mengejar pekerjaan yang tidak ada. Aturan yang sama dipakai
+ * Papan Gebyar sisi manager.
+ *
+ * Persennya datang dari SERVER, tak pernah dihitung ulang di sini — kalau app
+ * membaginya sendiri, ia akan memakai `total` (BARIS) sebagai penyebut
+ * sementara papan memakai KUPON, dan dua layar berselisih angka tanpa satu pun
+ * galat muncul.
+ */
+internal fun teksCapaian(sudahDikirim: Int, jumlahKupon: Int, persen: Double?): String? {
+    if (persen == null || jumlahKupon <= 0) return null
+    // Dibulatkan ke bawah: 99,6% yang tampil "100%" membuat orang berhenti
+    // mencari padahal masih ada satu konsumen yang belum dikirimi.
+    val bulat = persen.coerceIn(0.0, 100.0).toInt()
+    return "$bulat% terkirim · $sudahDikirim dari $jumlahKupon kupon"
+}
+
+/**
+ * Nilai bilah kemajuan, 0f..1f. `null` = bilahnya tak usah dirender.
+ */
+internal fun rasioCapaian(persen: Double?): Float? =
+    persen?.let { (it / 100.0).coerceIn(0.0, 1.0).toFloat() }

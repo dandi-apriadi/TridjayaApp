@@ -25,7 +25,12 @@ data class KuponGebyarUiState(
      *  seluruh isi layar dengan skeleton dan akan menggeser posisi gulir. */
     val memuatLagi: Boolean = false,
     val items: List<KuponGebyarBarisDto> = emptyList(),
+    /** Baris yang cocok — dasar tombol "muat lagi", bukan angka capaian. */
     val total: Int = 0,
+    /** Kupon cabang ini — penyebut persentase. */
+    val jumlahKupon: Int = 0,
+    /** Capaian dari server. `null` = tak ada konsumen berhak, bukan 0%. */
+    val persen: Double? = null,
     val halaman: Int = 1,
     val cari: String = "",
     val namaCabang: String = "",
@@ -136,6 +141,8 @@ class KuponGebyarViewModel @Inject constructor(
             data.items
         },
         total = data.total,
+        jumlahKupon = data.jumlahKupon,
+        persen = data.persen,
         halaman = data.page,
         namaCabang = data.namaCabang,
         sudahDikirim = data.sudahDikirim,

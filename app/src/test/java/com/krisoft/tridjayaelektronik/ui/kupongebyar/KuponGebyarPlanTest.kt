@@ -103,4 +103,39 @@ class KuponGebyarPlanTest {
         assertFalse(adaHalamanLagi(sudahDimuat = 50, total = 50))
         assertFalse(adaHalamanLagi(sudahDimuat = 0, total = 0))
     }
+
+    // ── Indikator capaian ────────────────────────────────────────────────────
+
+    @Test
+    fun `cabang tanpa konsumen berhak tidak dilaporkan nol persen`() {
+        // 0% menaruh cabang di puncak daftar "paling perlu dikejar" untuk
+        // pekerjaan yang tidak ada. Aturan yang sama dipakai Papan Gebyar.
+        assertNull(teksCapaian(sudahDikirim = 0, jumlahKupon = 0, persen = null))
+        assertNull(rasioCapaian(null))
+    }
+
+    @Test
+    fun `persen dibulatkan ke BAWAH`() {
+        // 99,6% yang tampil "100%" membuat orang berhenti mencari padahal masih
+        // ada konsumen yang belum dikirimi undangan.
+        val teks = teksCapaian(sudahDikirim = 249, jumlahKupon = 250, persen = 99.6)
+        assertEquals("99% terkirim · 249 dari 250 kupon", teks)
+    }
+
+    @Test
+    fun `persen dipakai apa adanya dari server, bukan dihitung ulang`() {
+        // Kalau app membaginya sendiri ia akan memakai jumlah BARIS sebagai
+        // penyebut sementara papan memakai KUPON — dan dua layar berselisih
+        // angka tanpa satu pun galat muncul. Di sini server bilang 50% untuk
+        // 1 dari 3, dan itulah yang ditampilkan.
+        val teks = teksCapaian(sudahDikirim = 1, jumlahKupon = 3, persen = 50.0)
+        assertEquals("50% terkirim · 1 dari 3 kupon", teks)
+    }
+
+    @Test
+    fun `rasio bilah dijepit ke 0f--1f`() {
+        assertEquals(0f, rasioCapaian(-5.0))
+        assertEquals(1f, rasioCapaian(140.0))
+        assertEquals(0.5f, rasioCapaian(50.0))
+    }
 }

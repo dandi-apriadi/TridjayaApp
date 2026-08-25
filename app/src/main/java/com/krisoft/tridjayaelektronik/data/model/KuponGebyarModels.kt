@@ -43,8 +43,15 @@ data class KuponGebyarMetaDto(
     val periodeMulai: String = "",
     val periodeSelesai: String = "",
     val ambang: Long = 0,
+    /** Jumlah KUPON cabang ini, bukan jumlah BARIS — dua kode rekanan yang
+     *  digabung alias adalah satu kupon. */
     val jumlah: Int = 0,
     val sudahDikirim: Int = 0,
+    /** Capaian 0-100 dari SERVER, rumus sama dengan Papan Gebyar. `null` =
+     *  cabang ini tak punya konsumen berhak — BUKAN nol. Sengaja tidak dihitung
+     *  ulang di app: dua layar yang berselisih persen tak menimbulkan galat
+     *  apa pun, cuma perdebatan tentang angka mana yang benar. */
+    val persen: Double? = null,
     /** Konsumen berhak yang DISEMBUNYIKAN karena nomornya tak ada. */
     val tanpaNomor: Int = 0,
     val dikecualikanKaryawan: Int = 0,
@@ -86,7 +93,17 @@ data class KuponGebyarBarisDto(
 @Serializable
 data class KuponGebyarDaftarDto(
     val items: List<KuponGebyarBarisDto> = emptyList(),
+    /** Jumlah BARIS yang cocok — dasar paginasi ("masih ada halaman lagi?"),
+     *  BUKAN jumlah kupon. Untuk angka capaian pakai [jumlahKupon]. */
     val total: Int = 0,
+    /** Jumlah KUPON cabang ini — penyebut persentase, satuan sama dengan
+     *  [sudahDikirim]. Dua kode rekanan yang digabung alias = satu kupon,
+     *  tapi tetap DUA baris di antrean kerja. */
+    val jumlahKupon: Int = 0,
+    /** Capaian 0-100 dari SERVER. `null` = cabang tak punya konsumen berhak,
+     *  BUKAN nol. Tidak dihitung ulang di app supaya tak bisa berselisih
+     *  dengan Papan Gebyar yang dilihat kepala cabang. */
+    val persen: Double? = null,
     val page: Int = 1,
     val pageSize: Int = 50,
     val sudahDikirim: Int = 0,
