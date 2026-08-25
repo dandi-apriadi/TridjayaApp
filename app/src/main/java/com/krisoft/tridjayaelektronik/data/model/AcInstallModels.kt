@@ -8,11 +8,20 @@ import kotlinx.serialization.Serializable
  * `/api/inventory/delivery/{*rest}` yang sudah ada. Tak ada rute gateway baru,
  * jadi tak ada yang perlu di-deploy di sisi gateway untuk layar ini.
  *
- * **App hanya menyentuh sisi PETUGAS**: `tugas-saya`, `terima`, `tolak`, dan
- * bukti `foto`. Pengajuan (sales) dan penjadwalan (verifikator) tetap web-saja —
- * itu keputusan yang sudah diambil saat fitur ini lahir, dan menariknya ke app
- * berarti memindahkan juga pemilihan tim + kalender yang tak ada padanannya di
- * layar HP.
+ * **Dua sisi, sejak 2026-08-25.** Semula app hanya menyentuh sisi PETUGAS
+ * (`tugas-saya`, `terima`, `tolak`, bukti `foto`) dan penjadwalan tetap
+ * web-saja. Sisi VERIFIKATOR (`acinstall.schedule`) kini ikut: daftar pengajuan,
+ * penjadwalan + penugasan tim, penutupan, dan pembatalan.
+ *
+ * Yang SENGAJA tetap web-saja: **pengelolaan master tim** (buat/ubah tim,
+ * `POST|PATCH .../tim`). App hanya MEMBACA daftar tim untuk dipilih saat
+ * menjadwalkan. Menyusun keanggotaan tim adalah pekerjaan meja — daftar
+ * kandidat se-perusahaan dengan pencarian nama, di layar selebar telapak
+ * tangan — dan memindahkannya ke HP menukar satu perjalanan yang jarang
+ * dengan layar yang buruk untuk dipakai.
+ *
+ * Sisi PENGAJUAN (sales, `acinstall.submit`) juga tetap web-saja: ia menempel
+ * pada SPK yang baru selesai, dan alurnya sudah ada di halaman SPK web.
  */
 
 /**
@@ -156,3 +165,76 @@ object AcInstallRespon {
     const val DITERIMA = "diterima"
     const val DITOLAK = "ditolak"
 }
+
+// ---------------------------------------------------------------------------
+// Sisi VERIFIKATOR (`acinstall.schedule`) — penjadwalan & penugasan
+// ---------------------------------------------------------------------------
+
+/**
+ * Satu tim di MASTER — `pemasangan_ac::Tim`. Beda dari [AcInstallTimDto], yang
+ * merupakan tim yang SUDAH ditugaskan pada sebuah pengajuan (`TimDitugaskan`,
+ * berkunci `teamId`). Yang ini berkunci `id` dan membawa cabang + status aktif.
+ *
+ * [kodeDealer] `null` = **tim pusat/lintas cabang, dan itu SAH** — bukan data
+ * yang belum lengkap. Tim pemasangan AC memang berpindah cabang, jadi jangan
+ * menyembunyikan tim ber-`kodeDealer` null dari picker cabang mana pun.
+ */
+@Serializable
+data class AcInstallTimMasterDto(
+    val id: String = "",
+    val nama: String = "",
+    val kodeDealer: String? = null,
+    val cabangNama: String? = null,
+    val keterangan: String? = null,
+    val aktif: Boolean = true,
+    val anggota: List<AcInstallAnggotaDto> = emptyList(),
+)
+
+/**
+ * Calon anggota tim — `pemasangan_ac::Kandidat`. Dipakai layar ini HANYA untuk
+ * menampilkan siapa saja isi sebuah tim saat memilihnya; penyusunan tim sendiri
+ * tetap di web.
+ */
+@Serializable
+data class AcInstallKandidatDto(
+    val userId: String = "",
+    val nama: String = "",
+    val kodeDealer: String? = null,
+    val cabangNama: String? = null,
+    /** Isi `auth_users.divisi` apa adanya (CSV) — kolom `jabatan` dibuang migrasi 208. */
+    val divisi: String? = null,
+)
+
+/**
+ * Menjadwalkan (atau MENJADWALKAN ULANG) sebuah pengajuan — `JadwalPayload`.
+ *
+ * **[teamIds] MENGGANTI seluruh daftar tim, bukan menambahinya.** Mengirim
+ * daftar kosong = mencabut semua penugasan. Ini perilaku server, dan layar
+ * apa pun yang mengirim "tim yang baru dicentang" saja akan diam-diam
+ * membuang tim yang sudah ada di sana.
+ *
+ * [tanggal] `YYYY-MM-DD`, [jam] `HH:MM` (opsional). Menjadwalkan ulang yang
+ * sudah dijadwalkan DIIZINKAN — yang ditolak hanya pengajuan yang sudah
+ * ditutup (`selesai`/`dibatalkan`), lihat `transisi::boleh_jadwalkan`.
+ */
+@Serializable
+data class AcInstallJadwalBody(
+    val tanggal: String,
+    val jam: String? = null,
+    val teamIds: List<String> = emptyList(),
+    val catatan: String? = null,
+)
+
+/** Menutup pekerjaan. Server MENUNTUT pengajuan sudah punya jadwal — tanpa itu
+ *  sebuah pengajuan bisa melompat dari "diajukan" langsung ke "selesai" dan
+ *  laporan kehilangan satu-satunya jejak kapan tim benar-benar berangkat. */
+@Serializable
+data class AcInstallSelesaiBody(
+    val catatan: String? = null,
+)
+
+/** Membatalkan. [alasan] WAJIB — server menolak yang kosong. */
+@Serializable
+data class AcInstallBatalBody(
+    val alasan: String,
+)

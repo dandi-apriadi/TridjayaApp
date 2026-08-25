@@ -287,10 +287,21 @@ class ActivityRegistryTest {
 
     @Test
     fun `role cs tak ditulis di cadangan offline komplain`() {
-        // rust-shared: "belum ada role literal `cs` di sistem; sampai ada,
-        // orangnya diberi salah satu role di daftar ini". Menulisnya di sini =
-        // baris yang tak akan pernah cocok — persis yang dijaga test
-        // `tidak ada role salah ketik`. CS sungguhan lolos lewat peta kemampuan.
+        // ALASAN LAMA SUDAH BASI — jangan dikutip lagi. Test ini dulu berpijak
+        // pada "belum ada role literal `cs` di sistem", yang berhenti benar pada
+        // migrasi 223 (2026-08-15): divisi `verificator-dan-reporting` melipat
+        // jadi slug `cs` lewat `divisi_access_slugs`. Sejak 2026-08-25 `cs` juga
+        // ada di `KNOWN_ROLES` (dipakai dua ubin verifikator), jadi menulisnya
+        // di sini TIDAK lagi divonis salah ketik.
+        //
+        // Yang dikunci test ini sekarang adalah KEADAAN, bukan pembenaran:
+        // gate modul komplain belum dilebarkan ke `cs`, dan pelebaran itu adalah
+        // keputusan tersendiri. Kalau nanti memang dilebarkan, UBAH test ini
+        // berikut komentarnya — jangan menghapusnya diam-diam.
+        //
+        // Konsekuensi yang diketahui: saat peta kemampuan gagal dimuat, kartu
+        // komplain hilang dari petugas CS tanpa pesan apa pun. Saat online,
+        // `homeservice.dispatch` dari server tetap meloloskannya.
         ACTIVITY_ITEMS.filter { it.id.startsWith("lapor_komplain") || it.id == "komplain_masuk" }
             .forEach { assertFalse("Item '${it.id}' menulis role hantu 'cs'", "cs" in it.allowedRoles) }
     }

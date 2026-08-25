@@ -115,6 +115,17 @@ internal val KNOWN_ROLES: Set<String> = setOf(
     "agent", "hrd", "pic_raport", "pic-raport", "crm-manager", "ads-manager",
     "ai-engineer", "pdi", "kasir", "driver", "delivery-control",
     "indent-approver", "discount-approver", "aki-approver",
+    // `cs` BUKAN lagi role hantu sejak migrasi 223 (2026-08-15): divisi
+    // `verificator-dan-reporting` naik jadi divisi ber-akses, dan
+    // `divisi_access_slugs` (rust-shared `auth.rs`) melipatnya jadi slug `cs`
+    // pada role efektif. Diperiksa langsung di produksi 2026-08-25: 3 akun
+    // AKTIF memegang divisi itu — semuanya ber-`role` `karyawan`, jadi slug-nya
+    // memang datang dari kolom `divisi`, bukan dari `role`.
+    //
+    // Selama "cs" tak ada di daftar ini, setiap `allowedRoles` yang menyebutnya
+    // divonis salah ketik oleh test — jadi dua menu verifikator di bawah tak
+    // akan bisa punya cadangan offline sama sekali.
+    "cs",
 )
 
 /** `is_pipeline_actor` (inventory-service delivery.rs) meloloskan semua role
@@ -154,6 +165,31 @@ internal val HS_LAPOR_ROLES = ALL_LOGGED_IN
 
 /** `homeservice.task` — teknisi kunjungan. Cerminan `HOMESERVICE_TASK_ROLES` (= PDI_ROLES). */
 internal val HS_TASK_ROLES = setOf("pdi", "admin", "superadmin")
+
+/**
+ * Dua menu VERIFIKATOR (divisi `verificator-dan-reporting`, slug `cs`).
+ *
+ * Cerminan `AC_INSTALL_SCHEDULE_ROLES` dan `VERTEL_ROLES` di
+ * `packages/rust-shared/src/capabilities.rs`. Keduanya kebetulan berisi daftar
+ * yang SAMA hari ini, tapi ditulis TERPISAH dengan sengaja: masing-masing
+ * mencerminkan konstanta server yang berbeda dan bisa menyimpang kapan saja.
+ * Satu nilai bersama akan membuat perubahan di salah satu sisi server diam-diam
+ * ikut menggeser menu yang lain.
+ *
+ * Ini cadangan OFFLINE saja. Saat peta kemampuan terbaca, `capability` yang
+ * memutuskan (`gateAllows`) — dan itulah jalur normalnya, karena verifikator
+ * memegang `cs` lewat divisi.
+ *
+ * **CS bersifat PUSAT, lintas 13 cabang** (`vertel.rs batas_dealer` menjawab
+ * `None` untuk role ini; pemasangan AC sama). Jangan menambahkan penyaring
+ * cabang di sisi klien untuk dua menu ini — server memang mengirim seluruh
+ * cabang, dan menyaringnya di HP menghilangkan 12 cabang dari daftar kerjanya
+ * tanpa satu pun galat.
+ */
+internal val AC_INSTALL_SCHEDULE_ROLES = setOf("cs", "admin", "superadmin")
+
+/** Cerminan `VERTEL_ROLES` — lihat catatan di [AC_INSTALL_SCHEDULE_ROLES]. */
+internal val VERTEL_ROLES = setOf("cs", "admin", "superadmin")
 
 /**
  * Daftar menu + haknya. Urutan di sini = urutan tampil di grid.
@@ -290,6 +326,40 @@ internal val QUICK_ACCESS_MENUS: List<QuickAccessMenu> = listOf(
         label = "Tugas Home Service",
         allowedRoles = HS_TASK_ROLES,
         backendGuard = "rust-shared capabilities.rs HOMESERVICE_TASK_ROLES (= PDI_ROLES)",
+    ),
+    /**
+     * Sisi VERIFIKATOR pemasangan AC — menjadwalkan dan menugaskan tim.
+     *
+     * Sampai 2026-08-25 app hanya punya sisi PETUGAS (`ActivityRegistry`
+     * `pemasangan_ac`, "Tugas Pemasangan AC") dan penugasannya web-saja. Ubin
+     * ini melengkapi pasangannya: yang satu MENERIMA pekerjaan, yang ini
+     * MEMBERIKANNYA.
+     *
+     * `acinstall.schedule` kunci yang SAMA dengan DUA menu web ("Jadwal
+     * Pemasangan AC" + "Tim Pemasangan AC", `navCatalog.ts`). Di HP keduanya
+     * jadi satu layar: memilih tim tanpa melihat jadwalnya berarti dua kali
+     * perjalanan untuk satu keputusan.
+     */
+    QuickAccessMenu(
+        id = "pemasangan_ac_kontrol",
+        capability = "acinstall.schedule",
+        label = "Penugasan AC",
+        allowedRoles = AC_INSTALL_SCHEDULE_ROLES,
+        backendGuard = "inventory-service pemasangan_ac.rs boleh_jadwalkan (rust-shared AC_INSTALL_SCHEDULE_ROLES)",
+    ),
+    /**
+     * Verifikasi telepon penjualan kemarin (migrasi 257).
+     *
+     * Daftarnya sudah disaring SERVER per ambang harga barang, dan ambang itu
+     * hidup di `app_settings` (bisa berubah tanpa deploy). Klien MENAMPILKAN
+     * angkanya apa adanya dari respons, tak pernah menghitung atau menebaknya.
+     */
+    QuickAccessMenu(
+        id = "vertel",
+        capability = "vertel.manage",
+        label = "Verifikasi Telepon",
+        allowedRoles = VERTEL_ROLES,
+        backendGuard = "inventory-service vertel.rs boleh_vertel (rust-shared VERTEL_ROLES)",
     ),
 )
 

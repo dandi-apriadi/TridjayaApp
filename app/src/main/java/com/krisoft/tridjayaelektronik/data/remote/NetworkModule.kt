@@ -234,6 +234,11 @@ object NetworkModule {
     fun createAcInstallApi(tokenStore: TokenStore): AcInstallApi =
         authenticatedRetrofit(tokenStore).create(AcInstallApi::class.java)
 
+    /** Verifikasi telepon. Menumpang wildcard gateway yang sama dengan
+     *  pemasangan AC — tak ada base URL, timeout, atau rute gateway khusus. */
+    fun createVertelApi(tokenStore: TokenStore): VertelApi =
+        authenticatedRetrofit(tokenStore).create(VertelApi::class.java)
+
     fun createDeviceApi(tokenStore: TokenStore): DeviceApi =
         authenticatedRetrofit(tokenStore).create(DeviceApi::class.java)
 

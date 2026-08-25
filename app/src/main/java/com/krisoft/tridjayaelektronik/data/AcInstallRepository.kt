@@ -1,8 +1,12 @@
 package com.krisoft.tridjayaelektronik.data
 
+import com.krisoft.tridjayaelektronik.data.model.AcInstallBatalBody
 import com.krisoft.tridjayaelektronik.data.model.AcInstallFotoBody
+import com.krisoft.tridjayaelektronik.data.model.AcInstallJadwalBody
 import com.krisoft.tridjayaelektronik.data.model.AcInstallResponBody
+import com.krisoft.tridjayaelektronik.data.model.AcInstallSelesaiBody
 import com.krisoft.tridjayaelektronik.data.model.AcInstallTaskDto
+import com.krisoft.tridjayaelektronik.data.model.AcInstallTimMasterDto
 import com.krisoft.tridjayaelektronik.data.model.ApiErrorResponse
 import com.krisoft.tridjayaelektronik.data.model.ApiResponse
 import com.krisoft.tridjayaelektronik.data.remote.AcInstallApi
@@ -56,6 +60,75 @@ class AcInstallRepository @Inject constructor(
         aksi("Gagal melampirkan bukti foto") {
             api.tambahFoto(id, AcInstallFotoBody(url, keterangan?.trim()?.takeIf { it.isNotBlank() }))
         }
+
+    // -----------------------------------------------------------------------
+    // Sisi VERIFIKATOR — `acinstall.schedule`
+    // -----------------------------------------------------------------------
+
+    /**
+     * [status] SENGAJA tanpa nilai default, berbeda dari [tugasSaya].
+     *
+     * Default server untuk rute ini adalah "semua status, dipotong 300 terbaru",
+     * dan itu jarang yang dimaksud sebuah layar. Menuliskan `null` sebagai
+     * default di sini membuat pemanggil yang lupa mengisinya diam-diam memuat
+     * antrian yang salah — sementara pemanggil yang memang ingin semuanya cukup
+     * mengoper `null` secara eksplisit dan terbaca jelas di tempat panggilan.
+     */
+    suspend fun daftar(status: String?): AuthResult<List<AcInstallTaskDto>> = try {
+        val response = api.daftar(status)
+        val data = response.body()?.data
+        if (response.isSuccessful && data != null) AuthResult.Success(data)
+        else parseError(response, "Gagal memuat daftar pengajuan")
+    } catch (e: Exception) {
+        AuthResult.Failure("network_error", e.message ?: "Tidak bisa terhubung ke server")
+    }
+
+    /** Master tim. Tim NONAKTIF ikut terkirim server — penyaringnya di layar,
+     *  supaya pengajuan lama yang terlanjur memakai tim nonaktif tetap terbaca. */
+    suspend fun tim(): AuthResult<List<AcInstallTimMasterDto>> = try {
+        val response = api.tim()
+        val data = response.body()?.data
+        if (response.isSuccessful && data != null) AuthResult.Success(data)
+        else parseError(response, "Gagal memuat daftar tim")
+    } catch (e: Exception) {
+        AuthResult.Failure("network_error", e.message ?: "Tidak bisa terhubung ke server")
+    }
+
+    /**
+     * [teamIds] MENGGANTI seluruh daftar tim pada pengajuan itu, bukan
+     * menambahinya — kirim daftar LENGKAP yang diinginkan, termasuk tim yang
+     * sudah ada di sana sebelumnya.
+     *
+     * [jam] dikirim `null` kalau kosong, bukan string kosong: server
+     * membedakan "tanpa jam" dari "jam tak terbaca".
+     */
+    suspend fun jadwalkan(
+        id: String,
+        tanggal: String,
+        jam: String?,
+        teamIds: List<String>,
+        catatan: String?,
+    ): AuthResult<AcInstallTaskDto> = aksi("Gagal menyimpan jadwal") {
+        api.jadwalkan(
+            id,
+            AcInstallJadwalBody(
+                tanggal = tanggal.trim(),
+                jam = jam?.trim()?.takeIf { it.isNotBlank() },
+                teamIds = teamIds,
+                catatan = catatan?.trim()?.takeIf { it.isNotBlank() },
+            ),
+        )
+    }
+
+    suspend fun selesai(id: String, catatan: String?): AuthResult<AcInstallTaskDto> =
+        aksi("Gagal menutup pengajuan") {
+            api.selesai(id, AcInstallSelesaiBody(catatan?.trim()?.takeIf { it.isNotBlank() }))
+        }
+
+    /** [alasan] wajib terisi — server menolak yang kosong. Gerbang kliennya
+     *  `AcInstallSchedulePlan.bolehBatal`; jangan mengandalkan 400 sebagai validasi. */
+    suspend fun batal(id: String, alasan: String): AuthResult<AcInstallTaskDto> =
+        aksi("Gagal membatalkan pengajuan") { api.batal(id, AcInstallBatalBody(alasan.trim())) }
 
     private suspend fun aksi(
         fallback: String,

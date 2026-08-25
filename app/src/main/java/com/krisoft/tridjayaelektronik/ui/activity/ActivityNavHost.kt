@@ -16,7 +16,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.krisoft.tridjayaelektronik.ui.acinstall.AcInstallScheduleScreen
 import com.krisoft.tridjayaelektronik.ui.acinstall.AcInstallScreen
+import com.krisoft.tridjayaelektronik.ui.vertel.VertelScreen
 import com.krisoft.tridjayaelektronik.ui.attendance.AttendanceScreen
 import com.krisoft.tridjayaelektronik.ui.deadstock.DeadstockScreen
 import com.krisoft.tridjayaelektronik.ui.event.EventLeadScreen
@@ -99,6 +101,11 @@ private const val ROUTE_HS_DETAIL = "home_hs_detail/{id}"
 /** Tugas pemasangan AC (sisi petugas). Prefiks `home_` mengikuti seluruh route
  *  anak tabel ini — lihat catatan penamaan di CLAUDE.md. */
 private const val ROUTE_PEMASANGAN_AC = "home_pemasangan_ac"
+// Sisi VERIFIKATOR pemasangan AC + verifikasi telepon (2026-08-25). Keduanya
+// dijangkau dari ubin Akses Cepat, BUKAN dari kartu Activity: ini pekerjaan
+// meja yang dibuka saat dibutuhkan, bukan antrian harian yang menunggu jawaban.
+private const val ROUTE_PEMASANGAN_AC_KONTROL = "home_pemasangan_ac_kontrol"
+private const val ROUTE_VERTEL = "home_vertel"
 
 private fun hsDetailRoute(id: String) = "home_hs_detail/${Uri.encode(id)}"
 private const val ROUTE_GAJI = "home_gaji"
@@ -331,6 +338,10 @@ fun ActivityNavHost(
                 // lama ada di tabel ini — yang selama ini hilang cuma pintunya.
                 onKomplainLapor = { navController.navigate(ROUTE_HS_LAPOR) { launchSingleTop = true } },
                 onKomplainTugas = { navController.navigate(ROUTE_HS_TEKNISI) { launchSingleTop = true } },
+                onPemasanganAcKontrol = {
+                    navController.navigate(ROUTE_PEMASANGAN_AC_KONTROL) { launchSingleTop = true }
+                },
+                onVertel = { navController.navigate(ROUTE_VERTEL) { launchSingleTop = true } },
                 onSpkMenu = { key ->
                     val route = when (key) {
                         "hub" -> ROUTE_SPK_HUB
@@ -440,6 +451,12 @@ fun ActivityNavHost(
         }
         composable(ROUTE_PEMASANGAN_AC) {
             AcInstallScreen(onBack = { navController.popBackStack() })
+        }
+        composable(ROUTE_PEMASANGAN_AC_KONTROL) {
+            AcInstallScheduleScreen(onBack = { navController.popBackStack() })
+        }
+        composable(ROUTE_VERTEL) {
+            VertelScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = ROUTE_HS_DETAIL,

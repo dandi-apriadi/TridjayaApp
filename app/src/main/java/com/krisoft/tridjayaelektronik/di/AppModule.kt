@@ -25,6 +25,7 @@ import com.krisoft.tridjayaelektronik.data.remote.ErpPriceChangesApi
 import com.krisoft.tridjayaelektronik.data.remote.EventApi
 import com.krisoft.tridjayaelektronik.data.remote.OffApi
 import com.krisoft.tridjayaelektronik.data.remote.AcInstallApi
+import com.krisoft.tridjayaelektronik.data.remote.VertelApi
 import com.krisoft.tridjayaelektronik.data.remote.HomeServiceApi
 import com.krisoft.tridjayaelektronik.data.remote.AktivitasApi
 import com.krisoft.tridjayaelektronik.data.remote.AktivitasUploadApi
@@ -127,6 +128,11 @@ object AppModule {
     @Singleton
     fun provideAcInstallApi(tokenStore: TokenStore): AcInstallApi =
         NetworkModule.createAcInstallApi(tokenStore)
+
+    @Provides
+    @Singleton
+    fun provideVertelApi(tokenStore: TokenStore): VertelApi =
+        NetworkModule.createVertelApi(tokenStore)
 
     @Provides
     @Singleton

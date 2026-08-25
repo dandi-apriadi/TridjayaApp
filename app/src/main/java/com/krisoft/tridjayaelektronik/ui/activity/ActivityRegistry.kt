@@ -192,13 +192,23 @@ internal val AKTIVITAS_REVIEW_ROLES = setOf(
  * `hrd` TIDAK ada di daftar server; jangan ditambahkan "biar rapi" — kartunya
  * akan tampil lalu semua panggilannya dijawab 403.
  *
- * `"cs"` yang ada di daftar server juga SENGAJA tak ditulis: rust-shared
- * menyatakan sendiri "belum ada role literal `cs` di sistem; sampai ada,
- * orangnya diberi salah satu role di daftar ini" — jadi ejaan itu tak akan
- * pernah cocok dengan role siapa pun dan cuma jadi baris yang tampak seperti
- * jaring pengaman padahal mati (dijaga `ActivityRegistryTest`). Petugas CS
- * sungguhan tetap
- * lolos lewat peta kemampuan server, yang memang sumber utamanya.
+ * `"cs"` yang ada di daftar server SENGAJA tak ditulis di sini — tapi **alasan
+ * lamanya sudah BASI dan jangan dipakai lagi**. Dulu tertulis: "rust-shared
+ * menyatakan sendiri belum ada role literal `cs` di sistem, jadi ejaan itu tak
+ * akan pernah cocok dengan role siapa pun". Itu berhenti benar pada migrasi 223
+ * (2026-08-15): divisi `verificator-dan-reporting` naik jadi divisi ber-akses,
+ * dan `divisi_access_slugs` (rust-shared `auth.rs`) melipatnya jadi slug `cs`
+ * pada role efektif. Diperiksa di produksi 2026-08-25: 3 akun AKTIF memegangnya.
+ *
+ * Yang masih berlaku: petugas CS lolos lewat PETA KEMAMPUAN server, yang memang
+ * sumber utamanya, jadi ketiadaan "cs" di sini tak berpengaruh saat online.
+ *
+ * **Celah yang tersisa, dan diketahui:** saat peta kemampuan gagal dimuat,
+ * `gateAllows` jatuh ke daftar role lokal — dan di situ `cs` tak ada, jadi
+ * kartu komplain hilang dari petugas CS tanpa satu pun pesan. Sengaja TIDAK
+ * ditambal bersamaan dengan penambahan dua ubin verifikator (2026-08-25):
+ * melebarkan gate modul komplain adalah perubahan perilaku tersendiri yang
+ * layak diputuskan terpisah, bukan ditumpangkan.
  */
 // [HS_LAPOR_ROLES] PINDAH ke `ui/home/QuickAccessMenus.kt` (lihat impor di atas).
 
