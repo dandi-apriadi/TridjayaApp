@@ -78,6 +78,16 @@ enum class ActivitySource {
      *  di CABANG petugas. Server-lah yang men-scope-nya ke cabang akun
      *  (`list_opname`), bukan parameter dari app. */
     OPNAME_SESI_DRAFT,
+
+    /**
+     * `GET /kupon-gebyar/meta` — konsumen cabang yang berhak kupon doorprize
+     * dan BELUM dikirimi undangan. Angkanya `jumlah - sudahDikirim`.
+     *
+     * Sumber ini istimewa: responsnya juga membawa **vonis cabang**
+     * (`bolehLihat`), yang tak bisa dinyatakan sebagai kunci kemampuan sama
+     * sekali — lihat [kuponGebyarCardVisible].
+     */
+    KUPON_GEBYAR_SISA,
 }
 
 data class ActivityItem(
@@ -142,9 +152,9 @@ data class ActivityItem(
  * **Ia BUKAN satu-satunya — kalimat itu sudah basi sejak 2026-08-15.**
  * `lapor_komplain` ikut dinolkan hari itu karena jalur pelaporan kinerja-service
  * jadi login-only, sehingga tak ada kunci yang bisa dicerminkan tanpa
- * menyempitkan. Hitungan yang berlaku sekarang: dari **25** entri
+ * menyempitkan. Hitungan yang berlaku sekarang: dari **26** entri
  * [ACTIVITY_ITEMS], **3** ber-`capability = null` (`aktivitas`,
- * `lapor_komplain`, `pemasangan_ac`) dan 22 sisanya ditentukan sepenuhnya oleh peta
+ * `lapor_komplain`, `pemasangan_ac`) dan 23 sisanya ditentukan sepenuhnya oleh peta
  * kemampuan
  * server. Daftar tiga itu dikunci `ActivityRegistryTest`, jadi menambah item
  * tanpa kunci akan memerahkan test — bukan diam-diam memperbesar angka ini.
@@ -245,6 +255,29 @@ internal val KASIR_QUEUE_ROLES = setOf("kasir", "admin", "superadmin")
  * manager/owner menekannya lalu dijawab 403.
  */
 internal val SPK_CREATE_ROLES: Set<String> = SPK_MENU_ROLES - "manager" - "owner"
+
+/**
+ * Cerminan `capabilities::KUPON_GEBYAR_LIHAT_ROLES` (rust-shared) — cadangan
+ * OFFLINE saja; sumber utamanya kunci `kupon_gebyar.lihat` dari
+ * `GET /api/me/capabilities`.
+ *
+ * SENGAJA lebar: programnya memang untuk "setiap karyawan di cabang terkait"
+ * (arahan owner). Menyempitkannya di sini akan mengunci orang yang justru
+ * diminta mengerjakannya.
+ *
+ * **`"cs"` yang ada di daftar server sengaja TIDAK ditulis di sini**, alasan
+ * sama dengan [HS_LAPOR_ROLES] dulu: belum ada role literal `cs` di sistem,
+ * jadi ejaan itu tak akan pernah cocok dengan role siapa pun dan cuma jadi
+ * baris yang tampak seperti jaring pengaman padahal mati. Ia juga tak ada di
+ * `KNOWN_ROLES`, jadi menuliskannya akan MEMERAHKAN `ActivityRegistryTest`.
+ * Petugas CS sungguhan tetap lolos lewat peta kemampuan server.
+ *
+ * **Daftar ini BUKAN gerbang yang sesungguhnya.** Yang menentukan siapa melihat
+ * kartunya adalah vonis cabang dari server — lihat [kuponGebyarCardVisible].
+ */
+internal val KUPON_GEBYAR_MENU_ROLES = setOf(
+    "kepala-cabang", "admin-sales", "karyawan", "manager", "admin", "superadmin", "owner",
+)
 
 /**
  * Urutan di sini = urutan dasar tampil dalam tiap seksi (kartu ANTRIAN
@@ -595,6 +628,33 @@ internal val ACTIVITY_ITEMS: List<ActivityItem> = listOf(
         source = ActivitySource.OPNAME_MANUAL_PENDING,
         navKey = "opname_validasi",
     ),
+    /**
+     * Konsumen Gebyar — undangan kupon doorprize yang belum dikirim di cabang
+     * ini (kinerja-service `kupon_gebyar/`).
+     *
+     * **Kunci `kupon_gebyar.lihat` SUDAH ada di katalog server** (`capabilities.rs`
+     * + migrasi 278) — periksa itu lagi sebelum menyalin pola ini untuk fitur
+     * lain: peta kemampuan fail-closed, jadi kunci yang belum dikenal server
+     * menyembunyikan kartunya dari SEMUA orang, termasuk manager, tanpa satu pun
+     * galat.
+     *
+     * **Kunci itu TIDAK cukup, dan tak akan pernah cukup.** Ia hanya tahu ROLE;
+     * gerbang yang sesungguhnya adalah CABANG (semua kecuali Manado = D-06 dan
+     * D-07), yang hidup di `auth_users.cabang_id` dan tak bisa dinyatakan di
+     * katalog kemampuan sama sekali. Lapis keduanya [kuponGebyarCardVisible],
+     * yang membaca vonis `bolehLihat` dari server.
+     */
+    ActivityItem(
+        id = "kupon_gebyar",
+        label = "Konsumen Gebyar",
+        subtitle = "Undangan kupon doorprize belum dikirim",
+        kind = ActivityKind.ANTRIAN,
+        capability = "kupon_gebyar.lihat",
+        allowedRoles = KUPON_GEBYAR_MENU_ROLES,
+        backendGuard = "kinerja-service kupon_gebyar/handlers.rs LIHAT_ROLES (capabilities::KUPON_GEBYAR_LIHAT_ROLES) + vonis cabang service.rs lingkup()",
+        source = ActivitySource.KUPON_GEBYAR_SISA,
+        navKey = "kupon_gebyar",
+    ),
 )
 
 /**
@@ -787,6 +847,32 @@ internal val DELIVERY_READ_ALL_ROLES = setOf("manager", "owner", "admin", "super
 internal fun driverCardVisible(count: Int?, effectiveRoles: Set<String>): Boolean =
     if (effectiveRoles.any { it in DELIVERY_READ_ALL_ROLES }) false
     else "driver" in effectiveRoles || (count ?: 0) > 0
+
+/**
+ * Kartu "Konsumen Gebyar" tampil?
+ *
+ * [bolehLihat] adalah vonis SERVER dari `GET /kupon-gebyar/meta`, dan ia
+ * gerbang yang sesungguhnya: kunci `kupon_gebyar.lihat` hanya tahu role,
+ * sementara yang menentukan adalah CABANG (`auth_users.cabang_id`) — Manado
+ * (D-06 Samrat + D-07 Bahu) di luar program. Tak ada bentuk daftar role yang
+ * bisa menyatakan itu, jadi gerbangnya memang harus datang dari respons.
+ *
+ * Tiga keadaan, dan ketiganya berbeda:
+ * - `false` → **sembunyikan**. Cabang ini memang tak punya pekerjaannya;
+ *   menampilkan kartu yang setiap ketukannya dijawab 403 adalah kelas bug yang
+ *   sudah berulang di repo ini (lihat CLAUDE.md).
+ * - `true` → tampilkan.
+ * - `null` (panggilan gagal / offline) → **tampilkan**, karena kartunya sudah
+ *   bertanda "gagal muat, ketuk untuk coba lagi". Menyembunyikannya di sini
+ *   berarti menu yang lenyap tiap kali sinyal jelek, dan karyawan melapor
+ *   "menunya hilang" — keluhan yang persis sama sudah muncul untuk kartu lain.
+ *
+ * Perhatikan bedanya dengan [gateAllows], yang fail-CLOSED untuk kunci tak
+ * dikenal: di sana ketidaktahuan datang dari SERVER yang menjawab (kunci absen
+ * = sengaja dicabut), di sini ketidaktahuan datang dari server yang TIDAK
+ * menjawab. Dua hal berbeda, dan menyamakannya salah di kedua arah.
+ */
+internal fun kuponGebyarCardVisible(bolehLihat: Boolean?): Boolean = bolehLihat != false
 
 /**
  * Role yang MENDARAT di tab Operasional saat app dibuka, bukan Activity (default

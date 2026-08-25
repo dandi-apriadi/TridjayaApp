@@ -10,6 +10,7 @@ import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.CrmRepository
 import com.krisoft.tridjayaelektronik.data.DeliveryFlowRepository
 import com.krisoft.tridjayaelektronik.data.HomeServiceRepository
+import com.krisoft.tridjayaelektronik.data.KuponGebyarRepository
 import com.krisoft.tridjayaelektronik.data.OpnameRepository
 import com.krisoft.tridjayaelektronik.data.AktivitasRepository
 import com.krisoft.tridjayaelektronik.data.SpkTodayCounter
@@ -68,6 +69,7 @@ class ActivityViewModel @Inject constructor(
     private val acInstallRepository: AcInstallRepository,
     private val listIndentUseCase: ListIndentUseCase,
     private val opnameRepository: OpnameRepository,
+    private val kuponGebyarRepository: KuponGebyarRepository,
     private val spkTodayCounter: SpkTodayCounter,
 ) : ViewModel() {
 
@@ -160,6 +162,9 @@ class ActivityViewModel @Inject constructor(
         var prospekTarget: ProspekTargetDto? = null
         /** `null` = tak ada SPK gantung yang lewat tenggat (atau tak diambil). */
         var gantungAlert: String? = null
+        /** Vonis cabang Kupon Gebyar. `null` = belum/gagal diketahui — kartunya
+         *  TETAP tampil (bertanda gagal muat), lihat `kuponGebyarCardVisible`. */
+        var kuponGebyarBoleh: Boolean? = null
         /** `null` = status bukti chat tak diketahui — lihat `buildDailyTasks`. */
 
         coroutineScope {
@@ -348,6 +353,27 @@ class ActivityViewModel @Inject constructor(
                 }
             }
 
+            // Kupon Gebyar. Satu panggilan `meta` memberi DUA hal: angka kartu
+            // dan vonis cabang. Server sengaja TIDAK menghitung apa pun untuk
+            // cabang yang tak berhak (`bolehLihat=false` ⇒ semua angka 0), jadi
+            // menembaknya untuk Manado tak menarik 13 ribu baris percuma.
+            //
+            // `bolehLihat=false` BUKAN kegagalan: `failed` sengaja tak diisi,
+            // karena kartunya akan disembunyikan seluruhnya — menandainya gagal
+            // akan membuatnya tampil bertuliskan "ketuk untuk coba lagi" untuk
+            // cabang yang memang tak punya pekerjaannya.
+            if (ActivitySource.KUPON_GEBYAR_SISA in sources) jobs += async {
+                when (val r = kuponGebyarRepository.meta()) {
+                    is AuthResult.Success -> {
+                        kuponGebyarBoleh = r.data.bolehLihat
+                        if (r.data.bolehLihat) {
+                            counts[ActivitySource.KUPON_GEBYAR_SISA] = r.data.sisa
+                        }
+                    }
+                    is AuthResult.Failure -> failed += ActivitySource.KUPON_GEBYAR_SISA
+                }
+            }
+
             if (ActivitySource.OPNAME_MANUAL_PENDING in sources) jobs += async {
                 when (val r = opnameRepository.manualUnits()) {
                     is AuthResult.Success -> counts[ActivitySource.OPNAME_MANUAL_PENDING] = r.data.size
@@ -397,6 +423,7 @@ class ActivityViewModel @Inject constructor(
                 alerts = gantungAlert
                     ?.let { mapOf(ActivitySource.DLV_PENDING_PAYMENT to it) }
                     ?: emptyMap(),
+                kuponGebyarBoleh = kuponGebyarBoleh,
             ),
             actions = items.filter { it.kind == ActivityKind.AKSI },
             spkToday = spkTodayCounter.todayCount(todayIso),
@@ -414,8 +441,11 @@ class ActivityViewModel @Inject constructor(
      * capabilities, …)`, dan `gateAllows` MENDAHULUKAN peta kemampuan lalu
      * fail-closed. `capabilities_for` di server mengisi SEMUA kunci dengan
      * boolean eksplisit, jadi cabang cadangan berbasis role tak pernah tersentuh
-     * saat online: 22 dari 24 item registri sepenuhnya ditentukan peta itu
-     * (hanya `aktivitas` & `lapor_komplain` yang ber-`capability = null`).
+     * saat online: 23 dari 26 item registri sepenuhnya ditentukan peta itu
+     * (hanya `aktivitas`, `lapor_komplain`, & `pemasangan_ac` yang
+     * ber-`capability = null`). Satu item — `kupon_gebyar` — punya kunci
+     * kemampuan TAPI gerbang sesungguhnya vonis cabang dari server; lihat
+     * `kuponGebyarCardVisible`.
      * Menyegarkan `role`/`roles`/`page_grants` saja (perbaikan `sesiSetelahRefresh`)
      * karena itu belum mengubah satu pun menu — petanya harus ikut disegarkan.
      *

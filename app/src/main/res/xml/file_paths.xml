@@ -41,4 +41,11 @@
          entri yang hilang di sini mencabut satu-satunya cara karyawan menyimpan
          slipnya. Dijaga `FileProviderPathsTest`. -->
     <cache-path name="slip_gaji" path="slip-gaji/" />
+    <!-- Foto bukti undangan Kupon Gebyar, ditulis `KuponGebyarScreen.kt` ke
+         `cacheDir/kupon-gebyar/`. Alasannya sama dengan `event`, `home_service`,
+         `serial`, dan `ac_install` di atas — dan panggilan `getUriForFile`-nya
+         ada DI DALAM `remember`, jadi entri yang hilang menutup app saat layar
+         DIBUKA, bukan saat tombol kamera ditekan (kelas kegagalan `serial`).
+         Dijaga `FileProviderPathsTest`. -->
+    <cache-path name="kupon_gebyar" path="kupon-gebyar/" />
 </paths>

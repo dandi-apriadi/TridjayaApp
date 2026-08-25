@@ -883,6 +883,37 @@ Force-update / optional-update / "Cek Pembaruan" (Settings) driven by **Firebase
     penanda dan pemeriksaannya diserahkan ke web.
   * Server TIDAK men-scope penilai↔karyawan sama sekali (`service.review()` tak menerima
     identity): siapa pun yang lolos role boleh menilai baris cabang mana pun.
+- **Konsumen Gebyar (kupon doorprize)** — `ui/kupongebyar/` (`KuponGebyarScreen`
+  + `KuponGebyarViewModel` + logika murni `KuponGebyarPlan.kt`), kartu ANTRIAN
+  `kupon_gebyar` di Activity (route `home_kupon_gebyar`). Konsumen dengan belanja
+  ≥ Rp1,5 juta (1 Jan–30 Agu 2026) berhak SATU kupon; karyawan mengirimi undangan
+  lalu memotret buktinya. Yang perlu diketahui:
+  * **Gerbangnya DUA lapis.** Kunci `kupon_gebyar.lihat` cuma tahu ROLE; yang
+    menentukan adalah CABANG (semua kecuali Manado = D-06 **dan** D-07), yang
+    hidup di `auth_users.cabang_id` dan tak bisa dinyatakan di katalog kemampuan
+    sama sekali. Lapis keduanya `kuponGebyarCardVisible(bolehLihat)` — vonis dari
+    `GET /kupon-gebyar/meta`. Pola identik `bolehIsi` di modul Event.
+  * **Vonis `null` (offline) TETAP MENAMPILKAN kartunya**, bertanda "gagal muat".
+    Arahnya SENGAJA kebalikan `gateAllows` yang fail-closed: di sana server
+    MENJAWAB dan kuncinya absen (= sengaja dicabut), di sini server tak menjawab.
+    Menyembunyikannya = keluhan "menunya hilang" tiap sinyal jelek.
+  * **Rute gateway `/api/kupon-gebyar` BARU** — tak menumpang wildcard yang sudah
+    ada seperti pemasangan AC. APK ini MENGIKAT urutan deploy: migrasi 277+278 →
+    kinerja-service DAN **gateway** → baru APK. `check-mobile-contract.sh`
+    menangkapnya kalau dijalankan sebelum rilis.
+  * **Tanpa cache Room, disengaja.** Isinya nama + nomor + nilai belanja konsumen;
+    dan baris yang sudah dikerjakan rekan secabang HILANG dari daftar, jadi
+    salinan basi = dua orang mengirimi konsumen yang sama.
+  * **409 = sudah dikerjakan rekan secabang**, nama pemegangnya ada di `message`
+    (bukan `errors`, yang kosong untuk konflik) — `parseError` membaca kedua jalur.
+    Bukti yang unggahannya sudah berhasil tapi pencatatannya gagal disimpan di
+    `buktiTertunda` supaya tombolnya jadi "Simpan ulang", bukan memotret lagi
+    (pola `AcInstallViewModel`). Pada 409 justru DIBUANG — tak ada yang bisa
+    diselamatkan, pekerjaannya memang sudah selesai.
+  * **`perluNomorPengganti` = nomor yang tercatat nomor KARYAWAN**, bukan nomor
+    konsumennya (27 baris di produksi). Dirender sebagai peringatan merah.
+  * Foto bukti TIDAK ditampilkan di app — `BarisKuponPublic` memang tak membawa
+    `buktiUrl`. Papan `/monitoring` juga web-only.
 - All three tabs' data is Room-cached with a uniform 5-hour TTL and survives tab switches
 
 ## Official Android/Material guideline compliance

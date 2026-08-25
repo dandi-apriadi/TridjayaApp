@@ -519,6 +519,54 @@ class ActivityRegistryTest {
         assertFalse("opname_validasi" in ids("karyawan", caps = null))
     }
 
+    // ── Konsumen Gebyar ─────────────────────────────────────────────────────
+
+    /**
+     * Kunci `kupon_gebyar.lihat` HARUS yang dipakai — bukan kunci karangan.
+     * Peta kemampuan fail-closed: kunci yang tak dikenal server menyembunyikan
+     * kartunya dari SEMUA orang, termasuk manager, tanpa satu pun galat. Kunci
+     * ini sudah ada di katalog rust-shared (`CAPABILITY_ROLES`) + migrasi 278.
+     */
+    @Test
+    fun `kartu gebyar memakai kunci yang memang disajikan server`() {
+        val kartu = ACTIVITY_ITEMS.first { it.id == "kupon_gebyar" }
+        assertEquals("kupon_gebyar.lihat", kartu.capability)
+        assertEquals("kupon_gebyar", kartu.navKey)
+        assertEquals(ActivitySource.KUPON_GEBYAR_SISA, kartu.source)
+        assertEquals("home_kupon_gebyar", routeForNavKey(kartu.navKey))
+    }
+
+    /**
+     * Daftar cadangan offline SENGAJA tak memuat `"cs"` walau server memuatnya
+     * (`KUPON_GEBYAR_LIHAT_ROLES`): belum ada role literal `cs` di sistem, jadi
+     * ejaan itu tak akan pernah cocok dengan siapa pun dan cuma jadi baris yang
+     * tampak seperti jaring pengaman padahal mati. Petugas CS sungguhan tetap
+     * lolos lewat peta kemampuan server, yang memang sumber utamanya.
+     */
+    @Test
+    fun `daftar cadangan gebyar tidak memuat role yang tak pernah ada`() {
+        assertFalse("cs" in KUPON_GEBYAR_MENU_ROLES)
+        assertTrue("karyawan" in KUPON_GEBYAR_MENU_ROLES)
+        assertTrue("kepala-cabang" in KUPON_GEBYAR_MENU_ROLES)
+    }
+
+    /**
+     * Gerbang kemampuan lolos untuk SEMUA karyawan, termasuk yang cabangnya di
+     * luar program — dan itu memang tak bisa diperbaiki di sini. Yang menutup
+     * Manado adalah vonis `bolehLihat` dari server (`kuponGebyarCardVisible`),
+     * bukan daftar role mana pun. Test ini mengunci pembagian kerja itu supaya
+     * penerus tak "merapikan" gate-nya dengan mencabut role dan mengira
+     * masalahnya beres.
+     */
+    @Test
+    fun `gerbang role gebyar tidak dan tidak bisa menutup cabang`() {
+        val caps = mapOf("kupon_gebyar.lihat" to true)
+        assertTrue("kupon_gebyar" in ids("karyawan", caps = caps))
+        assertTrue("kupon_gebyar" in ids("kepala-cabang", caps = caps))
+        // Server yang mencabut kuncinya tetap menang — arah penyempitan dijaga.
+        assertFalse("kupon_gebyar" in ids("karyawan", caps = mapOf("kupon_gebyar.lihat" to false)))
+    }
+
     // ── Dedup fan-out ────────────────────────────────────────────────────────
 
     @Test

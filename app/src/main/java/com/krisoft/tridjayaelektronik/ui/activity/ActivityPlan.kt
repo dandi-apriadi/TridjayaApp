@@ -62,6 +62,16 @@ internal fun buildQueueCards(
     effectiveRoles: Set<String>,
     /** Baris [ActivityCard.alert] per sumber — lihat [spkGantungAlert]. */
     alerts: Map<ActivitySource, String> = emptyMap(),
+    /**
+     * Vonis `bolehLihat` dari `GET /kupon-gebyar/meta`. `null` = belum/gagal
+     * diketahui — lihat [kuponGebyarCardVisible] untuk kenapa ketiga keadaannya
+     * berbeda dan kenapa yang `null` justru TAMPIL.
+     *
+     * Default `null` DISENGAJA dan arahnya kebalikan dari [akunUji]: pemanggil
+     * yang lupa mengopernya menampilkan kartu yang bertanda "gagal muat", bukan
+     * menghilangkannya diam-diam dari cabang yang berhak.
+     */
+    kuponGebyarBoleh: Boolean? = null,
 ): List<ActivityCard> = items
     .filter { it.kind == ActivityKind.ANTRIAN }
     .map { item ->
@@ -90,6 +100,12 @@ internal fun buildQueueCards(
             // pun. Gerbang longgar tanpa penyempit adalah gerbang terbuka.
             ActivitySource.DLV_AS_DRIVER, ActivitySource.HS_TUGAS_DRIVER ->
                 card.failed || driverCardVisible(card.count, effectiveRoles)
+            // Gerbang CABANG, bukan gerbang angka: kartu ini TETAP tampil saat
+            // sisanya nol ("semua undangan sudah dikirim" adalah kabar yang
+            // berguna), dan hanya hilang kalau server memvonis cabangnya di luar
+            // program. `card.failed` tak perlu disebut — vonis `null` sudah
+            // dijawab `true` oleh fungsinya.
+            ActivitySource.KUPON_GEBYAR_SISA -> kuponGebyarCardVisible(kuponGebyarBoleh)
             else -> true
         }
     }

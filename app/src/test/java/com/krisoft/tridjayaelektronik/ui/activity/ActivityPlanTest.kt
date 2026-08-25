@@ -53,6 +53,65 @@ class ActivityPlanTest {
         assertEquals(2, cards.first { it.item.id == "aki_saya" }.count)
     }
 
+    // ── Kartu "Konsumen Gebyar" (gerbang CABANG, bukan gerbang angka) ──────
+    //
+    // Gerbangnya tak bisa dinyatakan sebagai kunci kemampuan: `kupon_gebyar.lihat`
+    // hanya tahu ROLE, sementara yang menentukan adalah cabang
+    // (`auth_users.cabang_id`) — Manado (D-06 + D-07) di luar program. Karena
+    // itu vonisnya datang dari respons `GET /kupon-gebyar/meta`, dan ketiga
+    // keadaannya (`true`/`false`/`null`) harus berbeda.
+
+    @Test
+    fun `kartu gebyar hilang hanya kalau server memvonis cabangnya di luar program`() {
+        val cards = buildQueueCards(
+            items = listOf(item("kupon_gebyar")),
+            counts = emptyMap(),
+            failed = emptySet(),
+            effectiveRoles = setOf("karyawan"),
+            kuponGebyarBoleh = false,
+        )
+        assertTrue("Cabang di luar program tak boleh melihat kartunya", cards.isEmpty())
+    }
+
+    @Test
+    fun `kartu gebyar tetap tampil saat sisanya nol`() {
+        // "Semua undangan sudah dikirim" adalah kabar yang berguna. Menyembunyikan
+        // kartu yang nol di sini akan membuat menu terasa hilang justru pada
+        // cabang yang paling rajin.
+        val cards = buildQueueCards(
+            items = listOf(item("kupon_gebyar")),
+            counts = mapOf(ActivitySource.KUPON_GEBYAR_SISA to 0),
+            failed = emptySet(),
+            effectiveRoles = setOf("karyawan"),
+            kuponGebyarBoleh = true,
+        )
+        assertEquals(0, cards.single().count)
+    }
+
+    @Test
+    fun `vonis yang belum diketahui menampilkan kartu bertanda gagal, bukan menyembunyikannya`() {
+        // Offline / panggilan gagal. Menyembunyikannya di sini = menu yang
+        // lenyap tiap kali sinyal jelek, keluhan yang sudah pernah muncul untuk
+        // kartu lain. Arahnya SENGAJA kebalikan `gateAllows`, yang fail-closed:
+        // di sana server MENJAWAB dan kuncinya absen; di sini server tak menjawab.
+        val cards = buildQueueCards(
+            items = listOf(item("kupon_gebyar")),
+            counts = emptyMap(),
+            failed = setOf(ActivitySource.KUPON_GEBYAR_SISA),
+            effectiveRoles = setOf("karyawan"),
+            kuponGebyarBoleh = null,
+        )
+        assertTrue(cards.single().failed)
+        assertEquals(null, cards.single().count)
+    }
+
+    @Test
+    fun `pemanggil yang lupa mengoper vonis tetap menampilkan kartunya`() {
+        assertTrue(kuponGebyarCardVisible(null))
+        assertTrue(kuponGebyarCardVisible(true))
+        assertFalse(kuponGebyarCardVisible(false))
+    }
+
     // ── Kartu SPK Gantung (antrian konfirmasi pembayaran kasir) ─────────────
     //
     // Bug 2026-07-29: angka kartu disaring `isGantung` (>24 jam) DULU, jadi

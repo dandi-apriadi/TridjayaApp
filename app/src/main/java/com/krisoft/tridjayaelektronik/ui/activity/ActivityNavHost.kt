@@ -21,6 +21,7 @@ import com.krisoft.tridjayaelektronik.ui.attendance.AttendanceScreen
 import com.krisoft.tridjayaelektronik.ui.deadstock.DeadstockScreen
 import com.krisoft.tridjayaelektronik.ui.event.EventLeadScreen
 import com.krisoft.tridjayaelektronik.ui.indent.IndentListScreen
+import com.krisoft.tridjayaelektronik.ui.kupongebyar.KuponGebyarScreen
 import com.krisoft.tridjayaelektronik.ui.opname.OpnameListScreen
 import com.krisoft.tridjayaelektronik.ui.opname.OpnameValidasiScreen
 import com.krisoft.tridjayaelektronik.ui.sales.SalesScreen
@@ -105,6 +106,9 @@ private const val ROUTE_KPI = "home_kpi"
 private const val ROUTE_HARGA_GS = "home_harga_gs"
 private const val ROUTE_SERIAL_INPUT = "home_serial_input"
 private const val ROUTE_DEADSTOCK = "home_deadstock"
+/** Konsumen Gebyar — daftar konsumen berhak kupon doorprize di cabang sendiri.
+ *  Prefiks `home_` mengikuti seluruh route anak tabel ini. */
+private const val ROUTE_KUPON_GEBYAR = "home_kupon_gebyar"
 private const val ROUTE_MUTASI_HISTORI = "home_mutasi_histori"
 private const val ROUTE_PANDUAN_ALUR = "home_panduan_alur"
 // Prospek event lapangan — dibuka HANYA dari kartu event yang menggantikan sapaan
@@ -219,6 +223,9 @@ internal fun routeForNavKey(navKey: String): String? = when (navKey) {
     // Prospek/CRM: dulu dispesialkan lewat callback pindah-tab (LeadsNavHost
     // sejajar tab), kini route biasa di tabel ini seperti sibling lain.
     "crm" -> ROUTE_LEADS_LIST
+    // Konsumen Gebyar. Kartunya di seksi ANTRIAN; gerbangnya kunci kemampuan
+    // `kupon_gebyar.lihat` DITAMBAH vonis cabang dari server.
+    "kupon_gebyar" -> ROUTE_KUPON_GEBYAR
     else -> deliveryStageRoute(navKey)
 }
 
@@ -454,6 +461,9 @@ fun ActivityNavHost(
         }
         composable(ROUTE_DEADSTOCK) {
             DeadstockScreen(onBack = { navController.popBackStack() })
+        }
+        composable(ROUTE_KUPON_GEBYAR) {
+            KuponGebyarScreen(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_MUTASI_HISTORI) {
             MutasiHistoriScreen(onBack = { navController.popBackStack() })

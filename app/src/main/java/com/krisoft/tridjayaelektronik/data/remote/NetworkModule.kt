@@ -258,6 +258,16 @@ object NetworkModule {
     fun createDeadstockApi(tokenStore: TokenStore): DeadstockApi =
         authenticatedRetrofit(tokenStore).create(DeadstockApi::class.java)
 
+    /**
+     * Kupon Gebyar. Client BERSAMA, bukan client-unggah terpisah seperti
+     * `createAktivitasUploadApi`: batas server 5 MB dan keluaran
+     * `PhotoWatermark.prepareWatermarkedJpeg` selalu di bawah 2 MB, jadi write
+     * timeout 20 detik milik client bersama cukup. Pola sama `AcInstallApi`,
+     * yang meminjam jalur unggah delivery dengan alasan yang sama.
+     */
+    fun createKuponGebyarApi(tokenStore: TokenStore): KuponGebyarApi =
+        authenticatedRetrofit(tokenStore).create(KuponGebyarApi::class.java)
+
     fun createApkApi(tokenStore: TokenStore): ApkApi =
         authenticatedRetrofit(tokenStore).create(ApkApi::class.java)
 
