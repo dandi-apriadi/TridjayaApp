@@ -245,6 +245,20 @@ fun SpkItemCard(
                         "Sales isi checklist PDI + foto unit sendiri — langsung diarahkan ke form-nya begitu SPK ini selesai dibuat. Kasir baru bisa proses setelah PDI mandiri ini lengkap.",
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                } else if (deliveryMethod == "self_pickup" || deliveryMethod == "sales_delivery") {
+                    // Peringatan ini BUKAN mengubah keputusan (backend `is_self_pdi`
+                    // tetap mengizinkan sales lanjut sendiri terlepas dari pilihan ini
+                    // untuk kedua metode ini), tapi mencegah ekspektasi salah SAAT
+                    // memilih: sales/admin yang menekan "Tim PDI cabang" di sini
+                    // mengira ada tim lain yang akan dinotifikasi & mengerjakan —
+                    // padahal untuk unit yang diambil/diantar sendiri, sales pemilik
+                    // SPK-nya tetap bisa (dan kalau cabangnya tak punya staf PDI,
+                    // SATU-SATUNYA yang bisa) langsung lanjut isi PDI sendiri.
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Karena metode diambil/diantar sendiri, Anda (sales) tetap bisa langsung isi PDI sendiri kapan saja — tak perlu menunggu tim PDI cabang, terutama kalau cabang ini belum punya staf PDI.",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
                 // ── Pemicu blok opsional ─────────────────────────────────────
