@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Chat
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ConfirmationNumber
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -106,6 +107,23 @@ fun KuponGebyarScreen(
         val baris = state.items.firstOrNull { it.kodeRekanan == kode }
         if (ok && baris != null) viewModel.unggahBukti(baris, fileFoto, catatan = null)
         buktiUntuk = null
+    }
+
+    // Kamera ATAU galeri — keduanya bermuara ke `fileFoto` yang sama supaya
+    // jalur unggahnya (watermark + POST) cuma satu implementasi. `GetContent()`
+    // = Android Photo Picker, tak butuh izin penyimpanan (lihat SpkItemCard.kt).
+    val galeri = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val kode = buktiUntuk
+        val baris = state.items.firstOrNull { it.kodeRekanan == kode }
+        buktiUntuk = null
+        if (uri == null || baris == null) return@rememberLauncherForActivityResult
+        val tersalin = runCatching {
+            context.contentResolver.openInputStream(uri)!!.use { input ->
+                fileFoto.outputStream().use { output -> input.copyTo(output) }
+            }
+        }.isSuccess
+        if (tersalin) viewModel.unggahBukti(baris, fileFoto, catatan = null)
+        else Toast.makeText(context, "Gagal membaca foto dari galeri.", Toast.LENGTH_SHORT).show()
     }
 
     // Snackbar penuh butuh Scaffold yang layar ini tak punya (header kolaps
@@ -195,9 +213,13 @@ fun KuponGebyarScreen(
                                     baris = baris,
                                     mengunggah = state.mengunggah,
                                     tertunda = state.buktiTertunda.containsKey(baris.kodeRekanan),
-                                    onKirim = {
+                                    onKirimKamera = {
                                         buktiUntuk = baris.kodeRekanan
                                         kamera.launch(uriFoto)
+                                    },
+                                    onKirimGaleri = {
+                                        buktiUntuk = baris.kodeRekanan
+                                        galeri.launch("image/*")
                                     },
                                     onSimpanUlang = {
                                         viewModel.simpanUlang(baris.kodeRekanan, catatan = null)
@@ -274,7 +296,8 @@ private fun BarisKonsumen(
     baris: KuponGebyarBarisDto,
     mengunggah: Boolean,
     tertunda: Boolean,
-    onKirim: () -> Unit,
+    onKirimKamera: () -> Unit,
+    onKirimGaleri: () -> Unit,
     onSimpanUlang: () -> Unit,
     onChat: (String) -> Unit,
 ) {
@@ -345,27 +368,67 @@ private fun BarisKonsumen(
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                     }
-                    Button(
-                        onClick = if (tertunda) onSimpanUlang else onKirim,
-                        enabled = !mengunggah,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        if (mengunggah) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
+                    if (tertunda) {
+                        Button(
+                            onClick = onSimpanUlang,
+                            enabled = !mengunggah,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            if (mengunggah) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Rounded.CameraAlt,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                // "Simpan ulang" = fotonya SUDAH terunggah, yang
+                                // gagal cuma pencatatannya. Memotret ulang di
+                                // keadaan itu menambah berkas tanpa induk di server.
+                                Text("Simpan ulang")
+                            }
+                        }
+                    } else {
+                        // Kamera ATAU galeri — keduanya bermuara ke berkas cache
+                        // yang sama (lihat `fileFoto` di KuponGebyarScreen)
+                        // supaya jalur unggahnya cuma satu implementasi.
+                        Button(
+                            onClick = onKirimKamera,
+                            enabled = !mengunggah,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            if (mengunggah) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Rounded.CameraAlt,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Kamera")
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        OutlinedButton(
+                            onClick = onKirimGaleri,
+                            enabled = !mengunggah,
+                            modifier = Modifier.weight(1f),
+                        ) {
                             Icon(
-                                Icons.Rounded.CameraAlt,
+                                Icons.Rounded.PhotoLibrary,
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp),
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            // "Simpan ulang" = fotonya SUDAH terunggah, yang
-                            // gagal cuma pencatatannya. Memotret ulang di
-                            // keadaan itu menambah berkas tanpa induk di server.
-                            Text(if (tertunda) "Simpan ulang" else "Foto bukti undangan")
+                            Text("Galeri")
                         }
                     }
                 }
