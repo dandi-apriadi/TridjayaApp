@@ -912,8 +912,13 @@ Force-update / optional-update / "Cek Pembaruan" (Settings) driven by **Firebase
     diselamatkan, pekerjaannya memang sudah selesai.
   * **`perluNomorPengganti` = nomor yang tercatat nomor KARYAWAN**, bukan nomor
     konsumennya (27 baris di produksi). Dirender sebagai peringatan merah.
-  * Foto bukti TIDAK ditampilkan di app — `BarisKuponPublic` memang tak membawa
-    `buktiUrl`. Papan `/monitoring` juga web-only.
+  * Foto bukti TIDAK ditampilkan di app — `KuponGebyarModels.kt` sengaja
+    tak menurunkan field itu ke `KuponGebyarBarisDto`. **BUKAN lagi karena
+    server tak mengirimnya**: `BarisKuponPublic` mendapat `buktiUrl` 2026-08-26
+    untuk kebutuhan web (rincian per cabang di Papan Gebyar). Kalau app kelak
+    perlu menampilkannya, tinggal tambah field + `AuthedImage`/Coil dengan
+    header `Authorization`, pola yang sama dengan foto delivery. Papan
+    `/monitoring` juga tetap web-only.
 - All three tabs' data is Room-cached with a uniform 5-hour TTL and survives tab switches
 
 ## Official Android/Material guideline compliance

@@ -83,11 +83,12 @@ data class KuponGebyarBarisDto(
     /** Nomor yang tercatat adalah nomor KARYAWAN, bukan nomor konsumen ini —
      *  undangan yang dikirim ke sana tak pernah sampai ke orangnya. */
     val perluNomorPengganti: Boolean = false,
-    // CATATAN: baris daftar TIDAK membawa `buktiUrl` — `BarisKuponPublic`
-    // (kinerja-service `kupon_gebyar/domain.rs`) memang tak punya field itu,
-    // sama seperti sisi web. Yang dibawa hanya SIAPA dan KAPAN. Menampilkan
-    // fotonya butuh field baru di server lebih dulu; menambahkannya di sini
-    // saja akan menjadi field yang selamanya kosong.
+    // CATATAN: baris ini SENGAJA tak menurunkan `buktiUrl` walau server sudah
+    // mengirimnya sejak 2026-08-26 (`BarisKuponPublic.buktiUrl`, untuk rincian
+    // per cabang di Papan Gebyar web). App belum menampilkan foto bukti di
+    // layar ini — kalau kelak perlu, tambahkan field String di sini lalu
+    // render lewat `AuthedImage`/Coil ber-header `Authorization`, pola yang
+    // sama dengan foto delivery. Bukan lagi "field yang selamanya kosong".
 )
 
 @Serializable
