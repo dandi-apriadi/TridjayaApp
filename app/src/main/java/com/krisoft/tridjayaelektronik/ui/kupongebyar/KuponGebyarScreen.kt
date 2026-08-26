@@ -355,20 +355,20 @@ private fun BarisKonsumen(
 
             if (bolehKirim(baris)) {
                 Spacer(modifier = Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    nomorWa(baris.hp)?.let { nomor ->
-                        OutlinedButton(onClick = { onChat(nomor) }) {
-                            Icon(
-                                Icons.Rounded.Chat,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Chat WA")
+                if (tertunda) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        nomorWa(baris.hp)?.let { nomor ->
+                            OutlinedButton(onClick = { onChat(nomor) }) {
+                                Icon(
+                                    Icons.Rounded.Chat,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Chat WA")
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-                    if (tertunda) {
                         Button(
                             onClick = onSimpanUlang,
                             enabled = !mengunggah,
@@ -392,7 +392,26 @@ private fun BarisKonsumen(
                                 Text("Simpan ulang")
                             }
                         }
-                    } else {
+                    }
+                } else {
+                    // Chat WA di barisnya sendiri (ukuran alami, seperti semula),
+                    // Kamera/Galeri di baris terpisah di bawahnya — tiga tombol
+                    // berebut satu baris membuat Kamera/Galeri kehabisan lebar
+                    // sampai tulisannya melipat per-huruf (pil jadi tinggi
+                    // memanjang, bukan lebar).
+                    nomorWa(baris.hp)?.let { nomor ->
+                        OutlinedButton(onClick = { onChat(nomor) }) {
+                            Icon(
+                                Icons.Rounded.Chat,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Chat WA")
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         // Kamera ATAU galeri — keduanya bermuara ke berkas cache
                         // yang sama (lihat `fileFoto` di KuponGebyarScreen)
                         // supaya jalur unggahnya cuma satu implementasi.
