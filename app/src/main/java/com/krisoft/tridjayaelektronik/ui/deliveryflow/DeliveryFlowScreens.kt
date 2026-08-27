@@ -1156,7 +1156,25 @@ fun DeliveryJobDetailScreen(id: String, onBack: () -> Unit, viewModel: DeliveryF
                                 "sales_delivery" -> "Sales Antar Sendiri"
                                 else -> "Driver"
                             })
-                            InfoLine("PDI", if (job.pdiRequired == false) "PDI Mandiri (sales)" else "PDI (tim PDI)")
+                            // Badge ini menampilkan APA YANG DIPILIH sales/admin saat SPK
+                            // dibuat (toggle "Siapa yang mengecek unit" di SpkItemCard) —
+                            // TIDAK diubah jadi "Mandiri" begitu saja, supaya pilihan asli
+                            // tetap jujur ditampilkan. Tapi untuk self_pickup/sales_delivery,
+                            // `is_self_pdi` backend TETAP mengizinkan sales pemilik SPK
+                            // mengerjakan sendiri terlepas dari pilihan "Tim PDI cabang" ini
+                            // (unitnya memang tak pernah lepas dari tangan sales) — tanpa
+                            // catatan ini, badge "PDI (tim PDI)" menyesatkan: sales/admin
+                            // mengira ada tim lain yang akan mengerjakan dan menunggu
+                            // notifikasi yang bisa jadi tak pernah dikirim/tak ada
+                            // penerimanya (cabang tanpa staf PDI), padahal sales sendiri
+                            // sudah boleh langsung lanjut ke PDI.
+                            val pdiBadge = when {
+                                job.pdiRequired == false -> "PDI Mandiri (sales)"
+                                job.deliveryMethod == "self_pickup" || job.deliveryMethod == "sales_delivery" ->
+                                    "PDI (tim PDI) — sales tetap bisa kerjakan sendiri"
+                                else -> "PDI (tim PDI)"
+                            }
+                            InfoLine("PDI", pdiBadge)
                             InfoLine("Surat Jalan", job.deliveryNoteNo)
                             InfoLine("Driver", job.assignedDriverName)
                             InfoLine("Jadwal", job.scheduledDate?.let(::formatWaktuId))
