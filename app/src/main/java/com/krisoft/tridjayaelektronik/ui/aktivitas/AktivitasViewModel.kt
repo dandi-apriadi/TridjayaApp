@@ -9,6 +9,7 @@ import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.AktivitasRepository
 import com.krisoft.tridjayaelektronik.data.model.AktivitasItemDto
 import com.krisoft.tridjayaelektronik.data.model.AktivitasPositionDto
+import com.krisoft.tridjayaelektronik.data.model.jumlahButirAktif
 import com.krisoft.tridjayaelektronik.domain.sales.KlasemenStandings
 import com.krisoft.tridjayaelektronik.ui.home.effectiveRoles
 import com.krisoft.tridjayaelektronik.util.PhotoWatermark
@@ -87,6 +88,20 @@ data class AktivitasUiState(
      */
     val bolehLihatRiwayat: Boolean = false,
     val aktivitas: List<String> = emptyList(),
+    /**
+     * Berapa butir dari [aktivitas] yang benar-benar DITAGIH — sudah dikurangi
+     * penanda `nonaktif` dari master.
+     *
+     * Dipisah dari [aktivitas] dan BUKAN dipakai menyaringnya: daftar yang
+     * dirender harus tetap utuh karena index loop-nya ADALAH `jobdeskIndex`
+     * yang dikirim ke server, dan submit itu upsert atas
+     * `(karyawan_id, tanggal, divisi, jobdesk_index)`. Menyaring daftar akan
+     * menggeser index butir sesudahnya dan menimpa bukti yang salah, tanpa
+     * satu pun error. Yang dikurangi hanya PENYEBUT.
+     *
+     * 0 = belum termuat; [butirDitagih] yang memberi lantainya.
+     */
+    val butirAktif: Int = 0,
     val submitted: Map<Int, AktivitasItemDto> = emptyMap(),
     /** Berkas terpilih per index aktivitas, belum dikirim. */
     val pilihan: Map<Int, PilihanBukti> = emptyMap(),
@@ -107,6 +122,22 @@ data class AktivitasUiState(
     val blokir: BlokirBukti? = null,
 ) {
     val terkirim: Int get() = aktivitas.indices.count { it in submitted }
+
+    /**
+     * Penyebut "x/N aktivitas terkirim" — cerminan
+     * `resolveExpectedAktivitasCount` web: `max(butir aktif, index tertinggi
+     * yang sudah terkirim + 1, 1)`.
+     *
+     * Suku KEDUA bukan hiasan. Butir yang ditandai nonaktif SESUDAH seseorang
+     * mengirimnya tetap punya baris di server; tanpa suku itu layar menulis
+     * "13/12" — pecahan yang lebih dari satu, dan itu terbaca sebagai layar
+     * yang rusak, bukan sebagai master yang berubah.
+     */
+    val butirDitagih: Int
+        get() {
+            val tertinggiTerkirim = submitted.keys.maxOrNull()?.plus(1) ?: 0
+            return maxOf(butirAktif, tertinggiTerkirim, 1)
+        }
 
     /**
      * Turunan dari [kirim]. Kunci tetap GLOBAL (satu baris sibuk = seluruh
@@ -192,7 +223,11 @@ class AktivitasViewModel @Inject constructor(
                             penempatanId = (penempatan as? PenempatanSaya.Ada)?.positionId.orEmpty(),
                             posisi = posisi?.posisi.orEmpty(),
                             // `.jobdesks` = nama field DI KABEL, ejaan lama.
+                            // Daftar UTUH (index-nya = `jobdeskIndex` yang
+                            // dikirim); penanda `nonaktif` cuma mengurangi
+                            // PENYEBUT lewat `butirAktif`.
                             aktivitas = posisi?.jobdesks.orEmpty(),
+                            butirAktif = posisi?.jumlahButirAktif() ?: 0,
                             // Gagal memuat yang sudah terkirim TIDAK mengunci layar:
                             // user tetap boleh mengirim (server upsert, aman diulang).
                             submitted = (todayResult as? AuthResult.Success)

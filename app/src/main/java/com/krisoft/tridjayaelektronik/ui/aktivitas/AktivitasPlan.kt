@@ -9,9 +9,22 @@ import com.krisoft.tridjayaelektronik.data.model.AktivitasItemDto
  */
 
 /**
- * Posisi aktivitas milik seorang karyawan berdasarkan `divisi`-nya. Port 1:1
- * dari `getPositionMatch` di web (`KaryawanAktivitasPage.tsx`) supaya daftar
- * aktivitas di HP sama persis dengan yang dinilai PIC di web.
+ * Posisi aktivitas milik seorang karyawan berdasarkan `divisi`-nya.
+ *
+ * **BUKAN port 1:1 dari web — komentar lama di sini mengklaim begitu dan itu
+ * sudah tidak benar.** Web (`utils/aktivitasDivisiMatch.ts`
+ * `cariDivisiAktivitas`) menormalkan KEDUA sisi lewat
+ * `normalizeAktivitasMatchKey`/`kunciDivisi` dan punya TINGKAT KETIGA yang
+ * dinilai per-tag dengan aturan ">1 kandidat = BERHENTI"; fungsi ini
+ * membandingkan `lowercase().trim()` MENTAH dan berhenti di `contains`.
+ * Urutan tingkatnya pun berbeda.
+ *
+ * Diukur di produksi 2026-08-27: hasilnya berbeda untuk **0 dari 164 akun**
+ * (34 akun memakai jalur ini, 36 tag unik, nol tag mengandung spasi maupun
+ * underscore), jadi ini utang dokumentasi — bukan cacat yang sedang berjalan.
+ * Kalau kodenya suatu saat dikerjakan, tulis ULANG sebagai cerminan `cocok
+ * (tingkat)` (loop per-tingkat di LUAR, per-divisi di DALAM), bukan tiga
+ * tambalan normalisasi — tambalan melestarikan perbedaan urutannya.
  *
  * `null` saat tak ada yang cocok — SENGAJA tak jatuh ke posisi pertama: karyawan
  * yang divisinya tak ada di master akan dinilai (dan didenda) memakai aktivitas

@@ -15,6 +15,7 @@ import com.krisoft.tridjayaelektronik.data.OpnameRepository
 import com.krisoft.tridjayaelektronik.data.AktivitasRepository
 import com.krisoft.tridjayaelektronik.data.SpkTodayCounter
 import com.krisoft.tridjayaelektronik.data.model.DeliveryStatusKey
+import com.krisoft.tridjayaelektronik.data.model.jumlahButirAktif
 import com.krisoft.tridjayaelektronik.data.model.ProspekTargetDto
 import com.krisoft.tridjayaelektronik.data.model.UserDto
 import com.krisoft.tridjayaelektronik.domain.indent.ListIndentUseCase
@@ -321,7 +322,11 @@ class ActivityViewModel @Inject constructor(
                         aktivitasExpected =
                             pilihAktivitasUntukInput(user?.divisi.orEmpty(), r.data, penempatan)
                                 // `.jobdesks` = nama field DI KABEL, ejaan lama.
-                                ?.jobdesks?.size
+                                // `jumlahButirAktif()`, BUKAN `.jobdesks.size`:
+                                // butir yang ditandai `nonaktif` tak ditagih —
+                                // penyebut KPI & gerbang absen pulang sudah
+                                // menghormatinya, kartu ini dulu tidak.
+                                ?.jumlahButirAktif()
                     }
                 }
             }

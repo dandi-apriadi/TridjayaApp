@@ -748,7 +748,9 @@ Force-update / optional-update / "Cek Pembaruan" (Settings) driven by **Firebase
   cabang, cek pembaruan (`ui/settings/SettingsFormat.kt` memformat nilai tampilan)
 - Input Aktivitas / raport harian (`ui/raport/`, **BETA** — kartu di Activity berlabel BETA):
   daftar aktivitas posisi karyawan dari `GET /api/jobdesk-divisions` (dicocokkan ke `divisi`
-  profil lewat `matchAktivitasPosition`, port 1:1 `getPositionMatch` web — **tak boleh** jatuh ke
+  profil lewat `matchAktivitasPosition` — **BUKAN port 1:1 `getPositionMatch` web**, klaim lama
+  itu basi sejak web menambah tingkat ketiga ber-normalisasi; hasilnya sama untuk 164 dari 164
+  akun produksi per 2026-08-27, jadi utang dokumentasi bukan cacat berjalan. **Tak boleh** jatuh ke
   posisi pertama saat tak cocok, itu bikin orang dinilai atas aktivitas divisi lain), kirim per
   baris ke `POST /api/raport-harian`. Bukti = foto kamera, **sampai 10 gambar dari galeri** (dinaikkan dari 6 pada
   2026-08-16 — katalog aktivitas produksi penuh target berjumlah sepuluh; angkanya

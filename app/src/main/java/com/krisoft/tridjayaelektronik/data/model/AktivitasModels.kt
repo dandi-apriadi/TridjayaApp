@@ -22,7 +22,46 @@ data class AktivitasPositionDto(
     val posisi: String = "",
     /** NAMA KABEL — jangan ikut di-rename jadi `aktivitas`, lihat KDoc berkas. */
     val jobdesks: List<String> = emptyList(),
+    /**
+     * POSISI butir yang ditandai nonaktif — field PARALEL berisi nomor indeks,
+     * BUKAN penyaring `jobdesks`.
+     *
+     * Server mengirimkannya sejak pembekuan posisi butir (2026-08-20,
+     * `541a374d`): butir tak pernah dihapus dari array (posisinya adalah
+     * kunci), ia hanya ditandai. Penyebut KPI, gerbang absen pulang, worker
+     * auto-isi, dan tiga titik web sudah menghormati penanda ini; HP TIDAK —
+     * ia bahkan tak punya fieldnya, jadi kartunya MELEBIHKAN tagihan.
+     *
+     * Dampak hari ini **0 karyawan, 0 hari**: dari 19 divisi produksi, nol
+     * yang memakai penanda ini (diukur 2026-08-27). Default `emptyList()`
+     * karenanya berperilaku persis seperti sebelum field ini ada.
+     *
+     * **JANGAN dipakai menyaring daftar yang dirender.**
+     * `AktivitasScreen.kt` mengirim `jobdeskIndex` dari INDEX LOOP, dan submit
+     * itu upsert atas `(karyawan_id, tanggal, divisi, jobdesk_index)` —
+     * menyaring daftarnya menggeser index semua butir sesudahnya dan MENIMPA
+     * bukti butir lain tanpa satu pun error (4.629 baris / 110 karyawan per
+     * 7 hari lewat jalur itu). Yang boleh memakainya: PENYEBUT.
+     */
+    val nonaktif: List<Int> = emptyList(),
 )
+
+/**
+ * Berapa butir yang benar-benar ditagih dari sebuah posisi.
+ *
+ * Cerminan `resolveExpectedAktivitasCount` di web: penanda `nonaktif`
+ * dikurangkan, TAPI hasilnya berlantai — nol butir aktif tetap menagih 1,
+ * karena penyebut nol membuat pembagian skor di hilir tak berarti.
+ *
+ * Dipakai DUA tempat (kartu Home dan footer layar Aktivitas). Kalau hanya satu
+ * yang memakainya, Home menulis "x/12" sementara footer menulis "x/13" untuk
+ * orang yang sama — dan selisih satu butir di dua layar lebih membingungkan
+ * daripada dua-duanya salah dengan cara yang sama.
+ */
+internal fun AktivitasPositionDto.jumlahButirAktif(): Int {
+    val nonaktifValid = nonaktif.filter { it in jobdesks.indices }.distinct().size
+    return maxOf(jobdesks.size - nonaktifValid, 1)
+}
 
 /**
  * Balasan `GET /api/raport-harian/penempatan-saya`.

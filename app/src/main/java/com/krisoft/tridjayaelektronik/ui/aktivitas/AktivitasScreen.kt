@@ -372,7 +372,11 @@ private fun Ringkasan(state: AktivitasUiState) {
             }
         }
         Text(
-            text = "${state.terkirim}/${state.aktivitas.size} aktivitas terkirim hari ini · " +
+            // `butirDitagih`, BUKAN `aktivitas.size`: butir bertanda `nonaktif`
+            // tak ditagih. Kartu Home memakai penyebut yang sama — kalau hanya
+            // satu yang ikut, dua layar menulis angka berbeda untuk orang yang
+            // sama di menit yang sama.
+            text = "${state.terkirim}/${state.butirDitagih} aktivitas terkirim hari ini · " +
                 "bukti: foto kamera/galeri (maks $MAX_GAMBAR) atau satu video",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
