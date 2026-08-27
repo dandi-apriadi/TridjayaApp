@@ -2444,19 +2444,10 @@ private fun AssignAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, submitt
             "lalu pindahkan unitnya lewat menu reassign di web."
     )
     Spacer(Modifier.height(8.dp))
-    // Filter driver SE-REGION (paritas web `driversForRegion` 2026-07-21): job
-    // Jawa hanya driver Jawa, Manado (D-06/D-07) hanya driver Manado. Region
-    // driver dibaca dari `cabang_name` /api/users ("...Manado..." → Manado);
-    // kosong = tak diketahui → fail-soft ikut tampil (pola web saat store gagal).
-    val jobRegion = BranchRegions.dealerRegion(job.kodeDealer)
-    val regionDrivers = drivers.filter { d ->
-        val r = when {
-            d.cabangName.isBlank() -> null
-            d.cabangName.contains("manado", ignoreCase = true) -> BranchRegions.REGION_MANADO
-            else -> BranchRegions.REGION_JAWA
-        }
-        r == null || r == jobRegion
-    }
+    // SEMUA driver ditampilkan, lintas cabang/region — se-cabang di atas, cabang
+    // asal ditulis di tiap baris. Alasan lengkap kenapa penyaringan region dibuang
+    // (dan kenapa `cabang_name` tak boleh jadi kunci) ada di `DriverPicker.kt`.
+    val pickable = driverBisaDitugaskan(drivers, job.kodeDealer)
     // Sales antar sendiri (2026-07-24): fallback manual kalau auto-assign backend
     // gagal (map_url kosong saat surat jalan terbit) — DC bisa pilih sales pembuat
     // SPK sbg driver, sama seperti opsi driver asli.
@@ -2477,33 +2468,44 @@ private fun AssignAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, submitt
         }
         Spacer(Modifier.height(10.dp))
     }
-    if (regionDrivers.isNotEmpty()) {
+    if (pickable.isNotEmpty()) {
         Text(
-            "Pilih driver (region ${BranchRegions.regionLabel(jobRegion)})",
+            "Pilih driver (semua cabang)",
             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(6.dp))
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            regionDrivers.forEach { d ->
+            pickable.forEach { d ->
                 val sel = driverId == d.effectiveId
                 Surface(onClick = { driverId = d.effectiveId; driverName = d.name }, shape = RoundedCornerShape(12.dp),
                     color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth()) {
-                    Text(d.name.ifBlank { d.effectiveId }, color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+                        Text(d.name.ifBlank { d.effectiveId }, color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        // Cabang asal driver dipajang apa adanya — inilah pengganti
+                        // filter region: DC melihat driver itu dari cabang mana dan
+                        // memutuskan sendiri, alih-alih daftarnya dipangkas diam-diam.
+                        val cabang = d.cabangName.trim()
+                        if (cabang.isNotEmpty()) {
+                            Text(cabang, style = MaterialTheme.typography.labelSmall,
+                                color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }
     } else {
-        // Fallback bila daftar driver tak bisa dimuat (role tak berizin / endpoint
-        // kosong) ATAU tak ada driver se-region — input manual = escape hatch
-        // (enforce region cuma di klien, backend tak menolak lintas region).
-        if (drivers.isNotEmpty()) {
-            Text(
-                "Tidak ada driver terdaftar di region ${BranchRegions.regionLabel(jobRegion)} — isi manual bila memang perlu lintas region.",
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error
-            )
-            Spacer(Modifier.height(6.dp))
-        }
+        // Satu-satunya sebab daftarnya kosong sekarang: rosternya sendiri tak
+        // terpakai (role tak berizin / endpoint kosong / semua id kosong) — BUKAN
+        // lagi "tak ada driver se-region". Input manual tetap ada supaya DC tak
+        // terkunci saat API mati; server menerima user id apa pun (`assign_driver`
+        // cuma memeriksa role si penugas).
+        Text(
+            "Daftar driver tidak bisa dimuat — isi nama & ID driver secara manual.",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(6.dp))
         ExpressiveTextField(driverName, { driverName = it }, label = "Nama driver", modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(10.dp))
         ExpressiveTextField(driverId, { driverId = it }, label = "ID driver (user id)", modifier = Modifier.fillMaxWidth())
