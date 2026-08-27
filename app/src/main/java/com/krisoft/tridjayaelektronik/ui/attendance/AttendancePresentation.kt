@@ -121,12 +121,35 @@ fun hariIniSebagaiUtcMidnight(
  * Tanggal 1 bulan berjalan s/d hari ini ("yyyy-MM-dd", lokal). Sengaja komponen
  * tanggal lokal (bukan UTC) supaya cocok dgn `tanggal` record server — sama dgn
  * perbaikan geser-UTC di web `dateRangeKeys`.
+ *
+ * [serverToday] (format "yyyy-MM-dd", dari `AbsensiTodayDto.tanggal`) dipakai
+ * kalau ada — SERVER yang menentukan "hari ini", bukan jam device. Ditemukan
+ * 2026-08-27: jam/zona device yang salah (kasus nyata — HP di zona WITA
+ * terbaca WIB, HP lain jamnya melenceng) membuat rentang tanggal yang
+ * dihasilkan di sini tak pernah cocok dengan `tanggal` di record server sama
+ * sekali, sehingga rekap bulanan menghitung HAMPIR SEMUA hari sebagai "Belum
+ * Absen" walau baris absensinya lengkap di server — dan tak ada satu pun
+ * error yang bisa menandainya, karena secara teknis fetch-nya SUKSES, cuma
+ * kuncinya (tanggal) yang tak pernah ketemu. Fallback ke jam device HANYA
+ * kalau `serverToday` belum ada (`todayDto` belum sempat termuat) atau
+ * bentuknya rusak.
  */
-fun currentMonthDays(): List<String> {
+fun currentMonthDays(serverToday: String? = null): List<String> {
     val cal = Calendar.getInstance()
-    val year = cal.get(Calendar.YEAR)
-    val month = cal.get(Calendar.MONTH)
-    val today = cal.get(Calendar.DAY_OF_MONTH)
+    var year = cal.get(Calendar.YEAR)
+    var month = cal.get(Calendar.MONTH)
+    var today = cal.get(Calendar.DAY_OF_MONTH)
+    val bagian = serverToday?.split("-")
+    if (bagian?.size == 3) {
+        val y = bagian[0].toIntOrNull()
+        val m = bagian[1].toIntOrNull()
+        val d = bagian[2].toIntOrNull()
+        if (y != null && m in 1..12 && d != null && d in 1..31) {
+            year = y
+            month = m!! - 1
+            today = d
+        }
+    }
     val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     return (1..today).map { d ->
         fmt.format(Calendar.getInstance().apply { clear(); set(year, month, d) }.time)
@@ -149,7 +172,9 @@ data class AttendanceRekap(
 fun buildRekap(
     history: List<AbsensiRecordDto>,
     offRequests: List<OffRequestDto>,
-    days: List<String> = currentMonthDays()
+    /** `AbsensiTodayDto.tanggal` — lihat catatan [currentMonthDays]. */
+    serverToday: String? = null,
+    days: List<String> = currentMonthDays(serverToday)
 ): AttendanceRekap {
     val attByDate = history.associateBy { it.tanggal }
     val offByDate = offRequests
