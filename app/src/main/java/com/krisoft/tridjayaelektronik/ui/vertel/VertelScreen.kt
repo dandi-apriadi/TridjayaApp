@@ -75,6 +75,10 @@ fun VertelScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val daftar = state.daftar
+    // Dihitung ulang tiap komposisi dari `daftar.baris` — begitu `catat()` sukses
+    // mengisi `panggilan` sebuah baris, baris itu otomatis lenyap dari sini pada
+    // frame berikutnya tanpa refresh apa pun. Lihat KDoc [VertelPlan.daftarTampil].
+    val terlihat = daftar?.let { VertelPlan.daftarTampil(it.baris, state.tampilkanSelesai) }.orEmpty()
 
     TridjayaCollapsibleHeader(title = "Verifikasi Telepon", onBack = onBack) { contentModifier ->
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -115,6 +119,33 @@ fun VertelScreen(
                     }
                 }
 
+                // Semua baris SUDAH ditelepon dan disembunyikan (`tampilkanSelesai`
+                // masih false) — bukan "tak ada transaksi", jadi pesannya beda:
+                // rayakan selesainya, dan tawarkan cara meninjau ulang kalau perlu
+                // koreksi, alih-alih pesan generik yang terlihat seperti error.
+                terlihat.isEmpty() -> ScrollableCenter {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        BarisTanggal(daftar.tanggal) { viewModel.geserHari(it) }
+                        Spacer(Modifier.height(12.dp))
+                        ExpressiveEmptyState(
+                            icon = {
+                                Icon(
+                                    Icons.Rounded.PhoneInTalk,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(30.dp),
+                                )
+                            },
+                            title = "Semua transaksi hari ini sudah ditelepon.",
+                            subtitle = "${daftar.ringkasan.sudahDitelepon} baris selesai dicatat.",
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = { viewModel.toggleTampilkanSelesai() }) {
+                            Text("Tinjau ulang / koreksi catatan")
+                        }
+                    }
+                }
+
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
@@ -135,6 +166,20 @@ fun VertelScreen(
                                 tanpaNomor = daftar.ringkasan.tanpaNomor,
                                 ambang = daftar.ambangHarga,
                             )
+                            Spacer(Modifier.height(10.dp))
+                            // Bawaan: baris selesai disembunyikan (lihat
+                            // `VertelPlan.daftarTampil`). Chip ini satu-satunya
+                            // jalan meninjau/mengoreksi catatan yang sudah masuk.
+                            FilterChip(
+                                selected = state.tampilkanSelesai,
+                                onClick = { viewModel.toggleTampilkanSelesai() },
+                                label = {
+                                    Text(
+                                        if (state.tampilkanSelesai) "Sembunyikan yang sudah ditelepon"
+                                        else "Tampilkan yang sudah ditelepon (${daftar.ringkasan.sudahDitelepon})",
+                                    )
+                                },
+                            )
                         }
                     }
                     // Kegagalan AKSI ditampilkan DI ATAS daftar, bukan menggantikannya
@@ -150,7 +195,7 @@ fun VertelScreen(
                             )
                         }
                     }
-                    items(VertelPlan.urutKerja(daftar.baris), key = { it.noTransaksi }) { baris ->
+                    items(terlihat, key = { it.noTransaksi }) { baris ->
                         KartuBaris(
                             baris = baris,
                             terbuka = state.terbuka == baris.noTransaksi,
