@@ -125,11 +125,16 @@ fun UpdateDialog(
                     }
                     else -> {
                         if (force) {
+                            // Peringatan tetap (bukan cuma teks changelog per rilis) — kebijakan
+                            // 2026-08-27: mandatory HANYA untuk perubahan yang benar-benar wajib,
+                            // tapi begitu dipakai, penggunanya harus tahu KONSEKUENSINYA tanpa
+                            // bergantung admin ingat menulisnya di changelog tiap kali.
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Perbarui aplikasi untuk melanjutkan.",
+                                text = "Fungsi-fungsi penting aplikasi (mis. absen) tidak bisa " +
+                                    "dipakai sampai Anda memperbarui ke versi ini.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = MaterialTheme.colorScheme.error,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
