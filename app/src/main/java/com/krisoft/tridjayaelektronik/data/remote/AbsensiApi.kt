@@ -26,7 +26,24 @@ interface AbsensiApi {
         @Query("page") page: Int = 1,
         @Query("limit") limit: Int = 60,
         @Query("tanggalFrom") tanggalFrom: String? = null,
-        @Query("tanggalTo") tanggalTo: String? = null
+        @Query("tanggalTo") tanggalTo: String? = null,
+        /**
+         * WAJIB diisi ID diri sendiri untuk "riwayat saya" (lihat
+         * `AbsensiRepository.history`) — JANGAN dibiarkan `null` di jalur itu.
+         *
+         * Server (`kinerja-service::attendance::service::list`) membaca
+         * absennya param ini beda arti tergantung ROLE pemanggil: staf biasa
+         * dipaksa ke dirinya sendiri, tapi role peninjau lintas-cabang
+         * (admin/owner/manager/hrd — termasuk yang datang dari DIVISI, bukan
+         * cuma role utama, lihat `divisi_access_slugs`) membacanya sebagai
+         * "tanpa filter = SEMUA karyawan". Itu benar & disengaja untuk papan
+         * admin web (`KehadiranTab.tsx`, review lintas cabang) yang memang
+         * ingin itu — tapi bug nyata 2026-08-27: karyawan ber-divisi HRD yang
+         * membuka "Riwayat Kehadiran" di app melihat data SELURUH PERUSAHAAN
+         * bercampur tanpa nama pemilik, rekap bulanannya pun salah hitung
+         * (punya sendiri tenggelam di antara ratusan baris orang lain).
+         */
+        @Query("karyawanId") karyawanId: String? = null
     ): Response<ApiResponse<AbsensiListDto>>
 
     @POST("api/absensi/check-in")
