@@ -37,6 +37,15 @@ data class AttendanceUiState(
     val todayDto: AbsensiTodayDto? = null,
     val history: List<AbsensiRecordDto> = emptyList(),
     val loadError: String? = null,
+    /**
+     * Kegagalan `history()` SECARA KHUSUS, walau `today()` sukses. Sebelum ini
+     * kegagalan sebagian begini tak pernah terlihat: `loadError` cuma terisi
+     * kalau KEDUANYA gagal, jadi layar diam-diam terus menampilkan riwayat lama
+     * tanpa satu pun tanda — muat ulang berkali-kali percuma kalau sebab
+     * gagalnya (mis. jaringan lemot) masih sama. `null` setelah ditampilkan
+     * sekali (lihat [AttendanceViewModel.bersihkanHistoryLoadError]).
+     */
+    val historyLoadError: String? = null,
 
     /** Preview selfie yang baru diambil (byte upload disimpan terpisah di VM). */
     val selfie: Bitmap? = null,
@@ -141,8 +150,10 @@ class AttendanceViewModel @Inject constructor(
 
     fun clearOffError() = _uiState.update { it.copy(offError = null) }
 
+    fun bersihkanHistoryLoadError() = _uiState.update { it.copy(historyLoadError = null) }
+
     fun load() {
-        _uiState.update { it.copy(loading = true, loadError = null) }
+        _uiState.update { it.copy(loading = true, loadError = null, historyLoadError = null) }
         viewModelScope.launch {
             val (todayRes, historyRes) = coroutineScope {
                 val t = async { repository.today() }
@@ -162,6 +173,13 @@ class AttendanceViewModel @Inject constructor(
                 todayRes is AuthResult.Failure && historyRes is AuthResult.Failure -> todayRes.message
                 else -> null
             }
+            // Kegagalan SEBAGIAN (history gagal, today sukses) sengaja dipisah
+            // dari `error` di atas — `error` menggerbangi layar KOSONG penuh
+            // (lihat `!adaData` di AttendanceScreen), jadi tak boleh terpicu
+            // hanya karena riwayat gagal padahal kartu "hari ini" sudah tampil.
+            // Tanpa field terpisah ini, kegagalan sebagian itu tak pernah
+            // terlihat sama sekali — riwayat lama terus tertampil diam-diam.
+            val historyError = (historyRes as? AuthResult.Failure)?.message
             _uiState.update {
                 withArea(
                     it.copy(
@@ -173,6 +191,7 @@ class AttendanceViewModel @Inject constructor(
                         todayDto = todayData,
                         history = history ?: it.history,
                         loadError = error,
+                        historyLoadError = historyError,
                         geofences = geofences ?: it.geofences,
                         // Ikut nasib `geofences`: kalau daftarnya tak diperbarui
                         // (panggilan gagal), status "lengkap"-nya juga tak boleh

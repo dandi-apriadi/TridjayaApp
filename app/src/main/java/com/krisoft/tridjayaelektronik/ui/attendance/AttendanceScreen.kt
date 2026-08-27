@@ -3,6 +3,7 @@ package com.krisoft.tridjayaelektronik.ui.attendance
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -146,6 +147,18 @@ fun AttendanceScreen(
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    // Kegagalan SEBAGIAN (riwayat gagal dimuat walau kartu "hari ini" sukses)
+    // sebelum ini tak pernah terlihat — layar diam-diam terus menampilkan
+    // riwayat lama tanpa tanda apa pun, dan muat ulang berkali-kali percuma
+    // kalau sebabnya (mis. jaringan lemot) masih sama. Toast, bukan banner
+    // penuh: `!adaData` di atas sudah menutup jalur kosong-total.
+    LaunchedEffect(state.historyLoadError) {
+        state.historyLoadError?.let {
+            Toast.makeText(context, "Gagal memuat riwayat kehadiran: $it", Toast.LENGTH_LONG).show()
+            viewModel.bersihkanHistoryLoadError()
         }
     }
 
