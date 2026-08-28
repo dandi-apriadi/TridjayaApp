@@ -44,6 +44,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,6 +63,9 @@ import com.krisoft.tridjayaelektronik.ui.theme.ScrollableCenter
 import com.krisoft.tridjayaelektronik.ui.theme.SkeletonCard
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -84,6 +88,7 @@ fun KuponGebyarScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) { viewModel.muat() }
 
@@ -142,24 +147,37 @@ fun KuponGebyarScreen(
         // URI hilang, FileNotFoundException saat berkasnya di cloud), jadi ia
         // WAJIB ada DI DALAM `runCatching`. Menaruhnya di luar membuat
         // kegagalan yang sedang kita tangani ini justru menutup app.
-        runCatching {
-            val masuk = context.contentResolver.openInputStream(uri)
-                ?: error("galeri tak memberi isi berkas")
-            masuk.use { input ->
-                fileFoto.outputStream().use { output -> input.copyTo(output) }
-            }
-        }.fold(
-            onSuccess = { viewModel.unggahBukti(baris, fileFoto, catatan = null) },
-            onFailure = { e ->
-                Toast.makeText(
-                    context,
-                    "Foto itu tidak bisa dibaca (${e.javaClass.simpleName}). " +
-                        "Kalau fotonya masih di cloud dan belum terunduh, buka dulu di galeri " +
-                        "atau ambil ulang lewat Kamera.",
-                    Toast.LENGTH_LONG,
-                ).show()
-            },
-        )
+        //
+        // Penyalinannya di `Dispatchers.IO`, BUKAN di badan callback. Callback
+        // picker dipanggil di main thread, dan justru foto yang jadi keluhan
+        // di sini — yang masih di cloud — membuat `openInputStream` MENGUNDUH
+        // dulu dari jaringan sebelum byte pertama keluar. Menyalinnya di main
+        // thread berarti layar membeku selama unduhan itu, dan pada berkas
+        // besar/sinyal jelek berujung ANR: "aplikasi tidak merespons" alih-alih
+        // pesan yang bisa dikerjakan. Pola `withContext` ini sudah dipakai enam
+        // pemanggil `PhotoWatermark` lain (mis. `HomeServiceLaporViewModel`).
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val masuk = context.contentResolver.openInputStream(uri)
+                        ?: error("galeri tak memberi isi berkas")
+                    masuk.use { input ->
+                        fileFoto.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
+            }.fold(
+                onSuccess = { viewModel.unggahBukti(baris, fileFoto, catatan = null, dariGaleri = true) },
+                onFailure = { e ->
+                    Toast.makeText(
+                        context,
+                        "Foto itu tidak bisa dibaca (${e.javaClass.simpleName}). " +
+                            "Kalau fotonya masih di cloud dan belum terunduh, buka dulu di galeri " +
+                            "atau ambil ulang lewat Kamera.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                },
+            )
+        }
     }
 
     // Snackbar penuh butuh Scaffold yang layar ini tak punya (header kolaps

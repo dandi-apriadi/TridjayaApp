@@ -54,6 +54,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.kondisiLabel
 import com.krisoft.tridjayaelektronik.data.model.BrokerOption
 import com.krisoft.tridjayaelektronik.data.model.SerialRegistryRow
@@ -122,7 +123,7 @@ fun SpkItemCard(
     /** Watermark+upload foto PO barang ini, return URL (null = gagal). */
     uploadPoPhoto: suspend (File) -> String?,
     /** Watermark+upload foto bukti acc diskon barang ini, return URL (null = gagal). */
-    uploadBuktiAcc: suspend (File) -> String?,
+    uploadBuktiAcc: suspend (File, Boolean) -> AuthResult<String>,
     /** Metode pengiriman SPK (header, bukan per-barang): "driver" | "self_pickup" |
      *  "sales_delivery". COD (uang diambil driver) cuma relevan "driver" (2026-07-26). */
     deliveryMethod: String = "driver",
@@ -607,7 +608,7 @@ private fun BuktiAccField(
     buktiUrl: String,
     wajib: Boolean,
     onUploaded: (String) -> Unit,
-    uploadBukti: suspend (File) -> String?,
+    uploadBukti: suspend (File, Boolean) -> AuthResult<String>,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -618,18 +619,29 @@ private fun BuktiAccField(
     }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
 
-    fun unggah() {
+    // `dariGaleri` menentukan KALIMAT saat fotonya gagal didekode — bukan
+    // sekadar label. Foto galeri yang tak terdekode di HP Android 7/8 (HEIC
+    // yang masuk dari luar) akan gagal lagi setiap kali, jadi "jepret ulang"
+    // menyuruh mengulang hal yang mustahil; jalur kamera justru sebaliknya.
+    fun unggah(dariGaleri: Boolean) {
         uploading = true
         error = null
         scope.launch {
-            val url = uploadBukti(file)
-            uploading = false
-            if (url != null) onUploaded(url) else error = "Gagal unggah bukti acc"
+            when (val hasil = uploadBukti(file, dariGaleri)) {
+                is AuthResult.Success -> {
+                    uploading = false
+                    onUploaded(hasil.data)
+                }
+                is AuthResult.Failure -> {
+                    uploading = false
+                    error = hasil.message
+                }
+            }
         }
     }
 
     val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok) unggah()
+        if (ok) unggah(dariGaleri = false)
     }
     val galeri = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
@@ -645,7 +657,7 @@ private fun BuktiAccField(
                 file.outputStream().use { output -> input.copyTo(output) }
             }
         }.fold(
-            onSuccess = { unggah() },
+            onSuccess = { unggah(dariGaleri = true) },
             onFailure = { e ->
                 error = "Foto itu tidak bisa dibaca (${e.javaClass.simpleName}). " +
                     "Kalau masih di cloud dan belum terunduh, buka dulu di galeri atau pakai Kamera."

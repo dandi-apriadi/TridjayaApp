@@ -3515,7 +3515,9 @@ fun CreateSpkScreen(
                                 onRemove = { items = items.filterIndexed { i, _ -> i != idx } },
                                 onSerialFocus = { viewModel.ensureSerials(spkCabang, item.kodeBarang) },
                                 uploadPoPhoto = { file -> viewModel.uploadPoPhoto(file) },
-                                uploadBuktiAcc = { file -> viewModel.uploadBuktiAccPhoto(file) },
+                                uploadBuktiAcc = { file, dariGaleri ->
+                                    viewModel.uploadBuktiAccPhoto(file, dariGaleri)
+                                },
                                 deliveryMethod = deliveryMethodSel,
                             )
                         }

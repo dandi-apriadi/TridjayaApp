@@ -114,7 +114,7 @@ fun EventLeadScreen(
                 fileKtp.outputStream().use { output -> input.copyTo(output) }
             }
         }.fold(
-            onSuccess = { viewModel.unggahKtp(fileKtp) },
+            onSuccess = { viewModel.unggahKtp(fileKtp, dariGaleri = true) },
             onFailure = { e ->
                 viewModel.laporError(
                     "Foto itu tidak bisa dibaca (${e.javaClass.simpleName}) — mungkin masih di " +

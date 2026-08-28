@@ -22,6 +22,7 @@ import com.krisoft.tridjayaelektronik.data.model.DeliveryNoteBody
 import com.krisoft.tridjayaelektronik.data.model.PdiBody
 import com.krisoft.tridjayaelektronik.data.model.PdiChecklistItemBody
 import com.krisoft.tridjayaelektronik.domain.sales.KlasemenStandings
+import com.krisoft.tridjayaelektronik.ui.aktivitas.pesanGagalDekode
 import com.krisoft.tridjayaelektronik.ui.attendance.LocationProvider
 import com.krisoft.tridjayaelektronik.util.PhotoWatermark
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -900,13 +901,23 @@ class DeliveryFlowViewModel @Inject constructor(
     }
 
     /** Foto bukti acc diskon (2026-08-01) — pola sama [uploadPoPhoto]:
-     *  watermark lalu unggah ke endpoint foto delivery yang sama. Return
-     *  `null` kalau gagal. */
-    suspend fun uploadBuktiAccPhoto(file: File): String? {
-        val prepared = watermarked(file, "TRIDJAYA · ACC DISKON") ?: return null
+     *  watermark lalu unggah ke endpoint foto delivery yang sama.
+     *
+     *  **Mengembalikan [AuthResult], bukan `String?`** (2026-08-28): dua
+     *  kegagalan yang berbeda jauh dulu sama-sama jadi `null` dan dilaporkan
+     *  layar sebagai "Gagal unggah bukti acc" — padahal foto yang gagal
+     *  DIDEKODE tak pernah sampai ke jaringan sama sekali. Kalimat itu
+     *  menyuruh admin mencoba ulang unggahan yang tak pernah terjadi, dan
+     *  menyembunyikan satu-satunya jalan keluar yang benar (ganti formatnya /
+     *  pakai Kamera). [dariGaleri] memilih kalimatnya lewat `pesanGagalDekode`
+     *  — HEIC yang gagal di API 24-27 akan gagal lagi selamanya, jadi
+     *  "jepret ulang" hanya benar untuk kamera. */
+    suspend fun uploadBuktiAccPhoto(file: File, dariGaleri: Boolean): AuthResult<String> {
+        val prepared = watermarked(file, "TRIDJAYA · ACC DISKON")
+            ?: return AuthResult.Failure("dekode_gagal", pesanGagalDekode(dariGaleri))
         return when (val up = repository.uploadPhoto(prepared.first, "acc_diskon_${System.currentTimeMillis()}.webp")) {
-            is AuthResult.Success -> up.data
-            is AuthResult.Failure -> null
+            is AuthResult.Success -> AuthResult.Success(up.data)
+            is AuthResult.Failure -> up
         }
     }
 
