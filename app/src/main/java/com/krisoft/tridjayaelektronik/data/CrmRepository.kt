@@ -359,7 +359,8 @@ class CrmRepository @Inject constructor(
         createdAt = createdAt,
         updatedAt = updatedAt,
         pendingSync = pendingSync,
-        syncRejectReason = syncRejectReason
+        syncRejectReason = syncRejectReason,
+        assignmentWarning = assignmentWarning
     )
 
     /** Pipelines with an offline fallback: every successful fetch is cached as JSON in Room, and a
@@ -569,6 +570,9 @@ class CrmRepository @Inject constructor(
             // `pendingLeads()` yang lebih luas, jadi barisnya tak ikut tertimpa.
             val pending = leadDao.pendingPushableLeads().sortedBy { it.id * -1 } // oldest create first
             var pushedAny = false
+            // id SERVER -> pesan "WA penugasan tak terkirim". Dikumpulkan selama
+            // loop, ditulis SESUDAH `fetchAndCacheLeads` (lihat markAssignmentWarning).
+            val peringatanPenugasan = mutableMapOf<Long, String>()
             for (entity in pending) {
                 val request = CreateProspekRequest(
                     namaProspek = entity.nama,
@@ -592,6 +596,14 @@ class CrmRepository @Inject constructor(
                 )
                 val response = runCatching { api.createProspek(request) }.getOrNull()
                 if (response?.isSuccessful == true) {
+                    // Simpan dulu, terapkan SESUDAH fetch: baris temp ini
+                    // langsung dihapus, dan `replaceAll` di `fetchAndCacheLeads`
+                    // akan menimpa apa pun yang ditulis sekarang.
+                    val data = response.body()?.data
+                    val notif = data?.assignmentNotification
+                    if (notif != null && notif.perluDiberitahukan) {
+                        data.id?.let { serverId -> peringatanPenugasan[serverId] = notif.message }
+                    }
                     leadDao.deleteById(entity.id)
                     pushedAny = true
                     continue
@@ -609,6 +621,12 @@ class CrmRepository @Inject constructor(
             // Selalu pakai id user SENDIRI — bukan assignedTo lead yang dipush: prospek yang
             // dilempar ke sales lain akan mengarahkan fetch ke daftar orang itu.
             if (pushedAny) tokenStore.userId?.let { fetchAndCacheLeads(it) }
+            // SESUDAH fetch, bukan sebelum: `replaceAll` di dalamnya menimpa
+            // seluruh baris server, jadi peringatan yang ditulis lebih awal akan
+            // lenyap tanpa jejak.
+            for ((serverId, pesan) in peringatanPenugasan) {
+                leadDao.markAssignmentWarning(serverId, pesan)
+            }
         }
     }
 

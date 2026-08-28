@@ -76,5 +76,25 @@ data class LeadEntity(
     // /api/prospek-harian payload (they aren't part of the CRM lead rows synced from the server).
     val minatBarang: String? = null,
     val kategoriProduk: String? = null,
-    val keteranganFincoy: String? = null
+    val keteranganFincoy: String? = null,
+    /**
+     * Peringatan bahwa WhatsApp PENUGASAN ke penerima lead ini TIDAK terkirim —
+     * `assignmentNotification.message` dari `POST /api/prospek-harian`.
+     *
+     * **Bukan penolakan.** Beda tajam dari [syncRejectReason]: lead-nya
+     * TERSIMPAN dengan benar di server, hanya pemberitahuannya yang gagal. Dua
+     * kolom terpisah karena akibatnya berbeda — baris ditolak butuh diperbaiki
+     * lalu dikirim ulang, baris ini butuh DIHUBUNGI MANUAL.
+     *
+     * **Kenapa disimpan di baris, bukan ditampilkan sekali sebagai snackbar.**
+     * Web punya momen itu (`ProspekSubmitForm` merakit pesan sukses dari respons
+     * yang baru datang), app TIDAK: `createLead` menulis ke Room lalu langsung
+     * mengembalikan sukses, dan push-nya jalan di `appScope` yang bisa selesai
+     * bermenit-menit kemudian tanpa layar apa pun yang hidup. Satu-satunya
+     * tempat yang masih ada saat jawabannya tiba adalah barisnya sendiri.
+     *
+     * Diisi SETELAH `replaceAll` sinkronisasi (baris server, bukan baris temp
+     * yang sudah dihapus), memakai id yang dipulangkan server.
+     */
+    val assignmentWarning: String? = null
 )
