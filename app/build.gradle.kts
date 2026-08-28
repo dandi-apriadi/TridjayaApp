@@ -31,8 +31,8 @@ android {
         // satu-satunya cara menguji jalur yang cuma pecah di runtime Android
         // lama (mis. `java.time` di API < 26).
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 116
-        versionName = "3.05"
+        versionCode = 117
+        versionName = "3.06"
 
         // Gateway Rust tridjaya, deployed at tridjaya.com (HTTPS, no emulator/LAN
         // workaround needed since it's a public domain). Migrated 2026-07-13 from
