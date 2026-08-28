@@ -153,7 +153,11 @@ fun KpiScreen(
                 if (state.canManage && viewing == null) {
                     item {
                         Text(
-                            text = "KPI Karyawan",
+                            // "KPI Seluruh Karyawan" — sama dengan nama papan di web.
+                            // Daftar ini duduk DI DALAM layar "KPI Saya", jadi judul
+                            // "KPI Karyawan" saja membuat dua hal berbeda berjejer
+                            // dengan nama yang nyaris sama di satu layar.
+                            text = "KPI Seluruh Karyawan",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)
