@@ -115,6 +115,12 @@ internal val KNOWN_ROLES: Set<String> = setOf(
     "agent", "hrd", "pic_raport", "pic-raport", "crm-manager", "ads-manager",
     "ai-engineer", "pdi", "kasir", "driver", "delivery-control",
     "indent-approver", "discount-approver", "aki-approver",
+    // `trainee` = role primary KELIMA sejak 2026-08-17 (paket 3.18d), BUKAN
+    // divisi. Ia sudah dipegang `CRM_INPUT_ROLES` + `STAFF_SELF_SERVICE_ROLES`
+    // di rust-shared sejak hari itu, tapi tak pernah didaftarkan di sini —
+    // sehingga `allowedRoles` mana pun yang menyebutnya akan divonis salah ketik
+    // oleh test dan cadangan offline-nya tak akan pernah bisa ditulis.
+    "trainee",
     // `cs` BUKAN lagi role hantu sejak migrasi 223 (2026-08-15): divisi
     // `verificator-dan-reporting` naik jadi divisi ber-akses, dan
     // `divisi_access_slugs` (rust-shared `auth.rs`) melipatnya jadi slug `cs`

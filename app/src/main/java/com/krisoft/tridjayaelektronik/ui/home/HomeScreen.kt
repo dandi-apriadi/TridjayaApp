@@ -494,9 +494,18 @@ internal fun canAccessMutasiHistori(roles: Set<String>): Boolean =
 
 /** `STAFF_ROLES` di kinerja-service (`absensi.rs`) — dipakai absensi DAN slip
  *  gaji (`VIEW_OWN_ROLES = STAFF_ROLES`). `crm-manager`/`ai-engineer` TIDAK ada
- *  di sana, jadi dua menu itu 403 untuk mereka. */
+ *  di sana, jadi dua menu itu 403 untuk mereka.
+ *
+ *  Cerminan `STAFF_SELF_SERVICE_ROLES` (rust-shared `capabilities.rs`).
+ *  **`trainee` ditambahkan 2026-08-28** — ia sudah ada di sisi Rust sejak role
+ *  itu lahir (17 Agt, paket 3.18d) dengan alasan yang ditulis eksplisit di sana:
+ *  trainee WAJIB bisa absen di hari pertamanya, dan `attendance/report.rs`
+ *  menyaring `LOWER(u.role) IN (...)` dari daftar yang sama. Cerminan di sini
+ *  tertinggal, jadi trainee yang membuka app saat peta kemampuan belum termuat
+ *  (sinyal lemah, bukan cuma mode pesawat) kehilangan kartu Absen & Slip Gaji —
+ *  padahal server mengizinkannya. */
 internal val STAFF_MENU_ROLES = setOf(
-    "karyawan", "kepala-cabang", "admin-sales", "sales", "pdi", "driver", "kasir",
+    "karyawan", "trainee", "kepala-cabang", "admin-sales", "sales", "pdi", "driver", "kasir",
     "delivery-control", "admin-stok", "operator", "agent", "hrd", "manager", "admin",
     "superadmin", "owner",
 )
@@ -528,9 +537,16 @@ internal fun canAccessSpk(roles: Set<String>): Boolean =
  *  (laporan user: kepala cabang ber-`is_sales` punya target prospek harian tapi
  *  tak punya menu untuk mengisinya). Daftar ini cuma CADANGAN saat peta
  *  `/api/me/capabilities` belum termuat — lihat `gateAllows`; saat online
- *  server yang memutuskan, jadi perbaikan backend berlaku tanpa APK baru. */
+ *  server yang memutuskan, jadi perbaikan backend berlaku tanpa APK baru.
+ *
+ *  **`trainee` ditambahkan 2026-08-28**, menyusul `CRM_INPUT_ROLES` yang sudah
+ *  memuatnya sejak 17 Agt. Sisi Rust menyebut alasannya tajam: prospek harian
+ *  adalah SATU-SATUNYA pekerjaan trainee yang menghasilkan angka, dan scorecard
+ *  training menghitungnya dari `crm_leads.created_by` — jadi cadangan yang
+ *  tertinggal ini bukan sekadar menu hilang sesaat, melainkan menu hilang tepat
+ *  pada pekerjaan yang menilai orangnya. */
 internal val CRM_MENU_ROLES =
-    setOf("karyawan", "kepala-cabang", "crm-manager", "admin", "superadmin")
+    setOf("karyawan", "trainee", "kepala-cabang", "crm-manager", "admin", "superadmin")
 
 /** Role EFEKTIF: role utama + `roles` (multi-role) + `divisi` (folding
  *  divisi-driven access), semuanya lowercase. Backend menilai hak dari daftar

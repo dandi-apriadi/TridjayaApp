@@ -271,22 +271,38 @@ internal val SPK_CREATE_ROLES: Set<String> = SPK_MENU_ROLES - "manager" - "owner
  * OFFLINE saja; sumber utamanya kunci `kupon_gebyar.lihat` dari
  * `GET /api/me/capabilities`.
  *
- * SENGAJA lebar: programnya memang untuk "setiap karyawan di cabang terkait"
- * (arahan owner). Menyempitkannya di sini akan mengunci orang yang justru
- * diminta mengerjakannya.
+ * **DISAMAKAN PERSIS dengan daftar server 2026-08-28.** Sebelumnya isinya
+ * `kepala-cabang, admin-sales, karyawan, manager, admin, superadmin, owner` —
+ * menyimpang di TIGA arah sekaligus dari `KUPON_GEBYAR_LIHAT_ROLES`, dan tiap
+ * arah merugikan orang yang berbeda:
+ *  - **salah ejaan**: `admin-sales` ada di sini, server menulis
+ *    `admin-penjualan`. Slug yang tak pernah cocok = baris mati yang terlihat
+ *    seperti jaring pengaman;
+ *  - **kurang**: `kasir` tak pernah ada di sini padahal server memuatnya, jadi
+ *    kasir offline kehilangan kartu yang jadi haknya;
+ *  - **lebih**: `manager`/`admin`/`superadmin`/`owner` ada di sini padahal doc
+ *    server EKSPLISIT mengecualikan mereka ("pengawasan lintas-cabang mereka
+ *    lewat Papan Gebyar, bukan daftar konsumen ini") — offline mereka melihat
+ *    kartunya lalu dijawab 403 begitu online, persis pola "menu tampil, endpoint
+ *    403" yang CLAUDE.md repo ini justru ingin dicegah.
+ *
+ * SENGAJA tetap lebar sampai `karyawan`: programnya memang untuk "setiap
+ * karyawan di cabang terkait" (arahan owner). Menyempitkannya akan mengunci
+ * orang yang justru diminta mengerjakannya.
  *
  * **`"cs"` yang ada di daftar server sengaja TIDAK ditulis di sini**, alasan
  * sama dengan [HS_LAPOR_ROLES] dulu: belum ada role literal `cs` di sistem,
  * jadi ejaan itu tak akan pernah cocok dengan role siapa pun dan cuma jadi
- * baris yang tampak seperti jaring pengaman padahal mati. Ia juga tak ada di
- * `KNOWN_ROLES`, jadi menuliskannya akan MEMERAHKAN `ActivityRegistryTest`.
- * Petugas CS sungguhan tetap lolos lewat peta kemampuan server.
+ * baris yang tampak seperti jaring pengaman padahal mati. Petugas CS sungguhan
+ * tetap lolos lewat peta kemampuan server. (Catatan: `cs` KINI ada di
+ * `KNOWN_ROLES` sejak migrasi 223, jadi menuliskannya tak lagi memerahkan test —
+ * yang menahannya sekarang murni alasan di atas, bukan penjaga salah-ketik.)
  *
  * **Daftar ini BUKAN gerbang yang sesungguhnya.** Yang menentukan siapa melihat
  * kartunya adalah vonis cabang dari server — lihat [kuponGebyarCardVisible].
  */
 internal val KUPON_GEBYAR_MENU_ROLES = setOf(
-    "kepala-cabang", "admin-sales", "karyawan", "manager", "admin", "superadmin", "owner",
+    "kepala-cabang", "admin-penjualan", "kasir", "karyawan",
 )
 
 /**
