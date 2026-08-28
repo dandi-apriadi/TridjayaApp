@@ -64,6 +64,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.ScrollableCenter
 import com.krisoft.tridjayaelektronik.ui.theme.SkeletonCard
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -151,12 +152,8 @@ fun KuponGebyarScreen(
             // (direktori sudah dibersihkan sistem / penyimpanan penuh).
             // Keduanya tak bisa dibedakan dari sini — kontrak `TakePicture`
             // cuma memberi Boolean — jadi kalimatnya menyebut keduanya.
-            !ok && baris != null -> Toast.makeText(
-                context,
-                "Foto tidak jadi tersimpan. Kalau tadi tidak sengaja membatalkan, " +
-                    "periksa sisa penyimpanan HP lalu coba lagi.",
-                Toast.LENGTH_LONG,
-            ).show()
+            !ok && baris != null ->
+                Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
         }
     }
 

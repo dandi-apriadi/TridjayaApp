@@ -92,6 +92,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveOutlinedButton
 import com.krisoft.tridjayaelektronik.ui.theme.ScrollableCenter
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
@@ -119,9 +120,16 @@ fun AttendanceScreen(
     val selfieUri = remember {
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", selfieFile)
     }
+    // Cabang `else` WAJIB ada: absensi yang gagal senyap adalah kelas kegagalan
+    // paling mahal di app ini — orangnya sudah berdiri di lokasi, mengira sudah
+    // absen, dan baru tahu tidak tercatat saat penggajian. Lihat alasan lengkap
+    // di [PESAN_KAMERA_TAK_TERSIMPAN].
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
-    ) { success -> if (success) viewModel.onSelfieCaptured(selfieFile) }
+    ) { success ->
+        if (success) viewModel.onSelfieCaptured(selfieFile)
+        else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()

@@ -1,5 +1,6 @@
 package com.krisoft.tridjayaelektronik.ui.deliveryflow
 
+import android.widget.Toast
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -116,6 +117,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.MoneyTextField
 import com.krisoft.tridjayaelektronik.ui.theme.ScrollableCenter
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1674,7 +1676,10 @@ private fun PdiAction(
     val file = remember { File(context.cacheDir, "delivery/pdi_$id.jpg").apply { parentFile?.mkdirs() } }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
     val photoState by vm.state.collectAsState()
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onPdiPhotoCaptured(file) }
+    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onPdiPhotoCaptured(file) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
 
     // Hasil checklist per item.id: hasil (ok/tidak/na) default "ok" + catatan.
     val hasil = rememberSaveable(checklist, saver = petaJawabanSaver) {
@@ -1832,7 +1837,11 @@ private fun PdiAction(
             val akiPhotoFile = remember { File(context.cacheDir, "delivery/aki_$id.jpg").apply { parentFile?.mkdirs() } }
             val akiPhotoUri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", akiPhotoFile) }
             val akiCam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-                if (!ok) return@rememberLauncherForActivityResult
+                // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+                if (!ok) {
+                    Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+                    return@rememberLauncherForActivityResult
+                }
                 akiPhotoUploading = true
                 akiScope.launch {
                     val url = vm.uploadAkiPhoto(akiPhotoFile)
@@ -2340,7 +2349,10 @@ private fun SetoranKasirAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, s
     val context = LocalContext.current
     val file = remember { File(context.cacheDir, "delivery/setoran_${job.id}.jpg").apply { parentFile?.mkdirs() } }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onDeliverPhotoCaptured(file) }
+    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onDeliverPhotoCaptured(file) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
     // Nominal per unit-id. Kunci `job.id` supaya berpindah SPK mengosongkan
     // isian — kalau tidak, angka SPK sebelumnya ikut terkirim (pola sama
     // [ConfirmSpkAction], dan alasan Saver-nya ada di [petaJawabanSaver]).
@@ -2746,12 +2758,18 @@ private fun DeliverAction(
     val file = remember { File(context.cacheDir, "delivery/deliver_$id.jpg").apply { parentFile?.mkdirs() } }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
     val photoState by vm.state.collectAsState()
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onDeliverPhotoCaptured(file) }
+    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onDeliverPhotoCaptured(file) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
     // 088: foto bukti terima uang (wajib bila job.driverTerimaUang == true)
     val needCash = job.driverTerimaUang == true
     val cashFile = remember { File(context.cacheDir, "delivery/cash_$id.jpg").apply { parentFile?.mkdirs() } }
     val cashUri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", cashFile) }
-    val cashCam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onCashPhotoCaptured(cashFile) }
+    val cashCam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onCashPhotoCaptured(cashFile) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
     // 088: checklist serah-terima stage=driver (fail-open bila kosong)
     val hasil = rememberSaveable(driverChecklist, saver = petaJawabanSaver) {
         mutableStateMapOf<String, String>().apply { driverChecklist.forEach { put(it.id, "ok") } }
@@ -2919,7 +2937,10 @@ private fun SelfPickupCompleteAction(job: DeliveryJobDto, vm: DeliveryFlowViewMo
     val photoState by vm.state.collectAsState()
     // Reuse slot foto [DeliveryFlowViewModel.onDeliverPhotoCaptured] — job self_pickup
     // (pending_scheduling) tak pernah bareng job in_transit (deliver) di layar yang sama.
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onDeliverPhotoCaptured(file) }
+    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onDeliverPhotoCaptured(file) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
 
     photoState.deliverPhoto?.takeIf { !photoState.deliverPhotoConfirmed }?.let { bmp ->
         PhotoReviewDialog(bmp, onRetake = { vm.retakeDeliverPhoto() }, onConfirm = { vm.confirmDeliverPhoto() })

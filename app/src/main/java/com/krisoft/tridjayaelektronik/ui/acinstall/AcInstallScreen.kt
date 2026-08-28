@@ -1,5 +1,6 @@
 package com.krisoft.tridjayaelektronik.ui.acinstall
 
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -52,6 +53,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveErrorState
 import com.krisoft.tridjayaelektronik.ui.theme.ScrollableCenter
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import java.io.File
 
 /**
@@ -92,8 +94,14 @@ fun AcInstallScreen(
     }
     val kamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val id = fotoUntuk
-        if (ok && id != null) viewModel.unggahBukti(id, fileFoto, keterangan = null)
         fotoUntuk = null
+        // `ok == false` tak lagi ditelan: kegagalan simpan foto kamera dulu
+        // menghasilkan nol pesan, jadi petugas menyangka buktinya terkirim.
+        // Lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        when {
+            ok && id != null -> viewModel.unggahBukti(id, fileFoto, keterangan = null)
+            !ok && id != null -> Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+        }
     }
 
     dialogTolak?.let { id ->

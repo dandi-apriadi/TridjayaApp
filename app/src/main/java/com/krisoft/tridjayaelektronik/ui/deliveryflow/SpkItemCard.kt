@@ -61,6 +61,7 @@ import com.krisoft.tridjayaelektronik.data.model.SerialRegistryRow
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveOutlinedButton
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveTextField
 import com.krisoft.tridjayaelektronik.ui.theme.MoneyTextField
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -522,7 +523,11 @@ private fun PoPhotoField(
     val file = remember { File(context.cacheDir, "delivery/po_item_${System.currentTimeMillis()}.jpg").apply { parentFile?.mkdirs() } }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
     val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (!ok) return@rememberLauncherForActivityResult
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (!ok) {
+            error = PESAN_KAMERA_TAK_TERSIMPAN
+            return@rememberLauncherForActivityResult
+        }
         uploading = true
         error = null
         scope.launch {
@@ -641,7 +646,9 @@ private fun BuktiAccField(
     }
 
     val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
         if (ok) unggah(dariGaleri = false)
+        else error = PESAN_KAMERA_TAK_TERSIMPAN
     }
     val galeri = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()

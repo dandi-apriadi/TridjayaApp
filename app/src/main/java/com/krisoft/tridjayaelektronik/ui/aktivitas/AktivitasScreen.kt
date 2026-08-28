@@ -1,5 +1,6 @@
 package com.krisoft.tridjayaelektronik.ui.aktivitas
 
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -68,6 +69,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.SkeletonCard
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
 import com.krisoft.tridjayaelektronik.util.bacaInfoBerkas
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import java.io.File
 
 /**
@@ -114,7 +116,13 @@ fun AktivitasScreen(
     var slot by remember { mutableIntStateOf(0) }
 
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        pending?.let { (index, file) -> if (ok) viewModel.tambahFotoKamera(index, file) }
+        // `ok == false` tak lagi ditelan: kegagalan simpan foto kamera dulu
+        // menghasilkan nol pesan, jadi petugas menyangka buktinya terkirim.
+        // Lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        pending?.let { (index, file) ->
+            if (ok) viewModel.tambahFotoKamera(index, file)
+            else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+        }
         pending = null
     }
 

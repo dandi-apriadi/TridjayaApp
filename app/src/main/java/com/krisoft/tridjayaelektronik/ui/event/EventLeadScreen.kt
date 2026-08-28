@@ -44,6 +44,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveOutlinedButton
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveTextButton
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveTextField
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import java.io.File
 
 /**
@@ -91,7 +92,11 @@ fun EventLeadScreen(
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", fileKtp)
     }
     val kamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan: kegagalan simpan foto kamera dulu
+        // menghasilkan nol pesan, jadi petugas menyangka buktinya terkirim.
+        // Lihat [PESAN_KAMERA_TAK_TERSIMPAN].
         if (ok) viewModel.unggahKtp(fileKtp)
+        else viewModel.laporError(PESAN_KAMERA_TAK_TERSIMPAN)
     }
     // Picker-nya `PickVisualMedia` (Photo Picker), tak butuh izin penyimpanan. Bukti dari lapangan
     // sering sudah berupa tangkapan layar/foto lama, jadi galeri bukan pelengkap — ia jalur setara.
