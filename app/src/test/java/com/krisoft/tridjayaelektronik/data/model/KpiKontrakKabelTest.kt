@@ -273,6 +273,60 @@ class KpiKontrakKabelTest {
      * `filled=false` = server MENAHAN vonis (Σbobot terisi < 0,5). `bracket`
      * dan `insentif` sama-sama null — jangan menghitung sendiri, uangnya nyata.
      */
+    // ── Render alasan: SATUAN & JUDUL ikut model ─────────────────────────────
+    //
+    // Paritas dengan `KpiBracketAlasan` web. Versi pertama panel mobile
+    // `return` lebih awal untuk snapshot periode terkunci, sehingga karyawan
+    // yang membuka Juli/Agustus dari HP melihat "Punishment Rp 250.000" TANPA
+    // satu baris sebab — sementara rekannya di web melihat daftar penyebabnya.
+    // Denda rupiah yang tak bisa dibantah dari kanal lapangan.
+
+    private val fRupiah: (Double) -> String = { "Rp ${it.toLong()}" }
+    private val fAngka: (Double) -> String = { if (it == it.toLong().toDouble()) "${it.toLong()}" else "$it" }
+
+    @Test
+    fun `judul panel membedakan model bonus dari aturan lama`() {
+        // Kata per kata sama dengan `KpiBracketAlasan.tsx` — dua kanal yang
+        // menamai hal yang sama dengan kalimat berbeda terbaca sebagai dua hal.
+        assertEquals("Kenapa bonusnya tidak penuh", judulAlasanKpi(true))
+        // Aturan lama menamainya vonis, bukan bonus — satu judul untuk keduanya
+        // membuat arsip Juli terbaca seolah lahir dari model hari ini.
+        assertTrue(judulAlasanKpi(false).contains("aturan lama"))
+    }
+
+    @Test
+    fun `model bonus memakai satuan RUPIAH dari hilangRp`() {
+        val baris = KpiBracketAlasanDto(indikator = "PENJUALAN", hilangRp = 450_000, dinilai = true)
+        assertEquals("−Rp 450000", dampakAlasanKpi(baris, true, fRupiah, fAngka))
+    }
+
+    @Test
+    fun `snapshot lama memakai satuan POIN dari dampakPct`() {
+        val baris = KpiBracketAlasanDto(indikator = "PENJUALAN", dampakPct = -15.0, dinilai = true)
+        assertEquals("-15 poin", dampakAlasanKpi(baris, false, fRupiah, fAngka))
+        // Dampak POSITIF diberi tanda + supaya arahnya terbaca.
+        assertEquals("+3 poin", dampakAlasanKpi(baris.copy(dampakPct = 3.0), false, fRupiah, fAngka))
+    }
+
+    /**
+     * INTI aturannya, dan yang paling mudah dirusak: membaca field milik model
+     * SEBERANG menghasilkan angka yang terlihat sah tapi bohong.
+     *
+     * `hilangRp ?: 0` pada baris lama mencetak "−Rp 0" untuk SETIAP indikator —
+     * daftar yang terbaca "tak ada yang hilang" padahal sebabnya cuma tak
+     * terbaca. `null` bisa dibedakan; `0` tidak.
+     */
+    @Test
+    fun `field model seberang tak pernah dibaca — null, bukan nol`() {
+        // Baris LAMA dinilai sebagai model bonus: `hilangRp` memang tak ada.
+        val lama = KpiBracketAlasanDto(indikator = "X", dampakPct = -15.0)
+        assertNull("jangan mencetak −Rp 0", dampakAlasanKpi(lama, true, fRupiah, fAngka))
+
+        // Baris BARU dinilai sebagai aturan lama: `dampakPct` memang tak ada.
+        val baru = KpiBracketAlasanDto(indikator = "X", hilangRp = 450_000)
+        assertNull("jangan mencetak 0 poin", dampakAlasanKpi(baru, false, fRupiah, fAngka))
+    }
+
     @Test
     fun `vonis ditahan server terdekode sebagai null, bukan nol`() {
         val d = json.decodeFromString<KpiDetailData>(

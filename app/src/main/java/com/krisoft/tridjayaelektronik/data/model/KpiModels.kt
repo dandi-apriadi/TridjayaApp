@@ -139,6 +139,46 @@ data class KpiBracketDto(
     val modelBonus: Boolean get() = bonusMaksRp != null
 }
 
+/**
+ * Judul panel rincian, mengikuti MODEL yang melahirkan vonisnya.
+ *
+ * Memakai satu judul untuk keduanya membuat arsip Juli terbaca seolah lahir
+ * dari model bonus hari ini — padahal satuan angkanya pun berbeda (rupiah vs
+ * poin persen). Cerminan `KpiBracketAlasan` di web.
+ */
+internal fun judulAlasanKpi(modelBonus: Boolean): String =
+    if (modelBonus) "Kenapa bonusnya tidak penuh"
+    else "Indikator yang menekan vonis (aturan lama)"
+
+/**
+ * Satuan dampak satu baris alasan — `null` bila baris itu memang tak menyimpan
+ * angkanya (lalu layar tak mencetak apa pun, bukan mencetak nol).
+ *
+ * **Inilah aturan yang paling mudah dirusak.** Baris model bonus menyimpan
+ * `hilangRp`, baris snapshot periode terkunci hanya `dampakPct`. Membaca
+ * `hilangRp ?: 0` pada yang kedua mencetak "−Rp 0" untuk SETIAP indikator —
+ * daftar yang terbaca "tak ada yang hilang" padahal sebabnya cuma tak terbaca.
+ * Membaca `dampakPct` pada yang pertama sama salahnya dari arah sebaliknya.
+ *
+ * SATU perbedaan yang disengaja dari web: `KpiBracketAlasan.tsx` menulis
+ * `hilangRp ?? 0` sehingga baris yang kehilangan angkanya tetap tercetak
+ * "−Rp 0". Di sini angkanya `null` → barisnya tak mencetak apa-apa. Nol yang
+ * dikarang tak bisa dibedakan dari nol yang benar; ruang kosong bisa.
+ *
+ * [formatRupiah] & [formatAngka] disuntikkan supaya fungsi ini bisa diuji tanpa
+ * Compose/Android — pemformatannya sendiri sudah punya testnya sendiri.
+ */
+internal fun dampakAlasanKpi(
+    baris: KpiBracketAlasanDto,
+    modelBonus: Boolean,
+    formatRupiah: (Double) -> String,
+    formatAngka: (Double) -> String,
+): String? = if (modelBonus) {
+    baris.hilangRp?.let { "−${formatRupiah(it.toDouble())}" }
+} else {
+    baris.dampakPct?.let { "${if (it > 0) "+" else ""}${formatAngka(it)} poin" }
+}
+
 @Serializable
 data class KpiInsentifKomponenDto(
     val sumber: String = "",

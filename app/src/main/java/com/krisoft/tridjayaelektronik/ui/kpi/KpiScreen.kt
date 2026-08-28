@@ -42,6 +42,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.krisoft.tridjayaelektronik.data.model.KpiDetailData
 import com.krisoft.tridjayaelektronik.data.model.KpiItemDto
 import com.krisoft.tridjayaelektronik.data.model.KpiBracketDto
+import com.krisoft.tridjayaelektronik.data.model.dampakAlasanKpi
+import com.krisoft.tridjayaelektronik.data.model.judulAlasanKpi
 import com.krisoft.tridjayaelektronik.data.model.KpiKaryawanRowDto
 import com.krisoft.tridjayaelektronik.data.model.formatKpiNumber
 import com.krisoft.tridjayaelektronik.data.model.formatPeriodeId
@@ -379,20 +381,36 @@ private fun VerdictText(detail: KpiDetailData) {
  * Rincian "kenapa bonusnya tidak penuh" — indikator mana yang kehilangan
  * rupiah, urut dari yang terbesar (server yang mengurutkan).
  *
- * **Hanya dirender untuk vonis model bonus** ([KpiBracketDto.modelBonus]).
- * Snapshot periode terkunci menyimpan bentuk lama yang tak punya `hilangRp`;
- * membacanya sebagai `0` akan mencetak "−Rp 0" untuk SETIAP baris, daftar yang
- * terbaca "tak ada yang hilang" padahal sebabnya cuma tak terbaca. Web menahan
- * diri dengan pembeda yang sama.
+ * **Dirender untuk KEDUA model**, dengan judul & satuan yang mengikuti model
+ * yang melahirkan vonisnya ([KpiBracketDto.modelBonus]) — paritas dengan
+ * `KpiBracketAlasan` di web.
  *
- * Angka rupiah tanpa sebab tak bisa dibantah — itu alasan panel ini ada, dan
- * kenapa `alasan` kosong dirender sebagai pernyataan POSITIF, bukan diam.
+ * Versi pertama panel ini (2026-08-28 pagi) `return` lebih awal untuk snapshot
+ * periode terkunci, dengan alasan yang BENAR sebagiannya: baris lama tak punya
+ * `hilangRp`, dan membacanya sebagai `0` mencetak "−Rp 0" untuk SETIAP baris —
+ * daftar yang terbaca "tak ada yang hilang" padahal sebabnya cuma tak terbaca.
+ * Yang keliru adalah OBATNYA: web tidak menahan diri, ia mengganti SATUANNYA
+ * (`dampakPct` + "poin"). Menahan diri berarti karyawan yang membuka periode
+ * Juli/Agustus dari HP melihat "Punishment Rp 250.000" TANPA satu baris sebab,
+ * sementara rekannya di web melihat daftar penyebabnya — denda rupiah yang tak
+ * bisa dibantah dari kanal lapangan, persis kerugian yang panel ini ada untuk
+ * menutup.
+ *
+ * Angka rupiah tanpa sebab tak bisa dibantah — itu alasan panel ini ada.
+ * `alasan` kosong dirender sebagai pernyataan POSITIF **hanya di model bonus**:
+ * di sana ia berarti tiap indikator BAGUS SEKALI, sedangkan di snapshot lama ia
+ * cuma berarti rinciannya tak tersimpan.
  */
 @Composable
 private fun BracketAlasanList(bracket: KpiBracketDto) {
-    if (!bracket.modelBonus) return
-    Spacer(modifier = Modifier.height(10.dp))
+    // `alasan` kosong ditangani BERBEDA per model, dan itu bukan kerapian:
+    // di model bonus ia berarti "tiap indikator BAGUS SEKALI" (kabar baik yang
+    // layak dinyatakan), sedangkan di snapshot aturan lama ia cuma berarti
+    // rinciannya memang tak tersimpan — mengumumkan "bonus penuh" di sana akan
+    // mengarang kabar baik atas vonis yang bisa saja denda.
     if (bracket.alasan.isEmpty()) {
+        if (!bracket.modelBonus) return
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = "Semua indikator BAGUS SEKALI — bonus penuh.",
             style = MaterialTheme.typography.bodySmall,
@@ -400,8 +418,11 @@ private fun BracketAlasanList(bracket: KpiBracketDto) {
         )
         return
     }
+    Spacer(modifier = Modifier.height(10.dp))
     Text(
-        text = "Yang membuat bonus tidak penuh",
+        // Judul & satuan ikut MODEL yang melahirkan vonis ini — aturannya hidup
+        // sebagai fungsi murni di `KpiModels.kt` supaya bisa diuji tanpa Compose.
+        text = judulAlasanKpi(bracket.modelBonus),
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -422,12 +443,33 @@ private fun BracketAlasanList(bracket: KpiBracketDto) {
                 modifier = Modifier.weight(1f)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            a.hilangRp?.let { hilang ->
+            val dampak = dampakAlasanKpi(
+                baris = a,
+                modelBonus = bracket.modelBonus,
+                formatRupiah = { formatRupiah(it) },
+                formatAngka = { formatKpiNumber(it) },
+            )
+            dampak?.let {
                 Text(
-                    text = "−${formatRupiah(hilang.toDouble())}",
+                    text = it,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
+                    // Merah untuk KEDUA model, termasuk `dampakPct` positif —
+                    // cerminan `text-error` web. Panel ini mendaftar apa yang
+                    // MENEKAN vonis; mewarnai sebagiannya hijau membuat daftar
+                    // terbaca sebagai campuran untung-rugi, bukan sebab.
                     color = PunishmentColor
+                )
+            }
+            // Kategori (BAGUS SEKALI/CUKUP/…) ikut dirender seperti web: tanpa
+            // itu baris "−Rp 450.000" tak memberi tahu SEBERAPA jauh capaiannya
+            // dari yang membayar penuh.
+            a.kategori?.takeIf { it.isNotBlank() }?.let {
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
