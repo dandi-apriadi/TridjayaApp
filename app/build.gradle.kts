@@ -31,8 +31,8 @@ android {
         // satu-satunya cara menguji jalur yang cuma pecah di runtime Android
         // lama (mis. `java.time` di API < 26).
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 117
-        versionName = "3.06"
+        versionCode = 118
+        versionName = "3.07"
 
         // Gateway Rust tridjaya, deployed at tridjaya.com (HTTPS, no emulator/LAN
         // workaround needed since it's a public domain). Migrated 2026-07-13 from
@@ -62,6 +62,35 @@ android {
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
+
+                // v1 (JAR signing) WAJIB DINYALAKAN EKSPLISIT — insiden 2026-08-28.
+                //
+                // AGP mematikan v1 sendiri begitu `minSdk >= 24`, karena untuk
+                // MEMASANG APK v2 memang sudah cukup di Android 7+. Alasan itu
+                // benar dan tetap benar; yang salah adalah menganggapnya cukup
+                // untuk semua hal.
+                //
+                // `UpdateManager.ditandatanganiKitaSendiri()` (audit keamanan
+                // 2026-08, temuan 3.5) memeriksa sertifikat APK yang BARU
+                // DIUNDUH lewat `PackageManager.getPackageArchiveInfo()`. Untuk
+                // berkas APK LEPAS — bukan paket terpasang — panggilan itu di
+                // banyak versi/ROM Android hanya membaca **JAR signature (v1)**.
+                // Tanpa v1, `signingInfo`/`signatures` kosong, pemeriksanya
+                // fail-closed, dan SETIAP update ditolak dengan kalimat
+                // "tanda tangannya bukan milik aplikasi ini" — tuduhan yang
+                // salah terhadap APK kita sendiri, plus berkasnya dihapus.
+                //
+                // Rusak DIAM-DIAM sejak pemeriksa itu mendarat (`06009bef`,
+                // 24 Agu 23:38) sampai 28 Agu: `mandatory=false` membuat orang
+                // sekadar mengabaikan update yang gagal, jadi tak ada yang
+                // melapor. Rilis 3.06 menyalakan `mandatory=true` dan seluruh
+                // fleet menabraknya serentak.
+                //
+                // JANGAN matikan lagi dengan alasan "minSdk 24 tak butuh v1".
+                // Ongkosnya cuma ukuran APK; yang dibeli adalah satu-satunya
+                // jalur update yang dipunyai app ini.
+                enableV1Signing = true
+                enableV2Signing = true
             }
         }
     }
