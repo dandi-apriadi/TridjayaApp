@@ -169,6 +169,9 @@ fun InventoryScreen(
                 filters = state.filters,
                 hasMyRegion = state.myRegion != null,
                 myDealer = state.myDealer,
+                sertakanStokNol = state.sertakanStokNol,
+                stokNolLoading = state.stokNolLoading,
+                onToggleStokNol = viewModel::toggleSertakanStokNol,
                 onToggleReady = viewModel::toggleReadyOnly,
                 onToggleRegion = viewModel::setRegion,
                 onMyBranch = viewModel::setMyBranchOnly,
@@ -200,6 +203,30 @@ fun InventoryScreen(
                     )
                 }
             ) {
+                // Barang berstok NOL tak pernah ikut sinkronisasi massal
+                // (`inStock=true`), jadi ia tak bisa "disaring balik" dari cache —
+                // datanya memang tak ada. Di sini cache ditambal dari server untuk
+                // kata kunci yang sedang berlaku; hasilnya masuk Room dan Paging
+                // memunculkannya sendiri, jadi tak ada daftar kedua di layar ini.
+                // Aturan kapan ia dipanggil hidup di `perluCariStokNol`.
+                //
+                // `siapDinilai` WAJIB: selama muatan pertama berjalan `itemCount`
+                // masih 0, dan tanpa penjagaan ini tiap pembukaan layar menembak
+                // pencarian stok-nol atas daftar yang sebenarnya belum termuat.
+                val siapDinilai = !state.isSyncing &&
+                    pagingItems.loadState.refresh !is LoadState.Loading
+                LaunchedEffect(
+                    state.filters.search,
+                    state.filters.dealer,
+                    state.sertakanStokNol,
+                    pagingItems.itemCount,
+                    siapDinilai,
+                ) {
+                    // Penambalan mengubah `itemCount`, yang me-relaunch efek ini —
+                    // yang mencegah permintaan kedua adalah memo `kunciStokNolTerperiksa`
+                    // di ViewModel, bukan daftar key di sini.
+                    if (siapDinilai) viewModel.cariStokNol(pagingItems.itemCount)
+                }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     // Bottom clearance so the last row clears the floating nav it scrolls behind.
@@ -298,7 +325,19 @@ fun InventoryScreen(
                                     ExpressiveEmptyState(
                                         icon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                         title = "Tidak ada barang",
-                                        subtitle = "Tidak ada barang yang cocok dengan filter"
+                                        // Tiga kalimat untuk tiga keadaan yang BERBEDA, yang
+                                        // sebelumnya sama-sama tampil sebagai "tidak cocok
+                                        // dengan filter". Yang paling menyesatkan keadaan
+                                        // ketiga: orang membacanya sebagai "barang ini tak ada
+                                        // di perusahaan", padahal yang benar "stoknya nol" —
+                                        // dan itu jawaban yang sama sekali lain untuk sales
+                                        // yang sedang ditanyai konsumen.
+                                        subtitle = when {
+                                            state.stokNolLoading -> "Mencari barang berstok 0 di server…"
+                                            state.stokNolDitemukan == 0 ->
+                                                "Tidak ada barang yang cocok, termasuk yang berstok 0 di katalog."
+                                            else -> "Tidak ada barang yang cocok dengan filter"
+                                        }
                                     )
                                 }
                             }
@@ -546,6 +585,10 @@ private fun FilterChipsRow(
     filters: InventoryFilters,
     hasMyRegion: Boolean,
     myDealer: String?,
+    /** Chip "Termasuk stok 0" — saklar jaringan, bukan bagian [InventoryFilters]. */
+    sertakanStokNol: Boolean,
+    stokNolLoading: Boolean,
+    onToggleStokNol: () -> Unit,
     onToggleReady: () -> Unit,
     onToggleRegion: (String) -> Unit,
     onMyBranch: () -> Unit,
@@ -590,6 +633,29 @@ private fun FilterChipsRow(
                 label = { Text("Ready") },
                 leadingIcon = {
                     Icon(Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                },
+                shape = RoundedCornerShape(50),
+                colors = chipColors
+            )
+        }
+        item {
+            // BUKAN kembaran "Ready" yang dibalik. "Ready" menyaring apa yang SUDAH
+            // ada di Room; chip ini menambah datanya — barang berstok nol tak pernah
+            // ikut disinkron (`inStock=true`), jadi mematikan "Ready" saja tak
+            // memunculkan apa pun. Lihat `domain/inventory/KatalogStokNol.kt`.
+            FilterChip(
+                selected = sertakanStokNol,
+                onClick = onToggleStokNol,
+                label = { Text("Termasuk stok 0") },
+                leadingIcon = {
+                    if (stokNolLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
                 },
                 shape = RoundedCornerShape(50),
                 colors = chipColors

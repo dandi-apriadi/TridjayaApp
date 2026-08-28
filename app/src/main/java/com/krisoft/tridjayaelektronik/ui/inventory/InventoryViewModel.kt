@@ -17,6 +17,9 @@ import com.krisoft.tridjayaelektronik.domain.inventory.ExportProductsUseCase
 import com.krisoft.tridjayaelektronik.domain.inventory.GetBranchBreakdownUseCase
 import com.krisoft.tridjayaelektronik.domain.inventory.GetInTransitHintUseCase
 import com.krisoft.tridjayaelektronik.domain.inventory.GetProductFiltersUseCase
+import com.krisoft.tridjayaelektronik.domain.inventory.LengkapiStokNolUseCase
+import com.krisoft.tridjayaelektronik.domain.inventory.kunciCariStokNol
+import com.krisoft.tridjayaelektronik.domain.inventory.perluCariStokNol
 import com.krisoft.tridjayaelektronik.domain.inventory.SyncInventoryUseCase
 import com.krisoft.tridjayaelektronik.domain.inventory.WatchProductsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -57,7 +60,27 @@ data class InventoryUiState(
     val isExporting: Boolean = false,
     /** Diisi saat search kosong tapi barangnya ketemu lagi mutasi (stok 0 di dua cabang, jeda GS OUT→IN). */
     val inTransitHint: InTransitHint? = null,
-    val inTransitHintLoading: Boolean = false
+    val inTransitHintLoading: Boolean = false,
+    /**
+     * Chip "Termasuk stok 0" — permintaan EKSPLISIT agar barang berstok nol ikut
+     * ditarik dari server untuk kata kunci yang sedang diketik.
+     *
+     * Berbeda dari [InventoryFilters.readyOnly], yang cuma menyaring apa yang
+     * SUDAH ada di Room. Chip ini menambah datanya; tanpanya, mematikan
+     * `readyOnly` tak memunculkan apa pun karena barisnya memang tak pernah
+     * disinkron (lihat `KatalogStokNol.kt`). Sengaja di luar [InventoryFilters]:
+     * isi kelas itu semuanya argumen kueri DAO, dan menaruh saklar jaringan di
+     * sana membuat tiap perubahannya memicu kueri ulang tanpa alasan.
+     */
+    val sertakanStokNol: Boolean = false,
+    val stokNolLoading: Boolean = false,
+    /**
+     * Jumlah baris stok-nol yang ditambahkan pencarian TERAKHIR. `null` = belum
+     * pernah mencari untuk kata kunci ini. Dipakai layar untuk membedakan
+     * "server bilang memang tak ada" dari "belum ditanyakan" — dua keadaan yang
+     * tanpa penanda ini sama-sama tampil sebagai daftar kosong.
+     */
+    val stokNolDitemukan: Int? = null
 )
 
 /** Product identity is `kode` + `kodeCabang` — the same `kode` can be a different product per region. */
@@ -71,6 +94,7 @@ class InventoryViewModel @Inject constructor(
     private val exportProductsUseCase: ExportProductsUseCase,
     private val getBranchBreakdownUseCase: GetBranchBreakdownUseCase,
     private val getInTransitHintUseCase: GetInTransitHintUseCase,
+    private val lengkapiStokNolUseCase: LengkapiStokNolUseCase,
     private val authRepository: AuthRepository
 ) : ViewModel() {
 
@@ -102,7 +126,16 @@ class InventoryViewModel @Inject constructor(
 
     fun onSearchChange(value: String) {
         _searchQuery.value = value
-        _uiState.update { it.copy(filters = it.filters.copy(search = value), inTransitHint = null) }
+        // `stokNolDitemukan` ikut direset: angkanya milik kata kunci SEBELUMNYA,
+        // dan membiarkannya membuat layar berkata "0 barang stok 0" tentang
+        // pencarian yang belum pernah dikirim.
+        _uiState.update {
+            it.copy(
+                filters = it.filters.copy(search = value),
+                inTransitHint = null,
+                stokNolDitemukan = null,
+            )
+        }
     }
 
     /** Dipanggil dari layar saat hasil search benar-benar kosong — cek apakah barangnya
@@ -158,6 +191,65 @@ class InventoryViewModel @Inject constructor(
 
     fun toggleReadyOnly() {
         _uiState.update { it.copy(filters = it.filters.copy(readyOnly = !it.filters.readyOnly)) }
+    }
+
+    /**
+     * Kunci (cabang + kata kunci) yang sudah dijawab server untuk stok nol —
+     * alasannya sama persis dengan [kunciInTransitTerperiksa]: pemicunya duduk di
+     * dalam `LaunchedEffect` yang relaunch tiap kata kunci berubah, jadi tanpa memo
+     * ini satu sesi mengetik mengirim satu permintaan per ketukan.
+     */
+    private var kunciStokNolTerperiksa: String? = null
+
+    /**
+     * Chip "Termasuk stok 0". Menyalakannya MELUPAKAN memo, supaya menekannya
+     * langsung mencari untuk kata kunci yang sedang tampil — kalau tidak, orang
+     * yang baru saja melihat "tidak ada barang" lalu menyalakan chip tak akan
+     * mendapat apa pun sampai ia mengubah ketikannya, dan chip-nya terbaca rusak.
+     */
+    fun toggleSertakanStokNol() {
+        val menyala = !_uiState.value.sertakanStokNol
+        if (menyala) kunciStokNolTerperiksa = null
+        _uiState.update { it.copy(sertakanStokNol = menyala, stokNolDitemukan = null) }
+    }
+
+    /**
+     * Tarik barang berstok nol untuk kata kunci yang sedang berlaku, lalu tambal
+     * cache — Paging yang mengamati Room memunculkannya sendiri, jadi di sini tak
+     * ada daftar hasil yang perlu disimpan.
+     *
+     * Keputusan "perlu atau tidak" hidup di [perluCariStokNol] (fungsi murni,
+     * diuji). [hasilTerlihat] datang dari layar karena hanya layar yang tahu
+     * berapa baris yang benar-benar ter-render oleh Paging.
+     */
+    fun cariStokNol(hasilTerlihat: Int) {
+        val s = _uiState.value
+        val query = s.filters.search
+        val dealer = s.filters.dealer.ifEmpty { s.myDealer.orEmpty() }
+        val kunci = kunciCariStokNol(query, dealer)
+        val perlu = perluCariStokNol(
+            search = query,
+            chipMenyala = s.sertakanStokNol,
+            hasilTerlihat = hasilTerlihat,
+            sudahDiperiksa = kunci == kunciStokNolTerperiksa,
+            sedangMemuat = s.stokNolLoading,
+        )
+        if (!perlu) return
+        _uiState.update { it.copy(stokNolLoading = true) }
+        viewModelScope.launch {
+            when (val hasil = lengkapiStokNolUseCase(query, dealer)) {
+                is AuthResult.Success -> {
+                    kunciStokNolTerperiksa = kunci
+                    _uiState.update { it.copy(stokNolLoading = false, stokNolDitemukan = hasil.data) }
+                }
+                // GAGAL TIDAK di-memo — satu jaringan putus sesaat tak boleh
+                // mengunci kata kunci itu jadi "sudah diperiksa" selamanya. Pola
+                // yang sama dengan `checkInTransitHint`.
+                is AuthResult.Failure -> {
+                    _uiState.update { it.copy(stokNolLoading = false, stokNolDitemukan = null) }
+                }
+            }
+        }
     }
 
     fun setRegion(region: String) {

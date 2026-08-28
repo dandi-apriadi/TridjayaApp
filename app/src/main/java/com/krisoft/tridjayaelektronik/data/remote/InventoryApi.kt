@@ -47,7 +47,20 @@ interface InventoryApi {
         @Query("page") page: Int? = null,
         @Query("limit") limit: Int? = null,
         @Query("refresh") refresh: Boolean? = null,
-        @Query("inStock") inStock: Boolean? = null
+        @Query("inStock") inStock: Boolean? = null,
+        /**
+         * Pencarian sisi-server (nama/kode). Dipakai HANYA jalur "lengkapi stok
+         * nol" (`InventoryRepository.lengkapiStokNol`), bukan sinkronisasi massal.
+         *
+         * `null` = tak dikirim sama sekali (Retrofit membuang query null), jadi
+         * pemanggil lama tak berubah perilakunya. Parameternya sendiri sudah lama
+         * ada di endpoint ini — autocomplete Input SPK memakainya lewat
+         * `DeliveryFlowApi.stokCabang`; yang baru cuma pemakaiannya dari sisi
+         * Inventory.
+         */
+        @Query("search") search: String? = null,
+        /** Batasi ke satu toko. `null` = seluruh cabang, seperti sinkronisasi massal. */
+        @Query("kodeDealer") kodeDealer: String? = null
     ): Response<ApiResponse<StokCabangPageDto>>
 
     @GET("api/inventory/indent")

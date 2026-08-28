@@ -119,6 +119,36 @@ still runs on init/refresh; it just writes into the same cache the UI already ob
 This was a deliberate user choice (they were shown a "smarter tiered TTL" option and picked
 uniform 5h instead) — don't quietly change it back to tiered without asking.
 
+**Cache Inventory SENGAJA hanya memuat barang berstok > 0 — dan itulah kenapa "stok 0" butuh
+jalur sendiri.** `InventoryRepository.sync()` memanggil `stok-cabang` dengan `inStock=true`, jadi
+baris berstok nol **tak pernah masuk Room**. Akibatnya layar Inventory tak "menyaring" barang stok
+nol; ia memang tak punya datanya, dan orang yang mencarinya menyimpulkan barangnya tak ada di
+katalog perusahaan. **Jangan memperbaikinya dengan `inStock=false`**: katalog penuh 66.482 baris
+(67 halaman), hanya 5,5%-nya berstok — 28 Juli 2026 SP GS `GetStokCabang` sempat mengembalikannya
+dan sinkronisasi HP lapangan tak pernah selesai (834 percobaan berhenti di halaman 4–5, hanya 19
+tuntas). `SYNC_MAX_PAGES` (20) juga akan memotongnya, dan snapshot terpotong sengaja TIDAK
+memanggil `replaceAll` sehingga baris basi tak pernah dibersihkan. Yang dipakai sejak 2026-08-28
+adalah **menambal cache per kata kunci** (`InventoryRepository.lengkapiStokNol` +
+`domain/inventory/KatalogStokNol.kt`, diuji `KatalogStokNolTest`): `stok-cabang` dipanggil dengan
+`search` + `inStock=false` + `limit` (parameter `search` sudah lama ada — autocomplete Input SPK
+memakainya lewat `DeliveryFlowApi`), hasilnya di-`insertAll` ke `branch_stock`, lalu Paging yang
+mengamati Room memunculkannya sendiri. Empat hal yang mengikat:
+* **`insertAll`, bukan `replaceAll`** — ini tambalan parsial atas satu kata kunci; `replaceAll`
+  akan mengosongkan seluruh inventori lalu menyisakan segelintir barang stok nol.
+* **`syncMeta` tak disentuh**, supaya `sync()` penuh berikutnya tetap jalan sesuai TTL dan
+  `replaceAll`-nya membersihkan baris tambalan ini sendiri. Itu properti sembuh-sendirinya —
+  jangan "dioptimalkan" dengan menyegarkan syncMeta di sini.
+* **Menambal cache, BUKAN daftar hasil kedua di layar.** Detail produk, rincian per cabang,
+  ekspor CSV, dan chip filter semuanya membaca Room; daftar kedua akan menghidupkan baris yang
+  tak bisa dibuka.
+* **Produk yang masih berstok di salah satu dealer dibuang** walau server mengirimnya — ia sudah
+  ada di cache, dan memasukkannya diam-diam menambah baris cabang berstok nol ke produk yang
+  sudah tampil. Pengelompokannya `kode + kodeCabang` + `SUM(stok)`, PERSIS seperti DAO; kalau
+  tidak, vonis "nol" tak pernah cocok dengan yang dilihat layar.
+Chip **"Termasuk stok 0"** sengaja BUKAN kebalikan chip "Ready": "Ready" menyaring apa yang sudah
+ada di Room, chip baru ini menambah datanya. Pemicunya (`perluCariStokNol`) menuntut kata kunci
+≥ 3 huruf — tanpa itu satu huruf meminta server memindai katalog penuh.
+
 **Migrasi Room ditulis eksplisit begitu tabel memegang data yang belum tersinkron.** `AppDatabase`
 kini **version 14** (`branch_stock`, `leads`, dashboard cache, `opname_unit`, sync meta). Bump-bump
 awal mengandalkan `fallbackToDestructiveMigration()` dan itu aman selama isi tabel cuma cache yang

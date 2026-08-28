@@ -14,6 +14,9 @@ import com.krisoft.tridjayaelektronik.data.model.IndentDto
 import com.krisoft.tridjayaelektronik.data.model.IndentListData
 import com.krisoft.tridjayaelektronik.data.model.UpdateIndentRequest
 import com.krisoft.tridjayaelektronik.data.remote.InventoryApi
+import com.krisoft.tridjayaelektronik.domain.inventory.LIMIT_CARI_STOK_NOL
+import com.krisoft.tridjayaelektronik.domain.inventory.MIN_KATA_KUNCI_STOK_NOL
+import com.krisoft.tridjayaelektronik.domain.inventory.barisStokNol
 import com.krisoft.tridjayaelektronik.domain.sales.KlasemenStandings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
@@ -319,6 +322,52 @@ class InventoryRepository @Inject constructor(
             }
             syncMetaDao.upsert(SyncMetaEntity(SyncMetaEntity.KEY_BRANCH_STOCK, System.currentTimeMillis()))
             AuthResult.Success(Unit)
+        } catch (e: Exception) {
+            AuthResult.Failure("network_error", e.message ?: "Tidak bisa terhubung ke server")
+        }
+    }
+
+    /**
+     * Tambal cache dengan barang BERSTOK NOL yang cocok [search] — bukan daftar
+     * kedua, melainkan baris yang di-`insertAll` ke tabel yang sama supaya Paging
+     * yang mengamati Room memunculkannya sendiri. Alasan lengkapnya (termasuk
+     * kenapa BUKAN `inStock=false` di [sync]) ada di `domain/inventory/KatalogStokNol.kt`.
+     *
+     * Mengembalikan jumlah baris yang ditambahkan; nol = server memang tak punya
+     * barang stok-nol yang cocok, dan itu jawaban yang sah — pemanggil memo-nya
+     * supaya kata kunci yang sama tak ditanyakan dua kali.
+     *
+     * **`insertAll`, bukan `replaceAll`.** Ini tambalan parsial atas satu kata
+     * kunci, bukan snapshot; `replaceAll` akan mengosongkan seluruh inventori
+     * lalu menyisakan segelintir barang stok nol — persis kegagalan yang dijaga
+     * [sync] dengan syarat `step == DONE`.
+     *
+     * **`syncMeta` sengaja TIDAK disentuh.** Menyegarkannya di sini akan menunda
+     * sinkronisasi penuh berikutnya hingga 5 jam, sehingga baris tambalan ini —
+     * yang seharusnya dibersihkan `replaceAll` — justru berumur lebih panjang
+     * daripada yang dimaksudkan.
+     */
+    suspend fun lengkapiStokNol(search: String, dealer: String): AuthResult<Int> {
+        val kunci = search.trim()
+        if (kunci.length < MIN_KATA_KUNCI_STOK_NOL) return AuthResult.Success(0)
+        return try {
+            val response = api.stokCabang(
+                limit = LIMIT_CARI_STOK_NOL,
+                inStock = false,
+                search = kunci,
+                kodeDealer = dealer.trim().takeIf { it.isNotEmpty() },
+            )
+            if (!response.isSuccessful) {
+                return AuthResult.Failure(
+                    "http_${response.code()}",
+                    "Gagal mencari barang stok 0 (${response.code()})"
+                )
+            }
+            val items = response.body()?.data?.items
+                ?: return AuthResult.Failure("empty_response", "Respons stok kosong dari server")
+            val baris = barisStokNol(items)
+            if (baris.isNotEmpty()) branchStockDao.insertAll(baris)
+            AuthResult.Success(baris.size)
         } catch (e: Exception) {
             AuthResult.Failure("network_error", e.message ?: "Tidak bisa terhubung ke server")
         }
