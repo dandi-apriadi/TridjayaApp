@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.krisoft.tridjayaelektronik.data.model.KpiDetailData
 import com.krisoft.tridjayaelektronik.data.model.KpiItemDto
+import com.krisoft.tridjayaelektronik.data.model.KpiBracketDto
 import com.krisoft.tridjayaelektronik.data.model.KpiKaryawanRowDto
 import com.krisoft.tridjayaelektronik.data.model.formatKpiNumber
 import com.krisoft.tridjayaelektronik.data.model.formatPeriodeId
@@ -308,13 +309,125 @@ private fun VerdictText(detail: KpiDetailData) {
         return
     }
     detail.bracket?.let { bracket ->
-        val reward = bracket.kind == "reward"
+        // Cabang `netral` WAJIB eksplisit dan didahulukan. Tanpa itu `kind`
+        // apa pun selain "reward" jatuh ke else dan dirender "Punishment Rp 0"
+        // MERAH — padahal model bonus per indikator tak punya denda sama sekali
+        // dan mengirim "netral" justru untuk menyatakan itu. Orang yang cuma
+        // tak dapat bonus terbaca seperti sedang dihukum, dan itu memicu
+        // keberatan yang tak seharusnya ada.
+        when {
+            bracket.kind == "netral" -> {
+                Text(
+                    text = "Netral · ${formatRupiah(bracket.amount.toDouble())}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = if (bracket.modelBonus) {
+                        // Rp 0 di model bonus BUKAN "pas target": `amount` =
+                        // Σ(nominal kategori × bobot) dan nominalnya nol hanya
+                        // untuk KURANG. Menyebutnya "tak ada reward maupun
+                        // punishment" membacakan kebalikannya.
+                        "Belum ada indikator yang mencapai kategori SEDANG (≥80%), " +
+                            "atau belum ada yang dinilai."
+                    } else {
+                        // Pita netral 91-100% (migrasi 155) — hanya berlaku untuk
+                        // vonis aturan lama di snapshot periode terkunci.
+                        "Capaian 91–100%: tidak ada reward maupun punishment."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            else -> {
+                val reward = bracket.kind == "reward"
+                // Aturan LAMA menamainya REWARD, bukan Bonus. Memakai satu label
+                // untuk keduanya membuat arsip Juli terbaca seolah lahir dari
+                // model bonus hari ini — padahal angkanya tak bisa direproduksi
+                // model itu.
+                val label = when {
+                    !reward -> "Punishment "   // hanya snapshot periode terkunci
+                    bracket.modelBonus -> "Bonus "
+                    else -> "Reward "
+                }
+                Text(
+                    text = label + formatRupiah(bracket.amount.toDouble()),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (reward) RewardColor else PunishmentColor
+                )
+                // Pembanding "dari berapa" — tanpa ini nominalnya tak punya skala.
+                bracket.bonusMaksRp?.takeIf { it > 0 }?.let { maks ->
+                    Text(
+                        text = "dari maksimal ${formatRupiah(maks.toDouble())}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        BracketAlasanList(bracket)
+    }
+}
+
+/**
+ * Rincian "kenapa bonusnya tidak penuh" — indikator mana yang kehilangan
+ * rupiah, urut dari yang terbesar (server yang mengurutkan).
+ *
+ * **Hanya dirender untuk vonis model bonus** ([KpiBracketDto.modelBonus]).
+ * Snapshot periode terkunci menyimpan bentuk lama yang tak punya `hilangRp`;
+ * membacanya sebagai `0` akan mencetak "−Rp 0" untuk SETIAP baris, daftar yang
+ * terbaca "tak ada yang hilang" padahal sebabnya cuma tak terbaca. Web menahan
+ * diri dengan pembeda yang sama.
+ *
+ * Angka rupiah tanpa sebab tak bisa dibantah — itu alasan panel ini ada, dan
+ * kenapa `alasan` kosong dirender sebagai pernyataan POSITIF, bukan diam.
+ */
+@Composable
+private fun BracketAlasanList(bracket: KpiBracketDto) {
+    if (!bracket.modelBonus) return
+    Spacer(modifier = Modifier.height(10.dp))
+    if (bracket.alasan.isEmpty()) {
         Text(
-            text = (if (reward) "Reward " else "Punishment ") + formatRupiah(bracket.amount.toDouble()),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = if (reward) RewardColor else PunishmentColor
+            text = "Semua indikator BAGUS SEKALI — bonus penuh.",
+            style = MaterialTheme.typography.bodySmall,
+            color = RewardColor
         )
+        return
+    }
+    Text(
+        text = "Yang membuat bonus tidak penuh",
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(4.dp))
+    bracket.alasan.forEach { a ->
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = a.indikator + if (a.dinilai) "" else " (belum dinilai)",
+                style = MaterialTheme.typography.bodySmall,
+                // "belum dinilai" BUKAN kinerja buruk — itu penilaian yang belum
+                // dikerjakan HR, dan mewarnainya merah menyalahkan orang yang salah.
+                color = if (a.dinilai) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    PendingColor
+                },
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            a.hilangRp?.let { hilang ->
+                Text(
+                    text = "−${formatRupiah(hilang.toDouble())}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = PunishmentColor
+                )
+            }
+        }
     }
 }
 
