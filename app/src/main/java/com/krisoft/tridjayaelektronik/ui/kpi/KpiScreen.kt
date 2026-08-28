@@ -358,15 +358,18 @@ private fun VerdictText(detail: KpiDetailData) {
                     fontWeight = FontWeight.Bold,
                     color = if (reward) RewardColor else PunishmentColor
                 )
-                // Pembanding "dari berapa" — tanpa ini nominalnya tak punya skala.
-                bracket.bonusMaksRp?.takeIf { it > 0 }?.let { maks ->
-                    Text(
-                        text = "dari maksimal ${formatRupiah(maks.toDouble())}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
+        }
+        // Pembanding "dari berapa" — DI LUAR `when`, jadi vonis Rp 0 ikut
+        // mendapatkannya. Menaruhnya hanya di cabang non-netral membuat orang
+        // yang justru kehilangan paling banyak (Rp 0 dari maksimal Rp 1,5 jt)
+        // satu-satunya yang tak pernah melihat skalanya.
+        bracket.bonusMaksRp?.takeIf { it > 0 }?.let { maks ->
+            Text(
+                text = "dari maksimal ${formatRupiah(maks.toDouble())}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
         BracketAlasanList(bracket)
     }
@@ -491,6 +494,27 @@ private fun IndicatorCard(item: KpiItemDto) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp)
             )
+            // Baris RUPIAH per indikator — dan inilah yang benar-benar dibayar.
+            // `hasilBobot` di atas cuma bahan skor total yang dipajang; sejak
+            // model bonus per indikator, uangnya = Σ `bonusRp` tiap baris.
+            // Keduanya `null` untuk snapshot periode terkunci (aturan lama tak
+            // punya konsep ini), jadi barisnya menghilang, bukan mencetak Rp 0.
+            item.bonusRp?.let { rp ->
+                Text(
+                    text = buildString {
+                        item.kategori?.takeIf { it.isNotBlank() }?.let { append(it).append(" · ") }
+                        append("bonus ").append(formatRupiah(rp.toDouble()))
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    // Rp 0 bukan hukuman — di model ini indikator yang belum
+                    // mencapai SEDANG hanya GAGAL MENAMBAH, tak pernah mengurangi
+                    // bonus indikator lain. Mewarnainya merah membacakan denda
+                    // yang tak ada.
+                    color = if (rp > 0) RewardColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
         }
     }
 }

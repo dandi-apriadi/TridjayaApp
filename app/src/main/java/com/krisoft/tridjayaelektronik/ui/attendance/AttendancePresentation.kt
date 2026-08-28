@@ -242,9 +242,18 @@ fun gateAbsenPulang(today: AbsensiTodayDto?): GatePulang {
 /**
  * Hasil gate tombol Absen Masuk (geofence).
  *
- * Absen MASUK ditolak server kalau di luar area, absen PULANG tidak
- * (`check_out` sengaja tak dipagari supaya driver/sales yang masih di lapangan
- * sore hari tetap bisa pulang).
+ * **Di luar radius TIDAK ditolak server** — sejak 2026-08-26 barisnya tetap
+ * tercatat berstatus `pending_review`; yang ditolak 400 hanya
+ * `in_geofence == None`, yaitu geofence cabang belum dikonfigurasi sama sekali.
+ * Karena itu [boleh] praktis selalu `true`; lihat [gateAbsenMasuk] untuk
+ * aturan lengkap dan alasannya. Absen PULANG memang tak pernah dipagari area
+ * (`check_out` sengaja begitu supaya driver/sales yang masih di lapangan sore
+ * hari tetap bisa pulang).
+ *
+ * Kalimat lama di sini ("Absen MASUK ditolak server kalau di luar area")
+ * bertentangan dengan aturan yang berlaku dan dikoreksi 2026-08-28 — doc tipe
+ * inilah yang muncul lebih dulu saat seseorang hover di IDE, jadi ia sempat
+ * membacakan kebalikan dari penjelasan yang ada 15 baris di bawahnya.
  */
 data class GateMasuk(val boleh: Boolean, val alasan: String? = null)
 

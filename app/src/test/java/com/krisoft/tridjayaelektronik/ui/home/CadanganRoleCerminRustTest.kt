@@ -1,6 +1,10 @@
 package com.krisoft.tridjayaelektronik.ui.home
 
 import com.krisoft.tridjayaelektronik.ui.activity.KUPON_GEBYAR_MENU_ROLES
+import com.krisoft.tridjayaelektronik.ui.activity.SPK_CREATE_BLOCKED_ROLES
+import com.krisoft.tridjayaelektronik.ui.activity.SPK_CREATE_ROLES
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.fail
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -73,23 +77,28 @@ class CadanganRoleCerminRustTest {
         File(akar, "packages/rust-shared/src/capabilities.rs").readText()
 
     /**
-     * Buang varian EJAAN garis-bawah yang kembaran ber-tanda-hubungnya sudah ada
-     * di daftar yang sama (`kepala_cabang` di samping `kepala-cabang`).
+     * Varian EJAAN garis-bawah yang kembaran ber-tanda-hubungnya ada di daftar
+     * Rust yang sama (`kepala_cabang` di samping `kepala-cabang`).
      *
-     * Rust menulis kedua ejaan karena ia mencocokkan langsung ke kolom DB yang
-     * isinya bercampur; app menormalkan role ke bentuk ber-tanda-hubung lebih
-     * dulu (`effectiveRoles`), jadi varian garis-bawah tak akan pernah muncul di
-     * sisi Kotlin. Ditulis sebagai ATURAN, bukan daftar slug: versi pertama test
-     * ini mendaftar `kepala_cabang`+`admin_sales` satu per satu lalu langsung
-     * merah atas `admin_stok`+`delivery_control` yang terlewat — daftar manual
-     * untuk pola yang bisa dirumuskan hanya memindahkan pembusukannya ke test.
+     * **INI CELAH NYATA, BUKAN VARIAN YANG BOLEH DIABAIKAN — baca sebelum
+     * menganggapnya beres.** Versi pertama test ini membuang slug-slug tersebut
+     * dengan alasan "app menormalkan role ke bentuk ber-tanda-hubung lebih dulu
+     * lewat `effectiveRoles`". Review adversarial 2026-08-28 membuktikan premis
+     * itu SALAH: `HomeScreen.kt::effectiveRoles` hanya `trim()` + `lowercase()`,
+     * dan `grep -rn "replace('_'" app/src/main` nihil. Rust menulis kedua ejaan
+     * justru karena `AuthUser.role` adalah string MENTAH dari kolom DB yang
+     * isinya bercampur — jadi akun ber-`role` `kepala_cabang` benar-benar tak
+     * akan cocok dengan `STAFF_MENU_ROLES`, dan kehilangan kartu Absen & Slip
+     * Gaji selama peta kemampuan belum termuat.
      *
-     * Syarat "kembarannya ADA" itu yang menjaga ketelitiannya: slug garis-bawah
-     * yang berdiri SENDIRI (tanpa kembaran) tetap dilaporkan sebagai selisih,
-     * karena itu memang ejaan yang app tak akan pernah cocokkan.
+     * Dipertahankan sebagai PENGECUALIAN BERNAMA (bukan filter diam-diam) supaya
+     * selisihnya tetap TERBACA di berkas ini alih-alih terhapus dari
+     * perbandingan. Menutupnya sungguhan = menormalkan `_`→`-` di
+     * `effectiveRoles`, dan itu perubahan PERILAKU gate yang layak dinilai
+     * sendiri — bukan ditumpangkan ke commit sinkronisasi daftar role.
      */
-    private fun tanpaVarianGarisBawah(slug: Set<String>): Set<String> =
-        slug.filterNot { it.contains('_') && it.replace('_', '-') in slug }.toSet()
+    private fun varianGarisBawahDenganKembaran(slug: Set<String>): Set<String> =
+        slug.filter { it.contains('_') && it.replace('_', '-') in slug }.toSet()
 
     /**
      * `pengecualianSah` = slug yang SENGAJA ada di satu sisi saja, dengan
@@ -103,13 +112,17 @@ class CadanganRoleCerminRustTest {
         hanyaDiRust: Map<String, String> = emptyMap(),
         hanyaDiKotlin: Map<String, String> = emptyMap(),
     ) {
-        val rustDinilai = tanpaVarianGarisBawah(rust)
-        val kurang = rustDinilai - kotlin - hanyaDiRust.keys
-        val lebih = kotlin - rustDinilai - hanyaDiKotlin.keys
+        val ejaanGarisBawah = varianGarisBawahDenganKembaran(rust)
+        val kurang = rust - kotlin - hanyaDiRust.keys - ejaanGarisBawah
+        val lebih = kotlin - rust - hanyaDiKotlin.keys
         if (kurang.isEmpty() && lebih.isEmpty()) return
         fail(
             buildString {
                 appendLine("Cadangan offline `$label` tak lagi cocok dengan rust-shared.")
+                if (ejaanGarisBawah.isNotEmpty()) {
+                    appendLine("(catatan: ${ejaanGarisBawah.sorted()} adalah celah ejaan `_` yang")
+                    appendLine(" DIKETAHUI & belum ditutup — lihat KDoc varianGarisBawahDenganKembaran)")
+                }
                 appendLine()
                 if (kurang.isNotEmpty()) {
                     appendLine("KURANG (server mengizinkan, cadangan offline tidak): ${kurang.sorted()}")
@@ -166,5 +179,50 @@ class CadanganRoleCerminRustTest {
             rust = slugRust(sumber, "KUPON_GEBYAR_LIHAT_ROLES"),
             kotlin = KUPON_GEBYAR_MENU_ROLES,
         )
+    }
+
+    // ── DENYLIST SPK ─────────────────────────────────────────────────────────
+    //
+    // Dua daftar di bawah dibandingkan sebagai DENYLIST, bukan allowlist, karena
+    // begitulah backend menghitungnya (`can_view_spk_pipeline`/`can_create_spk`
+    // memakai `SPK_BLOCKED_ROLES`/`SPK_CREATE_BLOCKED_ROLES`).
+    //
+    // **Kenapa dua test ini ada.** Sisi Kotlin dulu menurunkan keduanya sebagai
+    // SELISIH dari `KNOWN_ROLES` (`KNOWN_ROLES - "ai-engineer"`), dengan alasan
+    // "role baru otomatis ikut, sama seperti backend". Premis itu benar hanya
+    // selama backend meloloskan tiap role baru — dan sejak `trainee` lahir ia
+    // tidak benar lagi. Akibatnya: menambahkan `trainee` ke `KNOWN_ROLES` (demi
+    // Absen & Input Prospek yang memang haknya) diam-diam memberinya kartu SPK
+    // juga, tanpa satu pun test merah. Ditemukan review adversarial 2026-08-28,
+    // sebelum landing. Dua test inilah yang membuat kelas itu tak bisa terulang.
+
+    @Test
+    fun `SPK_BLOCKED_ROLES mencerminkan denylist pipeline di rust-shared`() = jalankan { sumber ->
+        val rust = slugRust(sumber, "SPK_BLOCKED_ROLES")
+        assertEquals(
+            "Denylist `spk.pipeline` berbeda dari rust-shared — role yang HILANG dari sisi " +
+                "Kotlin akan melihat kartu antrian/riwayat SPK saat offline lalu dijawab 403.",
+            rust,
+            SPK_BLOCKED_ROLES,
+        )
+        // Arah kedua, dinyatakan terpisah supaya kegagalannya menyebut akibatnya:
+        // daftar TAMPIL-nya benar-benar tak memuat satu pun role terlarang.
+        for (role in rust) {
+            assertFalse("`$role` diblokir server tapi masih ada di SPK_MENU_ROLES", role in SPK_MENU_ROLES)
+        }
+    }
+
+    @Test
+    fun `SPK_CREATE_ROLES menolak seluruh SPK_CREATE_BLOCKED_ROLES rust-shared`() = jalankan { sumber ->
+        val rust = slugRust(sumber, "SPK_CREATE_BLOCKED_ROLES")
+        assertEquals(
+            "Denylist `spk.create` berbeda dari rust-shared — role yang hilang dari sisi Kotlin " +
+                "akan melihat kartu 'Buat SPK' lalu `create_delivery` menjawab 403.",
+            rust,
+            SPK_CREATE_BLOCKED_ROLES,
+        )
+        for (role in rust) {
+            assertFalse("`$role` diblokir server tapi masih ada di SPK_CREATE_ROLES", role in SPK_CREATE_ROLES)
+        }
     }
 }

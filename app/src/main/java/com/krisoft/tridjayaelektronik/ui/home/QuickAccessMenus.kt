@@ -134,10 +134,25 @@ internal val KNOWN_ROLES: Set<String> = setOf(
     "cs",
 )
 
+/**
+ * Cerminan `SPK_BLOCKED_ROLES` (rust-shared `capabilities.rs`) — daftar
+ * TERLARANG, karena `spk.pipeline` di backend memang dihitung dari DENYLIST.
+ *
+ * **Ditulis eksplisit sejak 2026-08-28, dan itu memperbaiki regresi nyata.**
+ * Sebelumnya baris ini berbunyi `KNOWN_ROLES - "ai-engineer"` dengan alasan
+ * "supaya role baru otomatis ikut, sama seperti backend" — premis yang benar
+ * HANYA selama backend meloloskan tiap role baru. Sejak `trainee` lahir
+ * (2026-08-17) itu tidak lagi benar: Rust memblokirnya. Begitu `trainee`
+ * ditambahkan ke [KNOWN_ROLES] (commit sinkronisasi role hari ini, demi Absen
+ * & Input Prospek yang memang haknya), selisih ini diam-diam memberinya kartu
+ * SPK juga — kartu yang `create_delivery` jawab 403, dan yang masterplan 3.18d
+ * justru ingin tutup. Denylist yang disalin apa adanya tak punya mode gagal itu.
+ */
+internal val SPK_BLOCKED_ROLES: Set<String> = setOf("ai-engineer", "trainee")
+
 /** `is_pipeline_actor` (inventory-service delivery.rs) meloloskan semua role
- *  KECUALI ai-engineer murni — dinyatakan sebagai selisih supaya role baru
- *  otomatis ikut, sama seperti backend. */
-internal val SPK_MENU_ROLES: Set<String> = KNOWN_ROLES - "ai-engineer"
+ *  KECUALI yang ada di [SPK_BLOCKED_ROLES]. */
+internal val SPK_MENU_ROLES: Set<String> = KNOWN_ROLES - SPK_BLOCKED_ROLES
 
 /**
  * Home Service — daftar role cadangan offline. Tinggal DI SINI, bukan di

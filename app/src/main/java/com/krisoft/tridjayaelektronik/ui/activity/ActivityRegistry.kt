@@ -4,6 +4,8 @@ import com.krisoft.tridjayaelektronik.ui.acinstall.JABATAN_PETUGAS_PEMASANGAN
 import com.krisoft.tridjayaelektronik.ui.acinstall.punyaJabatanPetugasPemasangan
 import com.krisoft.tridjayaelektronik.ui.home.ALL_LOGGED_IN
 import com.krisoft.tridjayaelektronik.ui.home.CRM_MENU_ROLES
+import com.krisoft.tridjayaelektronik.ui.home.KNOWN_ROLES
+import com.krisoft.tridjayaelektronik.ui.home.SPK_BLOCKED_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.SERIAL_INPUT_MENU_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.STAFF_MENU_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.SPK_MENU_ROLES
@@ -264,7 +266,9 @@ internal val KASIR_QUEUE_ROLES = setOf("kasir", "admin", "superadmin")
  * memakai `spk.pipeline` padahal menavigasi langsung ke form input, jadi
  * manager/owner menekannya lalu dijawab 403.
  */
-internal val SPK_CREATE_ROLES: Set<String> = SPK_MENU_ROLES - "manager" - "owner"
+internal val SPK_CREATE_BLOCKED_ROLES: Set<String> = SPK_BLOCKED_ROLES + setOf("manager", "owner")
+
+internal val SPK_CREATE_ROLES: Set<String> = KNOWN_ROLES - SPK_CREATE_BLOCKED_ROLES
 
 /**
  * Cerminan `capabilities::KUPON_GEBYAR_LIHAT_ROLES` (rust-shared) — cadangan
@@ -275,28 +279,34 @@ internal val SPK_CREATE_ROLES: Set<String> = SPK_MENU_ROLES - "manager" - "owner
  * `kepala-cabang, admin-sales, karyawan, manager, admin, superadmin, owner` —
  * menyimpang di TIGA arah sekaligus dari `KUPON_GEBYAR_LIHAT_ROLES`, dan tiap
  * arah merugikan orang yang berbeda:
- *  - **salah ejaan**: `admin-sales` ada di sini, server menulis
- *    `admin-penjualan`. Slug yang tak pernah cocok = baris mati yang terlihat
- *    seperti jaring pengaman;
  *  - **kurang**: `kasir` tak pernah ada di sini padahal server memuatnya, jadi
  *    kasir offline kehilangan kartu yang jadi haknya;
- *  - **lebih**: `manager`/`admin`/`superadmin`/`owner` ada di sini padahal doc
- *    server EKSPLISIT mengecualikan mereka ("pengawasan lintas-cabang mereka
- *    lewat Papan Gebyar, bukan daftar konsumen ini") — offline mereka melihat
- *    kartunya lalu dijawab 403 begitu online, persis pola "menu tampil, endpoint
- *    403" yang CLAUDE.md repo ini justru ingin dicegah.
+ *  - **lebih (LIMA role)**: `admin-sales`, `manager`, `admin`, `superadmin`,
+ *    `owner`. Doc server EKSPLISIT mengecualikan mereka ("pengawasan
+ *    lintas-cabang mereka lewat Papan Gebyar, bukan daftar konsumen ini") —
+ *    offline mereka melihat kartunya lalu dijawab 403 begitu online, persis pola
+ *    "menu tampil, endpoint 403" yang CLAUDE.md repo ini justru ingin dicegah.
+ *    **`admin-sales` termasuk di sini, BUKAN sebagai salah ketik**: ia slug
+ *    efektif yang hidup (`Role::AdminSales`, dan `divisi_access_slugs` melipat
+ *    `sales`/`sales-head` jadi `admin-sales` — `auth.rs`), jadi membuangnya
+ *    adalah penyempitan yang DISENGAJA server, bukan pembetulan ejaan. Draf
+ *    pertama komentar ini menyebutnya "baris mati"; kalau aturan itu diterapkan
+ *    ke daftar lain — mis. mencabut `admin-sales` dari `STAFF_MENU_ROLES` yang
+ *    `STAFF_SELF_SERVICE_ROLES` memang memuatnya — seluruh orang berdivisi sales
+ *    kehilangan kartu Absen & Slip Gaji saat offline, tanpa error.
  *
  * SENGAJA tetap lebar sampai `karyawan`: programnya memang untuk "setiap
  * karyawan di cabang terkait" (arahan owner). Menyempitkannya akan mengunci
  * orang yang justru diminta mengerjakannya.
  *
- * **`"cs"` yang ada di daftar server sengaja TIDAK ditulis di sini**, alasan
- * sama dengan [HS_LAPOR_ROLES] dulu: belum ada role literal `cs` di sistem,
- * jadi ejaan itu tak akan pernah cocok dengan role siapa pun dan cuma jadi
- * baris yang tampak seperti jaring pengaman padahal mati. Petugas CS sungguhan
- * tetap lolos lewat peta kemampuan server. (Catatan: `cs` KINI ada di
- * `KNOWN_ROLES` sejak migrasi 223, jadi menuliskannya tak lagi memerahkan test —
- * yang menahannya sekarang murni alasan di atas, bukan penjaga salah-ketik.)
+ * **`cs` memang TIDAK ada di `KUPON_GEBYAR_LIHAT_ROLES`** — jangan
+ * menambahkannya "biar selaras". Doc Rust menyebutnya eksplisit sebagai salah
+ * satu role yang TETAP dikecualikan; pengawasan CS lewat
+ * `KUPON_GEBYAR_MONITOR_ROLES` (Papan Gebyar), bukan daftar konsumen ini.
+ * Menuliskannya di sini akan MEMERAHKAN `CadanganRoleCerminRustTest` dengan
+ * `LEBIH: [cs]`. (Draf pertama komentar ini menyalin kalimat "cs ada di daftar
+ * server tapi sengaja tak ditulis" dari [HS_LAPOR_ROLES] — di sana kalimat itu
+ * benar, di sini premisnya salah sejak awal.)
  *
  * **Daftar ini BUKAN gerbang yang sesungguhnya.** Yang menentukan siapa melihat
  * kartunya adalah vonis cabang dari server — lihat [kuponGebyarCardVisible].

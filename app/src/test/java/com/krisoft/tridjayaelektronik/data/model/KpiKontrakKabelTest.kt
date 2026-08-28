@@ -214,16 +214,45 @@ class KpiKontrakKabelTest {
 
     // ── Bentuk pinggiran ─────────────────────────────────────────────────────
 
+    /**
+     * `alasan` kosong ⟹ bonus PENUH, jadi bentuk yang benar untuk kasus ini
+     * adalah `reward` ber-`amount == bonusMaksRp` — BUKAN `netral`.
+     * `bracket_alasan` (`scoring.rs:174-195`) hanya membuang baris ber-`hilang
+     * == 0`, dan `payload` (`:403`) menulis `netral` hanya saat `amount == 0`;
+     * keduanya bersamaan mustahil (Σbobot = 0 sudah tercegat `filled`).
+     *
+     * Draf pertama test ini memakai `netral` + `alasan:[]` dan pesan assert-nya
+     * berbunyi "alasan kosong = tiap indikator BAGUS SEKALI" — membacakan
+     * kebalikan dari `amount:0` yang ia assert sendiri. Ditemukan review
+     * adversarial 2026-08-28. Fixture yang mustahil membuat test tetap hijau
+     * sambil menjelaskan dunia yang tak ada.
+     */
     @Test
-    fun `bracket netral tanpa alasan terdekode sebagai daftar kosong`() {
-        val d = json.decodeFromString<KpiDetailData>(
+    fun `bonus penuh — alasan kosong datang bersama kind reward`() {
+        val b = json.decodeFromString<KpiDetailData>(
             """{"periode":"2026-09","filled":true,
-               "bracket":{"kind":"netral","amount":0,"bonusMaksRp":1500000,"alasan":[]}}"""
-        )
-        val b = d.bracket!!
+               "bracket":{"kind":"reward","amount":1500000,"kategoriTotal":"BAGUS SEKALI",
+                          "bonusMaksRp":1500000,"alasan":[]}}"""
+        ).bracket!!
+        assertEquals("reward", b.kind)
+        assertTrue("alasan kosong = tiap indikator BAGUS SEKALI", b.alasan.isEmpty())
+        assertEquals("bonus penuh: amount == bonusMaksRp", b.bonusMaksRp, b.amount)
+        assertTrue(b.modelBonus)
+    }
+
+    /** `netral` yang NYATA: Rp 0, dan alasannya justru berisi. */
+    @Test
+    fun `bracket netral membawa alasan yang menjelaskan Rp 0`() {
+        val b = json.decodeFromString<KpiDetailData>(
+            """{"periode":"2026-09","filled":true,
+               "bracket":{"kind":"netral","amount":0,"kategoriTotal":"KURANG","bonusMaksRp":1500000,
+                 "alasan":[{"indikator":"KEHADIRAN","achievement":0.5,"bobot":1.0,"kategori":"KURANG",
+                            "bonusRp":0,"bonusMaksRp":1500000,"hilangRp":1500000,"dinilai":true}]}}"""
+        ).bracket!!
         assertEquals("netral", b.kind)
         assertEquals(0L, b.amount)
-        assertTrue("alasan kosong = tiap indikator BAGUS SEKALI", b.alasan.isEmpty())
+        assertEquals(1, b.alasan.size)
+        assertEquals(1_500_000L, b.alasan.single().hilangRp)
         assertTrue(b.modelBonus)
     }
 
