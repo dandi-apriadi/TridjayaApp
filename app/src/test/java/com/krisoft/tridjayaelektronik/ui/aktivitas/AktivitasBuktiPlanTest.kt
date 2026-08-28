@@ -226,6 +226,81 @@ class AktivitasBuktiPlanTest {
     }
 
     @Test
+    fun `sebab dekode ditempelkan kalau ada, tanpa merusak kalimat aslinya`() {
+        val tanpa = pesanGagalDekode(dariGaleri = true)
+        assertEquals(tanpa, pesanGagalDekode(dariGaleri = true, sebab = null))
+        assertEquals(tanpa, pesanGagalDekode(dariGaleri = true, sebab = "  "))
+
+        val dengan = pesanGagalDekode(dariGaleri = true, sebab = "FileNotFoundException")
+        assertTrue(dengan, dengan.startsWith(tanpa))
+        assertTrue(dengan, dengan.endsWith("(FileNotFoundException)"))
+    }
+
+    // ── Sebab gambar diabaikan (dipisah per penghitung, vc117) ───────────────
+
+    @Test
+    fun `tanpa yang diabaikan tak ada pesan sama sekali`() {
+        assertNull(pesanGambarDiabaikan(takMuat = 0, terlaluBesar = 0, takTerbaca = 0))
+    }
+
+    /**
+     * INTI perbaikannya: gambar yang tak terbaca TIDAK BOLEH dijelaskan sebagai
+     * kuota penuh. Seseorang yang memilih 2 dari 10 lalu dibilang "maksimal 10"
+     * bisa membantahnya di depan matanya sendiri — dan sesudah itu ia tak
+     * mempercayai pesan berikutnya juga.
+     */
+    @Test
+    fun `gagal baca tidak dijelaskan sebagai kuota penuh`() {
+        val pesan = pesanGambarDiabaikan(
+            takMuat = 0,
+            terlaluBesar = 0,
+            takTerbaca = 2,
+            sebabTakTerbaca = "FileNotFoundException",
+        )!!
+        assertFalse("kuota disebut padahal sebabnya bukan kuota", pesan.contains("maksimal"))
+        assertFalse(pesan.contains("$MAX_GAMBAR gambar per aktivitas"))
+        assertTrue(pesan, pesan.contains("2 gambar tidak bisa dibaca"))
+        assertTrue("sebab aslinya harus ikut", pesan.contains("FileNotFoundException"))
+        // Kalimat HEIC dipakai ULANG, bukan ditulis baru di ViewModel.
+        assertTrue(pesan, pesan.contains("HEIC"))
+    }
+
+    @Test
+    fun `kuota penuh tetap menyebut kuota`() {
+        val pesan = pesanGambarDiabaikan(takMuat = 3, terlaluBesar = 0, takTerbaca = 0)!!
+        assertTrue(pesan, pesan.contains("3 gambar"))
+        assertTrue(pesan, pesan.contains("maksimal $MAX_GAMBAR"))
+        assertFalse("tak ada sebab lain yang disebut", pesan.contains("HEIC"))
+    }
+
+    @Test
+    fun `terlalu besar menyebut ambangnya, bukan kuota`() {
+        val pesan = pesanGambarDiabaikan(takMuat = 0, terlaluBesar = 1, takTerbaca = 0)!!
+        assertTrue(pesan, pesan.contains(formatUkuranBerkas(MAX_GAMBAR_INPUT_BYTES)))
+        assertFalse(pesan.contains("maksimal $MAX_GAMBAR"))
+        assertFalse(pesan.contains("HEIC"))
+    }
+
+    /**
+     * Satu pemilihan bisa memuat ketiga sebab sekaligus. Menjumlahkannya jadi
+     * satu angka (perilaku sampai vc116) membuang justru keterangan yang
+     * menentukan langkah berikutnya.
+     */
+    @Test
+    fun `tiga sebab sekaligus tetap terbaca sebagai tiga hal`() {
+        val pesan = pesanGambarDiabaikan(
+            takMuat = 1,
+            terlaluBesar = 2,
+            takTerbaca = 3,
+            sebabTakTerbaca = "IOException",
+        )!!
+        assertTrue(pesan, pesan.contains("1 gambar tidak ditambahkan"))
+        assertTrue(pesan, pesan.contains("2 gambar dilewati"))
+        assertTrue(pesan, pesan.contains("3 gambar tidak bisa dibaca"))
+        assertTrue(pesan, pesan.contains("IOException"))
+    }
+
+    @Test
     fun `ukuran berkas nol dilaporkan tak diketahui, bukan nol byte`() {
         assertEquals("ukuran tak diketahui", formatUkuranBerkas(0L))
         assertEquals("ukuran tak diketahui", formatUkuranBerkas(-1L))

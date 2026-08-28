@@ -197,14 +197,68 @@ internal fun formatUkuranBerkas(bytes: Long): String = when {
  * bisa HEIF di API 28 sedangkan minSdk repo ini 24, jadi HEIC dari iPhone/HP
  * baru gagal senyap di Android 7/8 dan "coba jepret ulang" jadi saran yang
  * tidak nyambung sama sekali.
+ *
+ * [sebab] = nama kelas pengecualian (`e.javaClass.simpleName`), ditempelkan di
+ * ekor kalau ada. Bukan hiasan: `FileNotFoundException` (berkas cloud yang
+ * belum terunduh), `SecurityException` (grant Uri sudah dicabut), dan
+ * `IOException` (unduhan Google Foto gagal di tengah) adalah tiga masalah
+ * BERBEDA dengan jalan keluar berbeda, dan tanpa ekor ini ketiganya terbaca
+ * sebagai satu kalimat tentang HEIC yang cuma benar untuk salah satunya.
  */
-internal fun pesanGagalDekode(dariGaleri: Boolean): String =
-    if (dariGaleri) {
+internal fun pesanGagalDekode(dariGaleri: Boolean, sebab: String? = null): String {
+    val inti = if (dariGaleri) {
         "Format foto ini tidak didukung HP kamu (mis. HEIC). Buka di Galeri, " +
             "simpan/bagikan sebagai JPG, lalu pilih lagi."
     } else {
         "Foto gagal diproses, coba jepret ulang"
     }
+    return sebab?.takeIf { it.isNotBlank() }?.let { "$inti ($it)" } ?: inti
+}
+
+/**
+ * Kalimat untuk gambar yang TIDAK jadi masuk staging, dipisah per SEBAB.
+ * `null` = tak ada yang diabaikan (jangan tampilkan apa-apa).
+ *
+ * ## Kenapa penghitungnya dipisah
+ *
+ * Sampai vc116 ketiga sebab menaikkan SATU penghitung `gagal`, lalu dirender
+ * dengan satu kalimat tetap: *"$n gambar diabaikan — maksimal
+ * [MAX_GAMBAR] gambar per aktivitas."* Kuota adalah sebab yang paling jarang
+ * dan paling mudah dibantah pengguna: seseorang yang memilih 2 gambar dan
+ * melihat "maksimal 10" tahu persis bahwa penjelasannya salah, lalu berhenti
+ * mempercayai pesan berikutnya juga.
+ *
+ * Yang sebenarnya menyala hampir selalu [takTerbaca]. Ambang [terlaluBesar]
+ * 25 MB praktis tak pernah tertembus foto HP (foto 108 MP JPEG ≈ 8-15 MB), jadi
+ * cabang itu pun jarang — sementara berkas cloud yang gagal diunduh dan HEIC
+ * yang tak terdekode adalah kejadian sehari-hari.
+ *
+ * Ketiganya sengaja ditulis sebagai kalimat terpisah, bukan digabung jadi satu
+ * angka: satu pemilihan bisa memuat ketiganya sekaligus, dan penjumlahan
+ * menghapus justru keterangan yang menentukan langkah pengguna berikutnya.
+ */
+internal fun pesanGambarDiabaikan(
+    takMuat: Int,
+    terlaluBesar: Int,
+    takTerbaca: Int,
+    sebabTakTerbaca: String? = null,
+): String? {
+    val kalimat = buildList {
+        if (takMuat > 0) {
+            add("$takMuat gambar tidak ditambahkan — maksimal $MAX_GAMBAR gambar per aktivitas.")
+        }
+        if (terlaluBesar > 0) {
+            add(
+                "$terlaluBesar gambar dilewati karena lebih besar dari " +
+                    "${formatUkuranBerkas(MAX_GAMBAR_INPUT_BYTES)}.",
+            )
+        }
+        if (takTerbaca > 0) {
+            add("$takTerbaca gambar tidak bisa dibaca. ${pesanGagalDekode(true, sebabTakTerbaca)}")
+        }
+    }
+    return kalimat.takeIf { it.isNotEmpty() }?.joinToString(" ")
+}
 
 // ── Gerbang hari Minggu (2026-08-16) ─────────────────────────────────────────
 

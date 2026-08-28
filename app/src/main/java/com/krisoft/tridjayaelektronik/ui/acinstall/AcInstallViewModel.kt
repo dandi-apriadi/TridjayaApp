@@ -9,11 +9,13 @@ import com.krisoft.tridjayaelektronik.data.DeliveryFlowRepository
 import com.krisoft.tridjayaelektronik.data.model.AcInstallTaskDto
 import com.krisoft.tridjayaelektronik.util.PhotoWatermark
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 
@@ -115,17 +117,26 @@ class AcInstallViewModel @Inject constructor(
      * di `uploads/delivery` tanpa induk — itu ongkos yang diterima, karena
      * kebalikannya (mendaftarkan URL sebelum berkasnya ada) menghasilkan baris
      * bukti yang menunjuk ke gambar yang tak pernah bisa dimuat siapa pun.
+     *
+     * **`withContext(Dispatchers.Default)` WAJIB.** `viewModelScope` berjalan di
+     * `Dispatchers.Main.immediate`, sedangkan dekode + skala + rotasi EXIF +
+     * loop kompresi WebP di dalam util itu memakan ratusan milidetik sampai
+     * beberapa detik untuk foto kamera penuh — tanpa ini layarnya membeku persis
+     * saat petugas menekan tombolnya. Pola yang sama dipakai delivery, absensi,
+     * opname, dan komplain; dijaga `PhotoWatermarkGuardTest`.
      */
     fun unggahBukti(id: String, file: File, keterangan: String?) {
         _state.update { it.copy(mengunggahFoto = true, actionError = null) }
         viewModelScope.launch {
-            val siap = PhotoWatermark.prepareWatermarkedJpeg(
-                file = file,
-                lat = null,
-                lng = null,
-                title = "TRIDJAYA · PEMASANGAN AC",
-                subtitle = _state.value.items.firstOrNull { it.id == id }?.spk?.kodePengiriman.orEmpty(),
-            )
+            val siap = withContext(Dispatchers.Default) {
+                PhotoWatermark.prepareWatermarkedJpeg(
+                    file = file,
+                    lat = null,
+                    lng = null,
+                    title = "TRIDJAYA · PEMASANGAN AC",
+                    subtitle = _state.value.items.firstOrNull { it.id == id }?.spk?.kodePengiriman.orEmpty(),
+                )
+            }
             if (siap == null) {
                 _state.update { it.copy(mengunggahFoto = false, actionError = "Foto tidak terbaca, ulangi.") }
                 return@launch

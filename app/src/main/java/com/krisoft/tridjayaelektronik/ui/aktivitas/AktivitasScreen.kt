@@ -126,12 +126,18 @@ fun AktivitasScreen(
         val index = indexAktif ?: return@rememberLauncherForActivityResult
         indexAktif = null
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        var gagal = 0
+        // Dua sebab, DUA penghitung. Menggabungkannya (sampai vc116) membuat
+        // foto cloud yang tak terbaca dijelaskan sebagai kuota penuh — keterangan
+        // yang bisa dibantah pengguna di depan matanya sendiri saat ia baru
+        // memilih 2 dari 10. Sebab aslinya dibawa ikut lewat `sebabTakTerbaca`.
+        var terlaluBesar = 0
+        var takTerbaca = 0
+        var sebabTakTerbaca: String? = null
         val files = uris.mapNotNull { uri ->
             val (_, ukuran) = bacaInfoBerkas(resolver, uri)
             // Hanya yang TERBUKTI kebesaran dibuang; ukuran 0 = tak terbaca.
             if (ukuran > MAX_GAMBAR_INPUT_BYTES) {
-                gagal++
+                terlaluBesar++
                 return@mapNotNull null
             }
             // Nama berkasnya PATH FileProvider, bukan teks layar — ejaan
@@ -141,10 +147,26 @@ fun AktivitasScreen(
             runCatching {
                 resolver.openInputStream(uri)?.use { inp ->
                     target.outputStream().use { out -> inp.copyTo(out) }
-                } ?: error("stream null")
-            }.fold(onSuccess = { target }, onFailure = { gagal++; null })
+                } ?: error("openInputStream null")
+            }.fold(
+                onSuccess = { target },
+                onFailure = { e ->
+                    takTerbaca++
+                    // Sebab PERTAMA saja: satu kalimat untuk satu pemilihan, dan
+                    // yang pertama gagal biasanya mewakili sisanya (semuanya dari
+                    // penyedia galeri yang sama).
+                    if (sebabTakTerbaca == null) sebabTakTerbaca = e.javaClass.simpleName
+                    null
+                },
+            )
         }
-        viewModel.tambahFotoGaleri(index, files, diabaikan = gagal)
+        viewModel.tambahFotoGaleri(
+            index = index,
+            files = files,
+            terlaluBesar = terlaluBesar,
+            takTerbaca = takTerbaca,
+            sebabTakTerbaca = sebabTakTerbaca,
+        )
     }
 
     val videoPicker = rememberLauncherForActivityResult(

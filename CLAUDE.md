@@ -101,6 +101,30 @@ pernah terkirim. Sekarang dijaga `FileProviderPathsTest` — ia memindai seluruh
 `app/src/main` dan menuntut tiap subdirektori punya deklarasinya. Menambah satu
 baris XML ongkosnya nol; melewatkannya ongkosnya fitur mati senyap.
 
+**Foto bukti: `PhotoWatermark` punya DUA aturan, keduanya gagal tanpa error.**
+Util ini (`util/PhotoWatermark.kt`) dipakai sembilan layar — absensi, delivery/PDI,
+opname (manual + usulan SN), komplain (lapor + detail), pemasangan AC, Input
+Aktivitas, Kupon Gebyar. Keduanya dijaga `PhotoWatermarkGuardTest` (pemindai
+sumber, pola sama `FileProviderPathsTest`) karena tak satu pun bisa diuji lewat
+perilaku: `Bitmap`/`BitmapFactory` adalah stub di unit test JVM.
+1. **Seluruh pipa piksel WAJIB di dalam `runCatching`** — itulah kenapa badan
+   aslinya dipisah ke `olahPiksel` alih-alih ditulis langsung di
+   `prepareWatermarkedJpeg`. `decodeByteArray`/`createScaledBitmap`/
+   `createBitmap`/`Bitmap.copy`/`compress` mengalokasi gambar utuh, manifest tak
+   memakai `largeHeap`, dan yang dilempar `OutOfMemoryError` — turunan `Error`,
+   BUKAN `Exception`, kelas yang sama dengan `NoClassDefFoundError` di catatan
+   `java.time` di atas. Tak ada `CoroutineExceptionHandler` maupun
+   `setDefaultUncaughtExceptionHandler` di seluruh `app/src/main`, jadi `Error`
+   yang lolos dari `viewModelScope.launch` **menutup app**: petugas kehilangan
+   seluruh isian layar, bukan cuma fotonya. `runCatching` menangkap `Throwable`,
+   jadi ia berakhir sebagai `null` → pesan yang sudah ditangani semua pemanggil.
+2. **Pemanggil WAJIB `withContext(Dispatchers.Default)`** — `viewModelScope` =
+   `Dispatchers.Main.immediate`, dan dekode + skala + rotasi EXIF + loop kompresi
+   WebP untuk foto kamera penuh mengunci UI persis pada ketukan tombolnya. Sudah
+   terlewat di TIGA layar terpisah (Kupon Gebyar, pemasangan AC, detail
+   komplain), tiap kali karena disalin dari tetangga yang kebetulan juga belum
+   benar.
+
 **Region-aware product identity.** The ERP's `kode` (product code) collides across regions —
 the same code can be a *different physical product* in a different branch region. Product
 identity is always the composite key `kode + kodeCabang`, never `kode` alone. This shows up in
