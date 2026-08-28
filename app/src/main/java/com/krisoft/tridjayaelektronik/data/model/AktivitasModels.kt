@@ -22,7 +22,50 @@ data class AktivitasPositionDto(
     val posisi: String = "",
     /** NAMA KABEL — jangan ikut di-rename jadi `aktivitas`, lihat KDoc berkas. */
     val jobdesks: List<String> = emptyList(),
+    /**
+     * Nomor POSISI butir yang sudah dicabut — `KUNCI_NONAKTIF`
+     * (`aktivitas_master.rs`). Butir nonaktif **berhenti dihitung sebagai
+     * tagihan** di server: ia keluar dari penyebut indikator KPI
+     * `LAPORAN AKTIVITAS` (yang bermuara ke slip gaji) DAN dari gerbang absen
+     * pulang.
+     *
+     * Diturunkan sejak 2026-08-28. Sebelumnya app tak mengenal kunci ini sama
+     * sekali — konsekuensi yang server sebut DITERIMA (klien lama merender
+     * butir nonaktif sebagai pekerjaan biasa, "tak lebih buruk dari hari ini"),
+     * bukan terlewat. Yang diperbaiki di sini adalah PENYEBUTNYA: layar riwayat
+     * memakai `jumlahButirAktif`, jadi angkanya berhenti berselisih dengan skor
+     * yang benar-benar dibayarkan.
+     *
+     * Nomor posisi, BUKAN array boolean sepanjang [jobdesks] — menambah butir
+     * baru di akhir tak menyentuh daftar ini sama sekali.
+     */
+    val nonaktif: List<Int> = emptyList(),
 )
+
+/**
+ * Nomor butir nonaktif yang SAH untuk divisi ini — cerminan `nomorButirNonaktif`
+ * (web `ownerAktivitasData.ts`) dan `indeks_nonaktif` (Rust).
+ *
+ * Nomor di luar rentang disaring, dan itu bukan kehati-hatian berlebih: daftar
+ * ini dipakai sebagai PENGURANG penyebut, jadi satu nomor liar dari katalog lama
+ * membuat penyebut di layar lebih kecil dari yang sebenarnya ditagih — tanpa
+ * satu pun error.
+ */
+internal fun nomorButirNonaktif(posisi: AktivitasPositionDto?): Set<Int> {
+    val jumlah = posisi?.jobdesks?.size ?: 0
+    return posisi?.nonaktif.orEmpty().filter { it in 0 until jumlah }.toSet()
+}
+
+/**
+ * Berapa butir divisi ini yang masih DITAGIH.
+ *
+ * **Cerminan `aktivitas_master::jumlah_butir_aktif` (Rust) dan
+ * `jumlahButirAktif` (web) — ketiganya HARUS menjawab angka yang sama.** Layar
+ * yang memakai `jobdesks.size` penuh menampilkan pencapaian atas penyebut yang
+ * LEBIH BESAR: 10/13 = 77% di layar sementara yang dibayarkan 10/12 = 83%.
+ */
+internal fun jumlahButirAktif(posisi: AktivitasPositionDto?): Int =
+    (posisi?.jobdesks?.size ?: 0) - nomorButirNonaktif(posisi).size
 
 /**
  * Balasan `GET /api/raport-harian/penempatan-saya`.
@@ -92,6 +135,17 @@ data class AktivitasItemDto(
     val score: Int? = null,
     val reviewerComment: String? = null,
     val reviewedAt: String? = null,
+    /**
+     * `kpi_assignments.position_id` PENULIS baris ini (server:
+     * `a.position_id AS kpi_position_id`) — penempatan KPI yang berlaku saat
+     * baris dibuat, bukan tag divisi.
+     *
+     * Dipakai menentukan PENYEBUT nilai harian: dari sinilah divisi aktivitas
+     * yang benar dicari, lalu [jumlahButirAktif]-nya jadi jumlah butir yang
+     * ditagih. `null` sah dan berarti "penulisnya belum punya penempatan" —
+     * penyebutnya lalu jatuh ke batas bawah data nyata, sama seperti backend.
+     */
+    val kpiPositionId: String? = null,
 )
 
 /** Satu bukti yang isinya sama dengan unggahan terdahulu (server: `DuplikatBukti`). */

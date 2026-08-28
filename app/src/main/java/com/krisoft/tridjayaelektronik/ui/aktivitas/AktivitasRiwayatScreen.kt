@@ -121,7 +121,7 @@ fun AktivitasRiwayatScreen(
                         ),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        item { RingkasanHari(ringkasRiwayat(state.items)) }
+                        item { RingkasanHari(ringkasRiwayat(state.items, state.positions)) }
                         items(state.items, key = { it.id }) { item ->
                             BarisRiwayat(item = item, token = token)
                         }
