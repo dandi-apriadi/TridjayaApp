@@ -1273,6 +1273,36 @@ class DeliveryFlowViewModel @Inject constructor(
             .mapOk { onDone() }
     }
 
+    /**
+     * BATALKAN penjadwalan — hanya selama driver belum berangkat (server yang
+     * menegakkan; kalau sudah `in_transit` ia menjawab validasi, dan jalurnya
+     * memang [reassign]).
+     *
+     * TIDAK di-fan-out se-SPK, sama seperti server: unit lain di SPK yang sama
+     * bisa saja sudah berangkat, dan menariknya sekaligus akan membatalkan
+     * pekerjaan yang sedang berjalan.
+     */
+    fun unassign(id: String, reason: String, onDone: () -> Unit) = action {
+        repository.unassign(id, reason).mapOk { onDone() }
+    }
+
+    /**
+     * PINDAHKAN unit ini ke driver lain. [scheduledDate] kosong = pertahankan
+     * tanggal yang ada (server: `COALESCE(NULLIF(?, ''), scheduled_date)`).
+     *
+     * Inilah satu-satunya jalur yang bisa MEMECAH satu SPK ke dua driver —
+     * `assign` di-fan-out se-SPK, `reassign` sengaja tidak.
+     */
+    fun reassign(
+        id: String,
+        driverId: String,
+        driverName: String,
+        scheduledDate: String,
+        onDone: () -> Unit,
+    ) = action {
+        repository.reassign(id, driverId, driverName, scheduledDate).mapOk { onDone() }
+    }
+
     fun dispatch(id: String, onDone: () -> Unit) = action { repository.dispatch(id).mapOk { onDone() } }
 
     /** 088: tandai sudah chat konsumen — refresh detail job (consumerChatAt terisi). */

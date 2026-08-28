@@ -1290,8 +1290,19 @@ fun DeliveryJobDetailScreen(id: String, onBack: () -> Unit, viewModel: DeliveryF
                                 Spacer(Modifier.height(8.dp))
                                 SimpleAction("Berangkat (Dispatch)", state.submitting) { viewModel.dispatch(job.id) {} }
                             }
+                        // DC/admin atas unit yang SUDAH punya driver. Ditaruh
+                        // SESUDAH cabang `isMyDriverJob` di atas dengan sengaja:
+                        // orang yang merangkap driver + DC harus melihat tombol
+                        // KERJANYA dulu (Berangkat), bukan alat kelolanya.
+                        job.status == DeliveryStatusKey.ASSIGNED && access.jadwal ->
+                            KelolaDriverAction(job, viewModel, state.submitting, state.drivers, bolehBatal = true)
                         job.status == DeliveryStatusKey.IN_TRANSIT && isMyDriverJob ->
                             DeliverAction(job, viewModel, state.submitting, state.driverChecklist, state.driverChecklistError)
+                        // Sudah berangkat: "batal" tak lagi punya arti operasional
+                        // (barangnya fisik di tangan orang), tapi PINDAH masih —
+                        // motor mogok / driver sakit di tengah jalan itu nyata.
+                        job.status == DeliveryStatusKey.IN_TRANSIT && access.jadwal ->
+                            KelolaDriverAction(job, viewModel, state.submitting, state.drivers, bolehBatal = false)
                         // Unit sudah sampai konsumen tapi uangnya belum tercatat masuk.
                         // Berlaku SEMUA jenis pembayaran (2026-07-28) — sebelumnya
                         // non-COD tak punya titik konfirmasi sama sekali.
@@ -2452,14 +2463,18 @@ private fun AssignAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, submitt
     Text("Assign Driver + Jadwal", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
     Spacer(Modifier.height(4.dp))
     // Fan-out `assign_driver` (2026-08-05). Konsekuensi operasional yang WAJIB
-    // disebut: memecah satu SPK ke dua driver tak lagi bisa lewat assign
-    // satu-satu — tugaskan sekali, lalu pindahkan unitnya lewat "reassign" di
-    // web (jalur itu sengaja TIDAK difan-out justru supaya pemecahan tetap
-    // mungkin). Tanpa kalimat ini DC akan mengira app-nya rusak.
+    // disebut: memecah satu SPK ke dua driver tak bisa lewat assign satu-satu —
+    // tugaskan sekali, lalu pindahkan unitnya lewat "Pindah Driver" (jalur
+    // `reassign` sengaja TIDAK difan-out justru supaya pemecahan tetap mungkin).
+    // Tanpa kalimat ini DC akan mengira app-nya rusak.
+    //
+    // Kalimat "lewat menu reassign di WEB" dibuang 2026-08-28: sejak
+    // `KelolaDriverAction` ada, jalurnya sudah ada di HP dan menyuruh DC pindah
+    // ke browser justru menyembunyikan tombol yang tepat di layar berikutnya.
     SpkFanOutNote(
         "Driver & jadwal ini berlaku untuk SELURUH unit SPK yang masih menunggu penjadwalan. " +
             "Unit \"diambil sendiri\" dilewati. Mau dipecah ke dua driver? Tugaskan sekali dulu, " +
-            "lalu pindahkan unitnya lewat menu reassign di web."
+            "lalu buka unitnya dan pakai \"Pindah Driver\"."
     )
     Spacer(Modifier.height(8.dp))
     // SEMUA driver ditampilkan, lintas cabang/region — se-cabang di atas, cabang
@@ -2541,6 +2556,164 @@ private fun AssignAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, submitt
         modifier = Modifier.fillMaxWidth()
     ) {
         if (submitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary) else Text("Assign Driver")
+    }
+}
+
+/**
+ * Kelola driver pada unit yang SUDAH ditugaskan — Batalkan & Pindahkan.
+ *
+ * **Kenapa ini ada.** Sampai 2026-08-28 kedua endpoint-nya (`unassign`,
+ * `reassign`) hanya punya klien di web, jadi DC yang bekerja dari HP wajib
+ * pindah ke browser untuk koreksi salah-tugas — dan layar ini sendiri
+ * menyuruhnya begitu ("pindahkan unitnya lewat menu reassign di web").
+ *
+ * [bolehBatal] `false` saat unit sudah `in_transit`: server memang menolak
+ * `unassign` sesudah berangkat, jadi menampilkan tombolnya cuma menghasilkan
+ * pesan validasi. PINDAH tetap boleh sampai unit diterima konsumen.
+ *
+ * **Jalur ini TIDAK di-fan-out se-SPK** (beda dari `assign`), dan itu justru
+ * fiturnya: memecah satu SPK ke dua driver hanya bisa lewat sini.
+ */
+@Composable
+private fun KelolaDriverAction(
+    job: DeliveryJobDto,
+    vm: DeliveryFlowViewModel,
+    submitting: Boolean,
+    drivers: List<com.krisoft.tridjayaelektronik.data.model.DriverDto>,
+    bolehBatal: Boolean,
+) {
+    var mode by remember(job.id) { mutableStateOf("") }
+    var driverId by remember(job.id) { mutableStateOf("") }
+    var driverName by remember(job.id) { mutableStateOf("") }
+    var tanggal by remember(job.id) { mutableStateOf("") }
+    var alasan by remember(job.id) { mutableStateOf("") }
+
+    Text("Kelola Driver", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+    Spacer(Modifier.height(4.dp))
+    SpkFanOutNote(
+        if (bolehBatal) {
+            "Berlaku untuk UNIT INI SAJA, bukan seluruh SPK — inilah cara memecah satu SPK ke dua driver."
+        } else {
+            "Unit sudah berangkat: penugasan tak bisa dibatalkan, tapi masih bisa dipindahkan ke driver lain."
+        }
+    )
+    Spacer(Modifier.height(8.dp))
+    job.assignedDriverName?.takeIf { it.isNotBlank() }?.let {
+        Text(
+            "Driver sekarang: $it",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+    }
+
+    Row(modifier = Modifier.fillMaxWidth()) {
+        if (bolehBatal) {
+            OutlinedButton(
+                onClick = { mode = if (mode == "batal") "" else "batal" },
+                enabled = !submitting,
+                modifier = Modifier.weight(1f)
+            ) { Text(if (mode == "batal") "Tutup" else "Batalkan") }
+            Spacer(Modifier.width(8.dp))
+        }
+        OutlinedButton(
+            onClick = { mode = if (mode == "pindah") "" else "pindah" },
+            enabled = !submitting,
+            modifier = Modifier.weight(1f)
+        ) { Text(if (mode == "pindah") "Tutup" else "Pindah Driver") }
+    }
+
+    when (mode) {
+        "batal" -> {
+            Spacer(Modifier.height(10.dp))
+            // Alasan OPSIONAL di server, tapi ia masuk teks notifikasi driver
+            // yang unitnya ditarik — tanpa itu ia cuma tahu tugasnya hilang.
+            ExpressiveTextField(
+                alasan, { alasan = it },
+                label = "Alasan (dikirim ke driver)",
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(10.dp))
+            ExpressiveFilledButton(
+                onClick = { vm.unassign(job.id, alasan) { mode = ""; alasan = "" } },
+                enabled = !submitting,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (submitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                else Text("Batalkan Penugasan")
+            }
+        }
+        "pindah" -> {
+            Spacer(Modifier.height(10.dp))
+            // `driverBisaDitugaskan` + `effectiveId` dipakai ULANG dari jalur
+            // assign — himpunan driver yang sah sama persis, dan `effectiveId`
+            // (bukan `id`) itu yang dibandingkan server: `delivery_jobs
+            // .assigned_driver_id` huruf kecil sementara `auth_users.id`
+            // UPPERCASE.
+            val pindahable = driverBisaDitugaskan(drivers, job.kodeDealer)
+                // Driver yang SEDANG memegang unit ini dibuang dari pilihan —
+                // server menolaknya ("Driver baru sama dengan driver sekarang"),
+                // jadi menampilkannya cuma menawarkan tombol yang pasti gagal.
+                .filterNot { d ->
+                    job.assignedDriverId?.equals(d.effectiveId, ignoreCase = true) == true
+                }
+            if (pindahable.isEmpty()) {
+                Text(
+                    "Tak ada driver lain yang bisa dipilih untuk cabang ini.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                pindahable.forEach { d ->
+                    val sel = driverId == d.effectiveId
+                    Surface(
+                        onClick = { driverId = d.effectiveId; driverName = d.name },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+                            Text(
+                                d.name.ifBlank { d.effectiveId },
+                                color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis
+                            )
+                            val cabang = d.cabangName.trim()
+                            if (cabang.isNotEmpty()) {
+                                Text(
+                                    cabang, style = MaterialTheme.typography.labelSmall,
+                                    color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            // KOSONG = pertahankan tanggal yang ada. Sengaja tidak di-prefill
+            // dengan hari ini: memindahkan driver tak selalu berarti menggeser
+            // jadwal, dan prefill membuat penggeseran jadi efek samping senyap.
+            ExpressiveTextField(
+                tanggal, { tanggal = it },
+                label = "Jadwal baru (kosongkan = tetap)",
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(10.dp))
+            ExpressiveFilledButton(
+                onClick = {
+                    vm.reassign(job.id, driverId, driverName, tanggal) {
+                        mode = ""; driverId = ""; driverName = ""; tanggal = ""
+                    }
+                },
+                enabled = !submitting && driverId.trim().isNotEmpty(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (submitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                else Text("Pindahkan ke Driver Ini")
+            }
+        }
     }
 }
 
