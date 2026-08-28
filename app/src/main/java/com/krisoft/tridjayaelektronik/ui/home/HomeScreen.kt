@@ -129,6 +129,7 @@ fun HomeScreen(
     onQuickAccessDeadstock: () -> Unit = {},
     onQuickAccessMutasiHistori: () -> Unit = {},
     onKomplainLapor: () -> Unit = {},
+    onKomplainSaya: () -> Unit = {},
     onKomplainTugas: () -> Unit = {},
     onPemasanganAcKontrol: () -> Unit = {},
     onVertel: () -> Unit = {},
@@ -229,7 +230,7 @@ fun HomeScreen(
                                     onQuickAccessOpname, onQuickAccessAbsen, onQuickAccessGaji, onQuickAccessKpi,
                                     onQuickAccessHargaGs,
                                     onQuickAccessSerialInput, onQuickAccessDeadstock, onQuickAccessMutasiHistori,
-                                    onKomplainLapor, onKomplainTugas,
+                                    onKomplainLapor, onKomplainSaya, onKomplainTugas,
                                     onPemasanganAcKontrol, onVertel,
                                     onSpkMenu
                                 )
@@ -264,6 +265,7 @@ private fun LazyListScope.homeSection(
     onQuickAccessDeadstock: () -> Unit,
     onQuickAccessMutasiHistori: () -> Unit,
     onKomplainLapor: () -> Unit,
+    onKomplainSaya: () -> Unit,
     onKomplainTugas: () -> Unit,
     onPemasanganAcKontrol: () -> Unit,
     onVertel: () -> Unit,
@@ -300,6 +302,7 @@ private fun LazyListScope.homeSection(
                     onDeadstock = onQuickAccessDeadstock,
                     onMutasiHistori = onQuickAccessMutasiHistori,
                     onKomplainLapor = onKomplainLapor,
+                    onKomplainSaya = onKomplainSaya,
                     onKomplainTugas = onKomplainTugas,
                     onPemasanganAcKontrol = onPemasanganAcKontrol,
                     onVertel = onVertel,
@@ -590,6 +593,7 @@ private fun QuickAccessRow(
     onDeadstock: () -> Unit,
     onMutasiHistori: () -> Unit,
     onKomplainLapor: () -> Unit,
+    onKomplainSaya: () -> Unit,
     onKomplainTugas: () -> Unit,
     onPemasanganAcKontrol: () -> Unit,
     onVertel: () -> Unit,
@@ -629,6 +633,7 @@ private fun QuickAccessRow(
                         "deadstock" -> onDeadstock()
                         "mutasi_histori" -> onMutasiHistori()
                         "komplain_lapor" -> onKomplainLapor()
+                        "komplain_saya" -> onKomplainSaya()
                         "komplain_tugas" -> onKomplainTugas()
                         "pemasangan_ac_kontrol" -> onPemasanganAcKontrol()
                         "vertel" -> onVertel()
@@ -663,6 +668,7 @@ private fun quickAccessVisual(id: String): Pair<androidx.compose.ui.graphics.vec
     // (`ActivityScreen.kt`), supaya modul yang sama tak berganti rupa
     // tergantung dari mana ia dibuka.
     "komplain_lapor" -> Pair(Icons.Rounded.Build, Color(0xFFD92D20))
+    "komplain_saya" -> Pair(Icons.Rounded.Build, Color(0xFFB5670C))
     "komplain_tugas" -> Pair(Icons.Rounded.HomeRepairService, Color(0xFFD92D20))
     // Ikon yang sama dengan kartu "Tugas Pemasangan AC" di layar Activity:
     // dua sisi modul yang sama tak boleh berganti rupa tergantung dari mana

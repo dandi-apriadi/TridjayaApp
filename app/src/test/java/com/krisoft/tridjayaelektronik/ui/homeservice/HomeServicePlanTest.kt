@@ -447,4 +447,57 @@ class HomeServicePlanTest {
         // Status tak dikenal (server lebih baru) tampil apa adanya, bukan kosong.
         assertEquals("status_baru_dari_server", labelStatusHs("status_baru_dari_server"))
     }
+
+    // ── Komplain Saya (riwayat pelapor) ──────────────────────────────────────
+
+    /**
+     * `mine` dan `sayaLapor` TIDAK boleh dikirim bersama.
+     *
+     * Server mematikan penyaring tugas saat `sayaLapor` menyala
+     * (`teknisi_id = None`), tapi kalau app ikut mengirim `mine=true` ia
+     * menyatakan dua pertanyaan sekaligus. Untuk pemegang `homeservice.task`
+     * server bahkan MEMAKSA `mine` nyala — itulah sebabnya teknisi yang melapor
+     * dulu tak punya satu pun daftar yang memuat tiketnya sendiri.
+     */
+    @Test
+    fun `mode Komplain Saya memakai sayaLapor, bukan mine`() {
+        assertEquals(true, HsMode.SAYA_LAPOR.sayaLapor)
+        assertNull("mine wajib null — dua pertanyaan berbeda", HsMode.SAYA_LAPOR.mine)
+        // Komplain yang berujung penarikan unit TETAP laporannya.
+        assertNull("jenis wajib null — kedua jalur ikut", HsMode.SAYA_LAPOR.jenis)
+    }
+
+    /**
+     * Satu-satunya mode yang TIDAK menyaring status. Empat mode lain adalah
+     * ANTRIAN KERJA (yang tuntas harus keluar supaya badge bisa turun ke nol);
+     * ini RIWAYAT PRIBADI — pelapor justru paling ingin tahu tiketnya sudah
+     * `selesai`/`eskalasi`. Menyaringnya membuat tiket lenyap dari layar tepat
+     * pada saat kabarnya datang.
+     */
+    @Test
+    fun `Komplain Saya menampilkan status final juga`() {
+        val aktif = HsMode.SAYA_LAPOR.statusAktif
+        assertTrue("selesai wajib tampil", HS_SELESAI in aktif)
+        assertTrue("eskalasi wajib tampil", HS_ESKALASI in aktif)
+        assertTrue("dibatalkan wajib tampil", HS_DIBATALKAN in aktif)
+        // Dan tetap memuat yang sedang berjalan.
+        assertTrue(HS_BARU in aktif)
+        assertTrue(HS_DITUGASKAN in aktif)
+        assertTrue(HS_MENUNGGU_TARIK in aktif)
+    }
+
+    /**
+     * Empat mode lain TIDAK boleh ikut melebar. Kalau salah satunya kelak
+     * memakai `HS_STATUS_SEMUA`, badge antriannya berhenti bisa turun ke nol.
+     */
+    @Test
+    fun `mode antrian kerja tetap menyaring status`() {
+        listOf(HsMode.TRIASE, HsMode.TEKNISI, HsMode.TARIK, HsMode.DRIVER).forEach { mode ->
+            assertFalse(
+                "${mode.name} tak boleh memuat status final",
+                mode.statusAktif.any { it in HS_STATUS_FINAL },
+            )
+            assertNull("${mode.name} bukan daftar laporan pribadi", mode.sayaLapor)
+        }
+    }
 }

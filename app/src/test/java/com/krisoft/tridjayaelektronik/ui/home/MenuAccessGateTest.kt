@@ -313,8 +313,16 @@ class CapabilityDrivenMenuTest {
         // `komplain_lapor` menyusul 2026-08-15 dengan alasan yang SAMA seperti
         // `kpi`: endpointnya tak memanggil `ensure_role` sama sekali (login-only,
         // self-scoped), jadi kunci apa pun akan lebih sempit dari servernya.
+        // `komplain_saya` menyusul 2026-08-28 — pasangan baca dari
+        // `komplain_lapor`, dan self-scoped dengan cara yang sama: jalur
+        // `sayaLapor` memaksa `pelapor_user_id` = id AKTOR di server dan tak
+        // pernah membacanya dari query, jadi ia tak bisa dipakai mengintip
+        // laporan orang lain DAN tak punya kunci yang bisa dicerminkan.
         val tanpaKunci = QUICK_ACCESS_MENUS.filter { it.capability == null }.map { it.id }
-        assertEquals(listOf("kpi", "inventory", "cari_semua", "komplain_lapor"), tanpaKunci)
+        assertEquals(
+            listOf("kpi", "inventory", "cari_semua", "komplain_lapor", "komplain_saya"),
+            tanpaKunci,
+        )
     }
 
     @Test

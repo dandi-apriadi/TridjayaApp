@@ -342,6 +342,16 @@ internal val QUICK_ACCESS_MENUS: List<QuickAccessMenu> = listOf(
         backendGuard = "tanpa guard: kinerja-service home_service/handlers.rs create_ticket login-only (self-scoped)",
     ),
     QuickAccessMenu(
+        id = "komplain_saya",
+        // `null` dengan alasan yang SAMA seperti tetangga di atas — jalur
+        // `sayaLapor` self-scoped (server memaksa `pelapor_user_id` = id aktor).
+        // Siapa pun yang boleh melapor harus bisa melihat laporannya sendiri.
+        capability = null,
+        label = "Komplain Saya",
+        allowedRoles = HS_LAPOR_ROLES,
+        backendGuard = "tanpa guard: kinerja-service home_service/service.rs list sayaLapor (self-scoped, pelapor_user_id = id aktor)",
+    ),
+    QuickAccessMenu(
         id = "komplain_tugas",
         capability = "homeservice.task",
         label = "Tugas Home Service",

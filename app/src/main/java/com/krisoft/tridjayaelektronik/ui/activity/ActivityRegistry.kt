@@ -408,6 +408,28 @@ internal val ACTIVITY_ITEMS: List<ActivityItem> = listOf(
         hiddenFromActivity = true,
     ),
     ActivityItem(
+        id = "komplain_saya",
+        label = "Komplain Saya",
+        subtitle = "Tiket yang kamu laporkan",
+        kind = ActivityKind.AKSI,
+        // `null`, alasan SAMA dengan `lapor_komplain` di atas: `sayaLapor`
+        // adalah jalur SELF-SCOPED (server memaksa `pelapor_user_id` = id
+        // aktor, tak pernah dari query), jadi kunci apa pun di sini lebih
+        // sempit dari servernya. Siapa pun yang boleh MELAPOR harus bisa
+        // melihat laporannya sendiri — kalau tidak, tiketnya lenyap dari
+        // pandangannya begitu layar sukses ditutup.
+        capability = null,
+        allowedRoles = HS_LAPOR_ROLES,
+        backendGuard = "tanpa guard: kinerja-service home_service/service.rs list sayaLapor (self-scoped, pelapor_user_id = id aktor)",
+        source = ActivitySource.NONE,
+        navKey = "hs_saya",
+        // Disembunyikan dari Activity mengikuti `lapor_komplain`: keduanya
+        // pintu ke modul yang sama dan tinggal berdampingan di Akses Cepat.
+        // Menaruh riwayat pribadi di antrian kerja harian juga salah tempat —
+        // ia bukan sesuatu yang harus dikerjakan hari ini.
+        hiddenFromActivity = true,
+    ),
+    ActivityItem(
         id = "komplain_masuk",
         label = "Komplain Masuk",
         subtitle = "Tiket menunggu ditriase",

@@ -39,6 +39,22 @@ internal val HS_STATUS_TUGAS_TEKNISI = setOf(HS_DITUGASKAN, HS_DIKERJAKAN)
 /** Antrian penarikan unit: menunggu driver + sudah ditugaskan tapi belum diambil. */
 internal val HS_STATUS_TARIK_AKTIF = setOf(HS_MENUNGGU_TARIK, HS_TARIK_DITUGASKAN)
 
+/**
+ * SELURUH status — dipakai layar "Komplain Saya".
+ *
+ * Layar itu satu-satunya yang TIDAK menyaring: empat daftar lain adalah
+ * ANTRIAN KERJA (yang sudah tuntas harus keluar supaya badge-nya bisa turun ke
+ * nol), sedangkan ini RIWAYAT PRIBADI — pelapor justru paling ingin tahu
+ * tiketnya sudah `selesai` atau `eskalasi`. Menyaringnya di sini akan membuat
+ * tiket lenyap dari layar tepat pada saat kabarnya datang.
+ *
+ * Ditulis sebagai gabungan konstanta yang sudah ada, bukan daftar literal
+ * kelima: status baru yang ditambahkan ke salah satu himpunan di atas otomatis
+ * ikut, dan yang lupa hanya akan hilang dari SATU tempat alih-alih dua.
+ */
+internal val HS_STATUS_SEMUA: Set<String> =
+    HS_STATUS_TRIASE + HS_STATUS_TUGAS_TEKNISI + HS_STATUS_TARIK_AKTIF + HS_STATUS_FINAL
+
 internal fun labelStatusHs(status: String): String = when (status) {
     HS_BARU -> "Baru"
     HS_DITUGASKAN -> "Ditugaskan"

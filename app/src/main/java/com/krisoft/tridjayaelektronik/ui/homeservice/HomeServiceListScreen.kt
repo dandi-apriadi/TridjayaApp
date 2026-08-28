@@ -98,6 +98,11 @@ fun HomeServiceListScreen(
                                 HsMode.TEKNISI -> "Belum ada kunjungan yang ditugaskan ke kamu."
                                 HsMode.TARIK -> "Tak ada permintaan penarikan unit."
                                 HsMode.DRIVER -> "Belum ada unit yang harus kamu ambil."
+                                // Bukan antrian kerja: kosong di sini berarti dia
+                                // memang belum pernah melapor, bukan "tak ada
+                                // pekerjaan". Kalimatnya menyebut jalan masuknya.
+                                HsMode.SAYA_LAPOR ->
+                                    "Kamu belum pernah melaporkan komplain. Pakai \"Lapor Komplain\" untuk membuatnya."
                             },
                         )
                     }
