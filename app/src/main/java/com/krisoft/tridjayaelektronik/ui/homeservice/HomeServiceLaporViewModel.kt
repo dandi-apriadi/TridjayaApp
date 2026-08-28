@@ -384,7 +384,7 @@ class HomeServiceLaporViewModel @Inject constructor(
                 _state.update { it.copy(mengunggah = false, error = "Foto tidak terbaca, ulangi.") }
                 return@launch
             }
-            when (val r = repository.uploadPhoto(siap.first, "kwitansi.jpg")) {
+            when (val r = repository.uploadPhoto(siap.first, "kwitansi.webp")) {
                 is AuthResult.Success -> _state.update {
                     it.copy(mengunggah = false, fotoKwitansiUrl = r.data, fotoPenanda = penanda)
                 }

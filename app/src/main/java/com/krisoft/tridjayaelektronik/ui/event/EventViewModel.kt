@@ -137,7 +137,7 @@ class EventViewModel @Inject constructor(
                 return@launch
             }
             val (bytes, bitmap) = siap
-            when (val res = repository.unggahKtp(bytes, "ktp_${System.currentTimeMillis()}.jpg")) {
+            when (val res = repository.unggahKtp(bytes, "ktp_${System.currentTimeMillis()}.webp")) {
                 is AuthResult.Failure ->
                     _uiState.update { it.copy(mengunggahKtp = false, pesanError = res.message) }
                 is AuthResult.Success -> _uiState.update {

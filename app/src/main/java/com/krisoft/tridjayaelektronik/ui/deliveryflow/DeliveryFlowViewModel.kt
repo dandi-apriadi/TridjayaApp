@@ -893,7 +893,7 @@ class DeliveryFlowViewModel @Inject constructor(
      *  SPK belum ada saat ini). */
     suspend fun uploadPoPhoto(file: File): String? {
         val prepared = watermarked(file, "TRIDJAYA · NO PO") ?: return null
-        return when (val up = repository.uploadPhoto(prepared.first, "po_${System.currentTimeMillis()}.jpg")) {
+        return when (val up = repository.uploadPhoto(prepared.first, "po_${System.currentTimeMillis()}.webp")) {
             is AuthResult.Success -> up.data
             is AuthResult.Failure -> null
         }
@@ -904,7 +904,7 @@ class DeliveryFlowViewModel @Inject constructor(
      *  `null` kalau gagal. */
     suspend fun uploadBuktiAccPhoto(file: File): String? {
         val prepared = watermarked(file, "TRIDJAYA · ACC DISKON") ?: return null
-        return when (val up = repository.uploadPhoto(prepared.first, "acc_diskon_${System.currentTimeMillis()}.jpg")) {
+        return when (val up = repository.uploadPhoto(prepared.first, "acc_diskon_${System.currentTimeMillis()}.webp")) {
             is AuthResult.Success -> up.data
             is AuthResult.Failure -> null
         }
@@ -914,7 +914,7 @@ class DeliveryFlowViewModel @Inject constructor(
      *  pola sama [uploadPoPhoto]. Return `null` kalau gagal. */
     suspend fun uploadAkiPhoto(file: File): String? {
         val prepared = watermarked(file, "TRIDJAYA · BUKTI AKI") ?: return null
-        return when (val up = repository.uploadPhoto(prepared.first, "aki_${System.currentTimeMillis()}.jpg")) {
+        return when (val up = repository.uploadPhoto(prepared.first, "aki_${System.currentTimeMillis()}.webp")) {
             is AuthResult.Success -> up.data
             is AuthResult.Failure -> null
         }
@@ -1031,7 +1031,7 @@ class DeliveryFlowViewModel @Inject constructor(
 
     fun submitPdi(id: String, serial: String, engine: String, checklist: List<PdiChecklistItemBody>, onDone: () -> Unit) = action {
         val photoUrl = pdiPhotoBytes?.let { bytes ->
-            when (val up = repository.uploadPhoto(bytes, "pdi_${System.currentTimeMillis()}.jpg")) {
+            when (val up = repository.uploadPhoto(bytes, "pdi_${System.currentTimeMillis()}.webp")) {
                 is AuthResult.Success -> up.data
                 is AuthResult.Failure -> return@action up
             }
@@ -1237,7 +1237,7 @@ class DeliveryFlowViewModel @Inject constructor(
         if (kiriman.isEmpty()) return@action AuthResult.Failure("validation", "Tak ada barang yang menunggu setoran")
         val bytes = deliverPhotoBytes ?: return@action AuthResult.Failure("validation", "Foto bukti wajib diambil")
         val photoUrl = setoranPhotoUrl
-            ?: when (val up = repository.uploadPhoto(bytes, "setoran_${System.currentTimeMillis()}.jpg")) {
+            ?: when (val up = repository.uploadPhoto(bytes, "setoran_${System.currentTimeMillis()}.webp")) {
                 is AuthResult.Success -> up.data.also { setoranPhotoUrl = it }
                 is AuthResult.Failure -> return@action up
             }
@@ -1330,13 +1330,13 @@ class DeliveryFlowViewModel @Inject constructor(
 
     fun deliver(id: String, rating: Int, comment: String, checklist: List<PdiChecklistItemBody>, onDone: () -> Unit) = action {
         val bytes = deliverPhotoBytes ?: return@action AuthResult.Failure("validation", "Foto serah terima wajib diambil")
-        val photoUrl = when (val up = repository.uploadPhoto(bytes, "deliver_${System.currentTimeMillis()}.jpg")) {
+        val photoUrl = when (val up = repository.uploadPhoto(bytes, "deliver_${System.currentTimeMillis()}.webp")) {
             is AuthResult.Success -> up.data
             is AuthResult.Failure -> return@action up
         }
         // Foto uang (088) — hanya di-upload bila diambil; gate wajib ada di UI + backend.
         val cashUrl = cashPhotoBytes?.let { cb ->
-            when (val up = repository.uploadPhoto(cb, "cash_${System.currentTimeMillis()}.jpg")) {
+            when (val up = repository.uploadPhoto(cb, "cash_${System.currentTimeMillis()}.webp")) {
                 is AuthResult.Success -> up.data
                 is AuthResult.Failure -> return@action up
             }
@@ -1372,7 +1372,7 @@ class DeliveryFlowViewModel @Inject constructor(
      *  `deliver` di `in_transit`, tak pernah sama job di saat sama). */
     fun selfPickupComplete(id: String, rating: Int, comment: String, onDone: () -> Unit) = action {
         val bytes = deliverPhotoBytes ?: return@action AuthResult.Failure("validation", "Foto wajib diambil")
-        val photoUrl = when (val up = repository.uploadPhoto(bytes, "selfpickup_${System.currentTimeMillis()}.jpg")) {
+        val photoUrl = when (val up = repository.uploadPhoto(bytes, "selfpickup_${System.currentTimeMillis()}.webp")) {
             is AuthResult.Success -> up.data
             is AuthResult.Failure -> return@action up
         }

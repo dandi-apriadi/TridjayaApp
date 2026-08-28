@@ -23,7 +23,9 @@ private const val MAX_BYTES = 2 * 1024 * 1024
  * Diangkat dari [com.krisoft.tridjayaelektronik.ui.attendance.AttendanceViewModel] (dulu
  * private di sana, sekarang dipakai juga oleh alur foto delivery/PDI) — util bersama bukti foto
  * anti-manipulasi: downscale, perbaiki rotasi EXIF, cap watermark geotag+jam KE PIKSEL gambar
- * (bukan metadata, supaya ikut terkirim & tak mudah dihapus), lalu JPEG-kompres < [MAX_BYTES].
+ * (bukan metadata, supaya ikut terkirim & tak mudah dihapus), lalu WebP-kompres < [MAX_BYTES]
+ * (2026-08-28, sebelumnya JPEG — WebP lossy ~40-50% lebih kecil pada kualitas setara untuk
+ * foto kamera HP, tanpa penurunan kualitas kasat mata; diukur langsung dengan sampel produksi).
  */
 object PhotoWatermark {
 
@@ -76,11 +78,17 @@ object PhotoWatermark {
 
         bitmap = drawWatermark(bitmap, title, subtitle, lat, lng, accuracyM, address)
 
+        // WEBP (bukan WEBP_LOSSY/WEBP_LOSSLESS — enum baru itu butuh API 30+,
+        // minSdk modul ini 24). Deprecated tapi tetap lossy & fungsional di
+        // semua versi yang didukung; server (kinerja-service) juga sudah
+        // pindah ke WebP lossy, jadi format ini konsisten ujung ke ujung.
+        @Suppress("DEPRECATION")
+        val format = Bitmap.CompressFormat.WEBP
         var quality = 85
-        var out = ByteArrayOutputStream().apply { bitmap.compress(Bitmap.CompressFormat.JPEG, quality, this) }.toByteArray()
+        var out = ByteArrayOutputStream().apply { bitmap.compress(format, quality, this) }.toByteArray()
         while (out.size > MAX_BYTES && quality > 40) {
             quality -= 15
-            out = ByteArrayOutputStream().apply { bitmap.compress(Bitmap.CompressFormat.JPEG, quality, this) }.toByteArray()
+            out = ByteArrayOutputStream().apply { bitmap.compress(format, quality, this) }.toByteArray()
         }
         return out to bitmap
     }

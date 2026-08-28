@@ -188,15 +188,15 @@ class AktivitasBuktiPlanTest {
     // ── Penamaan & watermark ─────────────────────────────────────────────────
 
     @Test
-    fun `gambar hasil watermark selalu jpg apa pun sumbernya`() {
-        // prepareWatermarkedJpeg selalu meng-encode JPEG, termasuk untuk PNG/WEBP
-        // dari galeri — ekstensi yang meleset ditolak server.
-        assertTrue(namaBerkasGambar(2, 1L).endsWith(".jpg"))
-        assertEquals("raport_1700000000000_0.jpg", namaBerkasGambar(0, 1_700_000_000_000L))
+    fun `gambar hasil watermark selalu webp apa pun sumbernya`() {
+        // prepareWatermarkedJpeg selalu meng-encode WebP (2026-08-28), termasuk
+        // untuk PNG/JPEG dari galeri — ekstensi yang meleset ditolak server.
+        assertTrue(namaBerkasGambar(2, 1L).endsWith(".webp"))
+        assertEquals("raport_1700000000000_0.webp", namaBerkasGambar(0, 1_700_000_000_000L))
     }
 
     @Test
-    fun `nama berkas video memakai ekstensi aslinya, bukan jpg`() {
+    fun `nama berkas video memakai ekstensi aslinya, bukan webp`() {
         assertEquals("raport_1700000000000.mov", namaBerkasVideo("mov", 1_700_000_000_000L))
         assertEquals("raport_1.webm", namaBerkasVideo("webm", 1L))
     }

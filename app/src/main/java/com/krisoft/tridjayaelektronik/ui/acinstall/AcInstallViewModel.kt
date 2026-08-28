@@ -131,7 +131,7 @@ class AcInstallViewModel @Inject constructor(
                 return@launch
             }
             val url = when (
-                val up = deliveryRepository.uploadPhoto(siap.first, "ac_install_${System.currentTimeMillis()}.jpg")
+                val up = deliveryRepository.uploadPhoto(siap.first, "ac_install_${System.currentTimeMillis()}.webp")
             ) {
                 is AuthResult.Success -> up.data
                 is AuthResult.Failure -> {

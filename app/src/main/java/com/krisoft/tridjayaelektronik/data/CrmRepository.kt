@@ -552,7 +552,7 @@ class CrmRepository @Inject constructor(
      */
     suspend fun uploadBuktiProspek(bytes: ByteArray, filename: String): AuthResult<String> = try {
         val part = MultipartBody.Part.createFormData(
-            "file", filename, bytes.toRequestBody("image/jpeg".toMediaType())
+            "file", filename, bytes.toRequestBody("image/webp".toMediaType())
         )
         val response = prospekUploadApi.uploadBukti(part)
         val data = response.body()?.data

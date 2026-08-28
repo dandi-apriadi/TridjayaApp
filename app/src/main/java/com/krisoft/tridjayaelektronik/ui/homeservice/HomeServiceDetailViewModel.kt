@@ -157,7 +157,7 @@ class HomeServiceDetailViewModel @Inject constructor(
                 _state.update { it.copy(mengunggahFoto = false, error = "Foto tidak terbaca, ulangi.") }
                 return@launch
             }
-            when (val r = repository.uploadPhoto(siap.first, "home-service.jpg")) {
+            when (val r = repository.uploadPhoto(siap.first, "home-service.webp")) {
                 is AuthResult.Success -> _state.update {
                     it.copy(mengunggahFoto = false, fotoTerunggah = it.fotoTerunggah + r.data)
                 }

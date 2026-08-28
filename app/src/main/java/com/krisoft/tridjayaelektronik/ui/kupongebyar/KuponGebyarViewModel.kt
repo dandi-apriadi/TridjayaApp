@@ -188,7 +188,7 @@ class KuponGebyarViewModel @Inject constructor(
             val url = when (
                 val up = repository.unggahFoto(
                     siap.first,
-                    "gebyar_${baris.kodeRekanan}_${System.currentTimeMillis()}.jpg",
+                    "gebyar_${baris.kodeRekanan}_${System.currentTimeMillis()}.webp",
                 )
             ) {
                 is AuthResult.Success -> up.data

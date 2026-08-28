@@ -101,7 +101,7 @@ class HomeServiceRepository @Inject constructor(
     /** Foto (kwitansi/bukti kerja/bukti bayar/unit ditarik) → URL relatif. */
     suspend fun uploadPhoto(bytes: ByteArray, filename: String): AuthResult<String> = try {
         val part = MultipartBody.Part.createFormData(
-            "file", filename, bytes.toRequestBody("image/jpeg".toMediaType())
+            "file", filename, bytes.toRequestBody("image/webp".toMediaType())
         )
         val response = api.uploadPhoto(part)
         val url = response.body()?.data?.url

@@ -191,14 +191,15 @@ class AktivitasRepository @Inject constructor(
     /**
      * Upload bukti GAMBAR → URL relatif untuk dikirim di [submitItem].
      *
-     * Selalu `image/jpeg`: keluaran `PhotoWatermark.prepareWatermarkedJpeg`
-     * memang selalu JPEG apa pun format sumbernya, termasuk PNG/WEBP yang
-     * dipilih dari galeri. Server memvalidasi ekstensi × MIME × magic bytes
-     * serentak, jadi [filename] wajib berakhiran `.jpg`.
+     * Selalu `image/webp` (2026-08-28, sebelumnya `image/jpeg`): keluaran
+     * `PhotoWatermark.prepareWatermarkedJpeg` memang selalu WebP apa pun
+     * format sumbernya, termasuk PNG/JPEG yang dipilih dari galeri. Server
+     * memvalidasi ekstensi × MIME × magic bytes serentak, jadi [filename]
+     * wajib berakhiran `.webp`.
      */
     suspend fun uploadEvidence(bytes: ByteArray, filename: String): AuthResult<String> = try {
         val part = MultipartBody.Part.createFormData(
-            "file", filename, bytes.toRequestBody("image/jpeg".toMediaType())
+            "file", filename, bytes.toRequestBody("image/webp".toMediaType())
         )
         val response = uploadApi.uploadEvidence(part)
         val data = response.body()?.data

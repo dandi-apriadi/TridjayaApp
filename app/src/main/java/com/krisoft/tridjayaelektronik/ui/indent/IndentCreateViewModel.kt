@@ -173,10 +173,10 @@ class IndentCreateViewModel @Inject constructor(
             ?: "image/jpeg"
         if (mimeType == "application/pdf") return raw to mimeType
         val compressed = runCatching { compressImage(raw) }.getOrNull()
-        return if (compressed != null) compressed to "image/jpeg" else raw to mimeType
+        return if (compressed != null) compressed to "image/webp" else raw to mimeType
     }
 
-    /** Downscale to [MAX_DIMENSION], fix EXIF rotation, then JPEG-compress under [MAX_UPLOAD_BYTES]. */
+    /** Downscale to [MAX_DIMENSION], fix EXIF rotation, then WebP-compress under [MAX_UPLOAD_BYTES]. */
     private fun compressImage(raw: ByteArray): ByteArray? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
@@ -214,11 +214,15 @@ class IndentCreateViewModel @Inject constructor(
             bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
         }
 
+        // WEBP (bukan WEBP_LOSSY, yang butuh API 30+) — deprecated tapi tetap
+        // lossy & fungsional; lihat catatan sama di `PhotoWatermark.kt`.
+        @Suppress("DEPRECATION")
+        val format = Bitmap.CompressFormat.WEBP
         var quality = 85
-        var out = ByteArrayOutputStream().apply { bitmap.compress(Bitmap.CompressFormat.JPEG, quality, this) }.toByteArray()
+        var out = ByteArrayOutputStream().apply { bitmap.compress(format, quality, this) }.toByteArray()
         while (out.size > MAX_UPLOAD_BYTES && quality > 40) {
             quality -= 15
-            out = ByteArrayOutputStream().apply { bitmap.compress(Bitmap.CompressFormat.JPEG, quality, this) }.toByteArray()
+            out = ByteArrayOutputStream().apply { bitmap.compress(format, quality, this) }.toByteArray()
         }
         return out
     }

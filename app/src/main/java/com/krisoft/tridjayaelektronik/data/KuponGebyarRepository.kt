@@ -68,7 +68,7 @@ class KuponGebyarRepository @Inject constructor(
         val part = MultipartBody.Part.createFormData(
             "file",
             filename,
-            bytes.toRequestBody("image/jpeg".toMediaType()),
+            bytes.toRequestBody("image/webp".toMediaType()),
         )
         val response = api.uploadBukti(part)
         val url = response.body()?.data?.url

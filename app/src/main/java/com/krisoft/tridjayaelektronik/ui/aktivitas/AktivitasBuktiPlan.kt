@@ -155,11 +155,13 @@ internal fun mimeVideo(ext: String): String = when (ext) {
 }
 
 /**
- * Keluaran `PhotoWatermark.prepareWatermarkedJpeg` SELALU JPEG apa pun format
- * sumbernya, jadi ekstensi & MIME dipaku `.jpg`/`image/jpeg` — termasuk untuk
- * PNG/WEBP yang dipilih dari galeri.
+ * Keluaran `PhotoWatermark.prepareWatermarkedJpeg` SELALU WEBP apa pun format
+ * sumbernya (2026-08-28, sebelumnya JPEG), jadi ekstensi & MIME dipaku
+ * `.webp`/`image/webp` — termasuk untuk PNG/JPEG yang dipilih dari galeri.
+ * Server (`is_valid_raport_evidence_content`) memvalidasi ekstensi & MIME
+ * HARUS cocok — ubah salah satu tanpa yang lain akan menolak upload.
  */
-internal fun namaBerkasGambar(urutan: Int, millis: Long): String = "raport_${millis}_$urutan.jpg"
+internal fun namaBerkasGambar(urutan: Int, millis: Long): String = "raport_${millis}_$urutan.webp"
 
 internal fun namaBerkasVideo(ext: String, millis: Long): String = "raport_$millis.$ext"
 
