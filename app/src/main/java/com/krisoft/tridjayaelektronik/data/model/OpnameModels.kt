@@ -327,6 +327,31 @@ data class RejectUnitBody(
     val alasan: String
 )
 
+/**
+ * Body approve massal. `unitIds` SELALU diisi eksplisit dari app — server
+ * menerima daftar kosong sebagai "seluruh pending sesi ini", dan itu berarti
+ * menyetujui unit yang tak pernah tampil di layar pemutusnya.
+ */
+@Serializable
+data class ApproveBatchRequest(
+    val unitIds: List<String>
+)
+
+/**
+ * Hasil approve massal (`approve_manual_units_batch`).
+ *
+ * `gagal` BUKAN error jaringan: server memproses tiap unit sendiri-sendiri dan
+ * menghitung unit yang sudah diputus orang lain di sela sebagai gagal. Jadi
+ * `disetujui = 3, gagal = 1` adalah hasil yang SAH dan wajib dilaporkan apa
+ * adanya, bukan diubah jadi pesan gagal.
+ */
+@Serializable
+data class ApproveBatchData(
+    val disetujui: Int = 0,
+    val gagal: Int = 0,
+    val sisaPending: Int = 0
+)
+
 @Serializable
 data class ManualUnitListData(
     val count: Int = 0,
