@@ -235,6 +235,29 @@ Konsekuensi yang mengikat app:
   (c) **Manifest driver** (`reorderable`) = daftar RATA per unit tanpa grup —
   `POST /delivery/driver/reorder` mengurutkan id unit dan panah naik/turun
   bekerja atas indeks daftar itu.
+- **Tiga baris chip di `DeliveryQueueScreen`, dan aturan siapa boleh
+  memakainya.** Saringan **periode** (`periodeFilter`) HANYA di Riwayat SPK dan
+  DILARANG di antrian kerja: ia menyembunyikan tunggakan kemarin di balik "hari
+  ini", yaitu justru pekerjaan yang paling perlu dilihat. Dua saringan lain
+  boleh justru karena tak punya arah pemakaian seperti itu — **cabang**
+  (`cabangFilter`, Antri PDI) memisahkan pekerjaan yang memang bukan miliknya,
+  dan **umur** (`gantungFilter`, Konfirmasi Pembayaran/SPK Gantung, 2026-08-28)
+  membelah daftar dengan tenggat yang SAMA seperti kartu Activity sehingga ember
+  yang menonjol berisi yang TERTUA. Yang terakhir ada karena kartu Activity bisa
+  berkata "4 lewat tenggat 24 jam" sementara layarnya tak punya satu pun cara
+  menunjukkan yang mana keempatnya. Ketiganya wajib memegang tiga sifat yang
+  sama, dan ketiganya adalah pencegah kegagalan senyap, bukan kerapian:
+  (1) chip HANYA muncul saat daftarnya benar-benar bercampur; (2) saat chip tak
+  muncul, saringannya DIABAIKAN — kalau tidak, petugas yang embernya mengosong
+  mendapat layar kosong tanpa jalan kembali dan membacanya sebagai data hilang;
+  (3) label chip WAJIB berangka, supaya yang tersaring tetap terbaca sebagai
+  tumpukan yang ada. Ambang 24 jam + parser `deliveredAt` DIPINJAM dari
+  `ui/activity/ActivityPlan.kt` (`GANTUNG_TENGGAT_MS`, `deliveredAtUtcMillis`),
+  tidak disalin: dua salinan aturan itu berarti chip dan kartu Activity bisa
+  berselisih angka tanpa satu pun galat, dan parser tanggal kedua adalah
+  kesempatan kedua menyelundupkan `java.time` ke `app/src/main`. Aturannya hidup
+  sebagai fungsi murni di `CabangFilter.kt`/`GantungFilter.kt` dan dijaga
+  `CabangFilterTest`/`GantungFilterTest`.
 - **Layar detail memuat saudara se-SPK lewat `loadBatchUnits`**, TAPI hanya
   untuk `pending_spk` (satu-satunya tahap yang isiannya butuh daftar itu:
   `units[]` menuntut nominal DP tiap unit COD `dp` sebatch). Sumbernya antrian

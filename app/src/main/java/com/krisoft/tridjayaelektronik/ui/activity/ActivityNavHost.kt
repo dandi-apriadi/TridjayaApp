@@ -602,7 +602,14 @@ fun ActivityNavHost(
             // Server mengirim SEMUA unit terkirim yang belum dikonfirmasi; ambang
             // "gantung 24 jam" dihitung di kartu Activity, bukan di sini — kasir
             // tetap perlu bisa menutup yang baru sebelum jatuh tempo.
-            DeliveryQueueScreen("Konfirmasi Pembayaran", status = null, view = "pending_payment", onBack = { navController.popBackStack() },
+            //
+            // `gantungFilter` (2026-08-28) memakai ambang yang SAMA untuk membelah
+            // daftar ini jadi chip, bukan untuk menyaring apa yang diminta ke
+            // server: muatannya tetap utuh, dan defaultnya tetap "Semua". Itu yang
+            // menyambungkan baris merah kartu Activity ("4 lewat tenggat 24 jam")
+            // ke daftar di sini, yang sebelumnya tak punya cara menunjukkan yang
+            // mana keempatnya.
+            DeliveryQueueScreen("Konfirmasi Pembayaran", status = null, view = "pending_payment", gantungFilter = true, onBack = { navController.popBackStack() },
                 kontrolSaringan = KontrolSaringan(cari = true),
                 onOpen = { id -> navController.navigate(dlvDetailRoute(id)) { launchSingleTop = true } })
         }

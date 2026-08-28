@@ -349,6 +349,23 @@ fun DeliveryQueueScreen(
      * KDoc `SaringanAntrian`.
      */
     kontrolSaringan: KontrolSaringan = KontrolSaringan.NIHIL,
+    /**
+     * Baris chip "Semua / Lewat tenggat / Belum 24 jam" di atas daftar —
+     * dipasang di **Konfirmasi Pembayaran** (SPK Gantung), layar divisi kasir.
+     * Default `false` supaya layar pemakai lain tak berubah.
+     *
+     * Boleh di sini padahal [periodeFilter] dilarang di antrian kerja, dan
+     * alasannya berdiri sendiri: saringan periode menyembunyikan tunggakan LAMA
+     * di balik "hari ini", sedangkan saringan ini membelah daftar dengan tenggat
+     * yang SAMA seperti kartu Activity dan embernya yang menonjol justru berisi
+     * yang tertua. Penjagaannya (chip cuma muncul saat daftarnya bercampur, dan
+     * saringan diabaikan saat chip tak muncul) hidup di `GantungFilter.kt`.
+     *
+     * Hanya masuk akal di tahap yang `deliveredAt`-nya sudah terisi. Menyalakannya
+     * di tahap sebelum serah terima menghasilkan satu ember kosong permanen —
+     * tak ada galat, chip-nya cuma tak pernah muncul.
+     */
+    gantungFilter: Boolean = false,
     onBack: () -> Unit,
     onOpen: (String) -> Unit,
     viewModel: DeliveryFlowViewModel = hiltViewModel()
@@ -382,6 +399,26 @@ fun DeliveryQueueScreen(
     // jadi `null` di sini = konteks belum/gagal termuat = jangan pernah memvonis
     // sebuah klaim kedaluwarsa.
     val ttlKlaimJam = state.deliveryContext?.pdiClaimTtlHours
+
+    // Saringan umur untuk antrian SPK Gantung. `SEMUA` sebagai default DISENGAJA:
+    // antrian kerja tak boleh memulai hidupnya dalam keadaan tersaring — petugas
+    // yang membuka layar dan langsung melihat daftar pendek tak punya cara tahu
+    // ada tumpukan lain.
+    //
+    // Jamnya dibaca SEKALI per daftar yang termuat (`remember(state.items)`),
+    // bukan tiap recomposition: pembelah embernya adalah waktu, jadi membaca
+    // `System.currentTimeMillis()` langsung di badan komposisi membuat sebuah SPK
+    // bisa berpindah ember di tengah guliran — tanpa satu pun perbuatan petugas.
+    // Tiap muat ulang menghasilkan `state.items` baru, jadi jamnya ikut segar.
+    var saringGantung by remember { mutableStateOf(GantungSaring.SEMUA) }
+    val nowGantung = remember(state.items) { System.currentTimeMillis() }
+    val hasilGantung = if (gantungFilter) {
+        saringPerGantung(groups, nowGantung, saringGantung)
+    } else {
+        null
+    }
+    val groupsTampil = hasilGantung?.terlihat ?: groups
+
 
     val terbitkanLangsung = status == DeliveryStatusKey.PENDING_DELIVERY_NOTE && viewModel.access.note
 
@@ -423,6 +460,12 @@ fun DeliveryQueueScreen(
                   saringan = saringan,
                   onUbah = { saringan = it },
               )
+              // Sama seperti baris di atas: DI LUAR `when`, supaya kasir yang
+              // menyaring ke satu ember lalu mengosongkannya tetap punya jalan
+              // kembali ke "Semua".
+              if (hasilGantung?.tampilkanChip == true) {
+                  GantungFilterRow(dipilih = saringGantung, hasil = hasilGantung, onPilih = { saringGantung = it })
+              }
               // "Menampilkan N dari M" — diam kalau daftarnya utuh ATAU kalau
               // server belum mengirim `total` (APK baru di atas server lama).
               IndikatorTerpotongRow(
@@ -441,7 +484,12 @@ fun DeliveryQueueScreen(
                         // pendek itu menjatuhkan `asDriver` DAN rentang periodenya.
                         ExpressiveErrorState(message = state.error ?: "Gagal memuat", onRetry = muatUlang)
                     }
-                state.items.isEmpty() ->
+                // `groupsTampil.isEmpty()` ikut jadi syarat: saringan gantung
+                // MURNI klien (`loadQueue` tak menyaringnya), jadi `state.items`
+                // bisa penuh sementara embernya sendiri kosong — tanpa baris ini
+                // kasir yang memilih "Belum 24 jam" pada hari semuanya sudah
+                // lewat tenggat melihat daftar kosong TANPA pesan sama sekali.
+                state.items.isEmpty() || groupsTampil.isEmpty() ->
                     ScrollableCenter {
                         ExpressiveEmptyState(
                             icon = { Icon(Icons.Rounded.LocalShipping, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp)) },
@@ -453,6 +501,8 @@ fun DeliveryQueueScreen(
                             subtitle = when {
                                 saringan.adaYangAktif ->
                                     "Tidak ada yang cocok dengan saringan di atas. Hapus pencarian atau pilih \"Semua cabang\"."
+                                hasilGantung?.tampilkanChip == true && groupsTampil.isEmpty() ->
+                                    "Tidak ada yang cocok dengan saringan umur di atas. Pilih \"Semua\" untuk melihat semuanya."
                                 periodeFilter ->
                                     "Tidak ada SPK pada periode ini (${periode.keterangan}). Ganti periode di atas."
                                 else -> "Belum ada job pada tahap ini."
@@ -484,7 +534,7 @@ fun DeliveryQueueScreen(
                             // lihat `moveLoadSpk`, yang meratakan grup jadi urutan
                             // id. Justru inilah yang menjamin unit satu SPK selalu
                             // berdampingan; penggeseran per unit yang lama tidak.
-                            itemsIndexed(groups, key = { _, g -> g.kode }) { index, grup ->
+                            itemsIndexed(groupsTampil, key = { _, g -> g.kode }) { index, grup ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(modifier = Modifier.weight(1f)) {
                                         SpkRingkasCard(grup, viewModel.currentUserId, ttlKlaimJam) { onOpen(grup.jobs.first().id) }
@@ -493,14 +543,14 @@ fun DeliveryQueueScreen(
                                         IconButton(onClick = { viewModel.moveLoadSpk(grup.kode, up = true) }, enabled = index > 0) {
                                             Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = "Naikkan urutan")
                                         }
-                                        IconButton(onClick = { viewModel.moveLoadSpk(grup.kode, up = false) }, enabled = index < groups.size - 1) {
+                                        IconButton(onClick = { viewModel.moveLoadSpk(grup.kode, up = false) }, enabled = index < groupsTampil.size - 1) {
                                             Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Turunkan urutan")
                                         }
                                     }
                                 }
                             }
                         } else {
-                            items(groups, key = { it.kode }) { grup ->
+                            items(groupsTampil, key = { it.kode }) { grup ->
                                 SpkRingkasCard(
                                     grup = grup,
                                     currentUserId = viewModel.currentUserId,
