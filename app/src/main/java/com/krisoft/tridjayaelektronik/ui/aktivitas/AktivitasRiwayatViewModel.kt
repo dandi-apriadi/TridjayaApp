@@ -7,6 +7,7 @@ import com.krisoft.tridjayaelektronik.data.AuthRepository
 import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.TokenStore
 import com.krisoft.tridjayaelektronik.data.model.AktivitasItemDto
+import com.krisoft.tridjayaelektronik.data.model.AktivitasPositionDto
 import com.krisoft.tridjayaelektronik.domain.sales.KlasemenStandings
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +25,15 @@ data class AktivitasRiwayatUiState(
     /** Hari ini, dipegang di state supaya batas maju tak dihitung ulang tiap recomposition. */
     val hariIni: String = KlasemenStandings.todayIso(),
     val items: List<AktivitasItemDto> = emptyList(),
+    /**
+     * Master divisi aktivitas — dipakai HANYA untuk menghitung PENYEBUT nilai
+     * ([penyebutRiwayat]), bukan untuk merender daftar.
+     *
+     * Diambil sekali per umur ViewModel, dan kegagalannya SENGAJA tidak
+     * menggagalkan layar: riwayat tetap berguna tanpa penyebut yang tepat, dan
+     * daftar kosong membuat perhitungannya jatuh ke perilaku lama.
+     */
+    val positions: List<AktivitasPositionDto> = emptyList(),
 )
 
 /**
@@ -62,6 +72,13 @@ class AktivitasRiwayatViewModel @Inject constructor(
             // (mis. primary `sales` + extra `karyawan`) menerima baris orang
             // lain — dan layar "riwayat SAYA" akan memajang milik orang lain.
             val karyawanId = authRepository.cachedUser?.id
+            // Master posisi diambil sekali saja (daftarnya tak berubah per
+            // tanggal) dan kegagalannya DIABAIKAN — lihat KDoc `positions`.
+            if (_state.value.positions.isEmpty()) {
+                (repository.aktivitasPositions() as? AuthResult.Success)?.let { hasilPosisi ->
+                    _state.update { it.copy(positions = hasilPosisi.data) }
+                }
+            }
             when (val hasil = repository.raportOfDay(tanggal, karyawanId)) {
                 is AuthResult.Success -> _state.update {
                     // Balasan tanggal LAIN dibuang: pengguna bisa menggeser
