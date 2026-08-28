@@ -1,6 +1,7 @@
 package com.krisoft.tridjayaelektronik.ui.deliveryflow
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -593,8 +594,14 @@ private fun AccDiskonField(accDiskon: String, onAccChange: (String) -> Unit) {
 
 /** Bukti acc: kamera ATAU galeri. Keduanya bermuara ke berkas cache yang
  *  SAMA supaya jalur unggahnya (watermark + POST) cuma satu, bukan dua yang
- *  bisa menyimpang diam-diam. `GetContent()` = Android Photo Picker, tak
- *  butuh izin penyimpanan. */
+ *  bisa menyimpang diam-diam.
+ *
+ *  Picker-nya `PickVisualMedia` (Photo Picker) dan **tidak butuh izin apa
+ *  pun** — jangan ditambal `READ_MEDIA_*`. Sampai 2026-08-28 baris ini
+ *  memakai `GetContent()` sambil mengklaim dirinya Photo Picker; itu keliru
+ *  (`GetContent()` = `ACTION_GET_CONTENT`, pemilih dokumen lama) dan
+ *  menghasilkan URI yang tak selalu bisa dibuka. Lihat catatan lengkap di
+ *  `KuponGebyarScreen.kt`. */
 @Composable
 private fun BuktiAccField(
     buktiUrl: String,
@@ -624,14 +631,26 @@ private fun BuktiAccField(
     val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         if (ok) unggah()
     }
-    val galeri = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { picked ->
+    val galeri = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { picked ->
         if (picked == null) return@rememberLauncherForActivityResult
-        val tersalin = runCatching {
-            context.contentResolver.openInputStream(picked)!!.use { input ->
+        // Sebab kegagalan dibawa sampai ke layar — `.isSuccess` dulu
+        // membuangnya, sehingga laporan lapangan tak bisa didiagnosa.
+        // `openInputStream` sendiri bisa melempar — WAJIB di dalam `runCatching`.
+        runCatching {
+            val masuk = context.contentResolver.openInputStream(picked)
+                ?: error("galeri tak memberi isi berkas")
+            masuk.use { input ->
                 file.outputStream().use { output -> input.copyTo(output) }
             }
-        }.isSuccess
-        if (tersalin) unggah() else error = "Gagal membaca foto dari galeri"
+        }.fold(
+            onSuccess = { unggah() },
+            onFailure = { e ->
+                error = "Foto itu tidak bisa dibaca (${e.javaClass.simpleName}). " +
+                    "Kalau masih di cloud dan belum terunduh, buka dulu di galeri atau pakai Kamera."
+            },
+        )
     }
 
     Text(
@@ -656,7 +675,7 @@ private fun BuktiAccField(
             ExpressiveOutlinedButton(onClick = { if (!uploading) cam.launch(uri) }, enabled = !uploading, modifier = Modifier.weight(1f)) {
                 Text(if (uploading) "Mengunggah…" else "Kamera")
             }
-            ExpressiveOutlinedButton(onClick = { if (!uploading) galeri.launch("image/*") }, enabled = !uploading, modifier = Modifier.weight(1f)) {
+            ExpressiveOutlinedButton(onClick = { if (!uploading) galeri.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !uploading, modifier = Modifier.weight(1f)) {
                 Text("Galeri")
             }
         }

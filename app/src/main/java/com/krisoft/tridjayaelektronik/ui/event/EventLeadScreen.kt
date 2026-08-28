@@ -1,6 +1,7 @@
 package com.krisoft.tridjayaelektronik.ui.event
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -92,19 +93,35 @@ fun EventLeadScreen(
     val kamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         if (ok) viewModel.unggahKtp(fileKtp)
     }
-    // `GetContent()` = Android Photo Picker, tak butuh izin penyimpanan. Bukti dari lapangan
+    // Picker-nya `PickVisualMedia` (Photo Picker), tak butuh izin penyimpanan. Bukti dari lapangan
     // sering sudah berupa tangkapan layar/foto lama, jadi galeri bukan pelengkap — ia jalur setara.
-    val galeri = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { dipilih ->
+    //
+    // Sampai 2026-08-28 baris ini memakai `GetContent()` sambil menyebutnya Photo Picker; itu
+    // keliru — `GetContent()` = `ACTION_GET_CONTENT`, pemilih dokumen lama, yang justru
+    // memperbesar peluang URI-nya tak bisa dibuka. Lihat `KuponGebyarScreen.kt`.
+    val galeri = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { dipilih ->
         if (dipilih == null) return@rememberLauncherForActivityResult
-        val tersalin = runCatching {
-            context.contentResolver.openInputStream(dipilih)!!.use { input ->
-                fileKtp.outputStream().use { output -> input.copyTo(output) }
-            }
-        }.isSuccess
         // Gagal menyalin BUKAN kasus langka: foto Google Photos yang belum terunduh membuat
         // `openInputStream` melempar, dan tanpa pesan sales cuma melihat layar diam total.
-        if (tersalin) viewModel.unggahKtp(fileKtp)
-        else viewModel.laporError("Foto itu tidak bisa dibaca (mungkin masih di Google Photos, belum terunduh). Coba ambil ulang lewat Kamera.")
+        // Jenis exception-nya ikut dilaporkan supaya sebabnya bisa dibedakan saat ada laporan.
+        // `openInputStream` sendiri bisa melempar — WAJIB di dalam `runCatching`.
+        runCatching {
+            val masuk = context.contentResolver.openInputStream(dipilih)
+                ?: error("galeri tak memberi isi berkas")
+            masuk.use { input ->
+                fileKtp.outputStream().use { output -> input.copyTo(output) }
+            }
+        }.fold(
+            onSuccess = { viewModel.unggahKtp(fileKtp) },
+            onFailure = { e ->
+                viewModel.laporError(
+                    "Foto itu tidak bisa dibaca (${e.javaClass.simpleName}) — mungkin masih di " +
+                        "Google Photos dan belum terunduh. Coba ambil ulang lewat Kamera."
+                )
+            },
+        )
     }
 
     TridjayaCollapsibleHeader(title = namaEvent ?: "Prospek Event", onBack = onBack) { contentModifier ->
@@ -153,7 +170,7 @@ fun EventLeadScreen(
                                 modifier = Modifier.weight(1f),
                             ) { Text("Kamera") }
                             ExpressiveOutlinedButton(
-                                onClick = { galeri.launch("image/*") },
+                                onClick = { galeri.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                                 modifier = Modifier.weight(1f),
                             ) { Text("Galeri") }
                         }

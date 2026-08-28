@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -110,20 +111,55 @@ fun KuponGebyarScreen(
     }
 
     // Kamera ATAU galeri — keduanya bermuara ke `fileFoto` yang sama supaya
-    // jalur unggahnya (watermark + POST) cuma satu implementasi. `GetContent()`
-    // = Android Photo Picker, tak butuh izin penyimpanan (lihat SpkItemCard.kt).
-    val galeri = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    // jalur unggahnya (watermark + POST) cuma satu implementasi.
+    //
+    // Picker-nya `PickVisualMedia` (Photo Picker) dan **tidak butuh izin apa
+    // pun**; di bawah Android 11/13 ia turun sendiri ke SAF. JANGAN ditambal
+    // dengan `READ_MEDIA_*`/`READ_EXTERNAL_STORAGE` — pola yang sama sudah
+    // ditulis di `AktivitasScreen.kt`.
+    //
+    // Sampai 2026-08-28 baris ini memakai `GetContent()` sambil menuliskan
+    // komentar "GetContent() = Android Photo Picker". Itu KELIRU dan bukan
+    // sekadar salah istilah: `GetContent()` memicu `ACTION_GET_CONTENT`
+    // (pemilih dokumen lama) yang diarahkan ke aplikasi galeri bawaan HP, dan
+    // URI yang dikembalikannya tidak selalu bisa dibuka — foto yang masih di
+    // cloud dan belum terunduh, atau hibah izin URI yang hilang saat proses
+    // app sempat dimatikan sistem. Photo Picker menyerahkan URI ber-hibah baca
+    // yang stabil. Dilaporkan dari lapangan: sales Haurgeulis gagal 17:33 lalu
+    // berhasil 17:41 di versi app yang SAMA — gejala sesaat, bukan blokir.
+    val galeri = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
         val kode = buktiUntuk
         val baris = state.items.firstOrNull { it.kodeRekanan == kode }
         buktiUntuk = null
         if (uri == null || baris == null) return@rememberLauncherForActivityResult
-        val tersalin = runCatching {
-            context.contentResolver.openInputStream(uri)!!.use { input ->
+        // `runCatching { ... }.isSuccess` DULU membuang exception-nya, jadi
+        // keempat sebab di atas menghasilkan satu pesan identik dan tak ada
+        // yang bisa tahu mana yang kena — termasuk saat menyelidiki laporan
+        // nyata. Sebabnya sekarang dibawa sampai ke layar.
+        // `openInputStream` SENDIRI yang melempar (SecurityException saat hibah
+        // URI hilang, FileNotFoundException saat berkasnya di cloud), jadi ia
+        // WAJIB ada DI DALAM `runCatching`. Menaruhnya di luar membuat
+        // kegagalan yang sedang kita tangani ini justru menutup app.
+        runCatching {
+            val masuk = context.contentResolver.openInputStream(uri)
+                ?: error("galeri tak memberi isi berkas")
+            masuk.use { input ->
                 fileFoto.outputStream().use { output -> input.copyTo(output) }
             }
-        }.isSuccess
-        if (tersalin) viewModel.unggahBukti(baris, fileFoto, catatan = null)
-        else Toast.makeText(context, "Gagal membaca foto dari galeri.", Toast.LENGTH_SHORT).show()
+        }.fold(
+            onSuccess = { viewModel.unggahBukti(baris, fileFoto, catatan = null) },
+            onFailure = { e ->
+                Toast.makeText(
+                    context,
+                    "Foto itu tidak bisa dibaca (${e.javaClass.simpleName}). " +
+                        "Kalau fotonya masih di cloud dan belum terunduh, buka dulu di galeri " +
+                        "atau ambil ulang lewat Kamera.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            },
+        )
     }
 
     // Snackbar penuh butuh Scaffold yang layar ini tak punya (header kolaps
@@ -219,7 +255,11 @@ fun KuponGebyarScreen(
                                     },
                                     onKirimGaleri = {
                                         buktiUntuk = baris.kodeRekanan
-                                        galeri.launch("image/*")
+                                        galeri.launch(
+                                            PickVisualMediaRequest(
+                                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                                            )
+                                        )
                                     },
                                     onSimpanUlang = {
                                         viewModel.simpanUlang(baris.kodeRekanan, catatan = null)
