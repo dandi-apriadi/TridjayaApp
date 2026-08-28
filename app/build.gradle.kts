@@ -278,7 +278,24 @@ val berkasMappingRilis = layout.buildDirectory.file("outputs/mapping/release/map
 // `cadangan-lokal/` hidup DI LUAR repo (sejajar dengannya) — sengaja, sama
 // seperti keystore: arsip yang tinggal di dalam pohon kerja git adalah arsip
 // yang lenyap pada `git clean -xdf` berikutnya.
-val direktoriArsipRilis = rootProject.file("../cadangan-lokal")
+//
+// **Letaknya DUA kandidat, bukan satu path mati.** `../cadangan-lokal` benar
+// untuk repo mobile berdiri sendiri (`Tridjaya/TridjayaApp` + `Tridjaya/
+// cadangan-lokal`), tapi sejak subtree 2026-08-21 `rootProject` bisa juga
+// `<monorepo>/mobile`, dan dari sana arsipnya ada di `../../cadangan-lokal`.
+// Terbukti menggigit saat rilis 3.03 (2026-08-28): build SUKSES, APK terunggah,
+// dan peta R8-nya TIDAK terarsip — satu baris `warn` di antara 58 task, yang
+// baru ketahuan karena kebetulan dibaca. Peta yang hilang tak menimbulkan
+// keluhan sampai ada crash report yang harus dibaca berbulan-bulan kemudian,
+// dan saat itu ia tak bisa dibuat ulang.
+// `ARSIP_RILIS_DIR` (env) menang atas keduanya, untuk mesin dengan layout lain.
+val kandidatArsipRilis = listOfNotNull(
+    System.getenv("ARSIP_RILIS_DIR")?.let { File(it) },
+    rootProject.file("../cadangan-lokal"),    // repo mobile berdiri sendiri
+    rootProject.file("../../cadangan-lokal"), // mobile/ di dalam monorepo
+)
+val direktoriArsipRilis = kandidatArsipRilis.firstOrNull { it.isDirectory }
+    ?: kandidatArsipRilis.last()
 
 val arsipkanMappingRilis = tasks.register("arsipkanMappingRilis") {
     description = "Salin mapping.txt R8 ke ../cadangan-lokal/ dengan nama ber-versi."
@@ -293,7 +310,17 @@ val arsipkanMappingRilis = tasks.register("arsipkanMappingRilis") {
             return@doLast
         }
         if (!direktoriArsipRilis.isDirectory) {
-            logger.warn("arsip mapping DILEWATI: ${direktoriArsipRilis.path} tak ada — peta untuk $versiNamaRilis TIDAK terarsip")
+            // Pesannya menyebut SEMUA kandidat yang dicoba: "direktori X tak
+            // ada" pada layout yang salah membuat orang membuat direktori di
+            // tempat yang juga salah.
+            logger.warn(
+                "arsip mapping DILEWATI: tak ada direktori arsip — peta untuk " +
+                    "$versiNamaRilis vc$versiKodeRilis TIDAK terarsip. Yang dicoba: " +
+                    kandidatArsipRilis.joinToString(", ") { it.path } +
+                    ". Set ARSIP_RILIS_DIR=/path/ke/cadangan-lokal lalu jalankan " +
+                    "ulang `gradlew arsipkanMappingRilis` — mapping.txt hasil build " +
+                    "tadi masih ada, jadi arsipnya tak perlu build ulang.",
+            )
             return@doLast
         }
         val tujuan = File(direktoriArsipRilis, "mapping-$versiNamaRilis-vc$versiKodeRilis.txt")
