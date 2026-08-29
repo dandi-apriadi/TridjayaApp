@@ -53,7 +53,10 @@ data/
   pricing/                 InstallmentCalculator (cicilan/OTR simulator, ported from TE KOTLINT reference)
   export/                  CSV export, flyer PNG export + WhatsApp/generic share intents
 domain/                    use case murni + logika teruji (auth, home, indent, inventory, leads,
-                           sales/KlasemenStandings, search) — target utama unit test
+                           sales/KlasemenStandings, search, media) — target utama unit test
+  media/ImageCompressPlan.kt/VideoTranscodePlan.kt  matematika murni di belakang
+                           util/ImagePixelPipeline.kt & util/VideoTranscoder.kt (lihat
+                           catatan arsitektur "Modul kompresi media" di bawah)
 di/AppModule.kt            Hilt providers: Room DB, DAOs, TokenStore, repositories
 ui/
   activity/     Activity — layar pertama app (tugas harian + antrian ber-gate), ActivityNavHost
@@ -69,6 +72,13 @@ ui/
   attendance/, search/, sales/, security/, session/, splash/, login/, settings/, update/
   navigation/   AppDestination enum — single source of truth for bottom-nav tabs
   theme/        TridjayaAppTheme, ClayCard, TridjayaBottomNav, TridjayaHeader, RupiahInput, custom icons
+util/
+  PhotoWatermark.kt          watermark bukti foto (9 layar) — lihat catatan arsitektur di bawah
+  ImagePixelPipeline.kt      mekanisme kompresi gambar BERSAMA (decode+scale+EXIF+turun-kualitas),
+                             dipakai PhotoWatermark + 3 ViewModel gambar lain — lihat catatan
+                             arsitektur "Modul kompresi media" di bawah
+  VideoTranscoder.kt         transcode video bukti Input Aktivitas via media3 Transformer,
+                             satu-satunya pemanggil `AktivitasViewModel.kirimVideo`
 MainActivity.kt             hosts every tab's NavHost + the keep-all-tabs-alive bottom nav container
 ```
 
@@ -144,6 +154,101 @@ perilaku: `Bitmap`/`BitmapFactory` adalah stub di unit test JVM.
    terlewat di TIGA layar terpisah (Kupon Gebyar, pemasangan AC, detail
    komplain), tiap kali karena disalin dari tetangga yang kebetulan juga belum
    benar.
+
+**Modul kompresi media reusable (`domain/media/`, `util/ImagePixelPipeline.kt`,
+`util/VideoTranscoder.kt`) — dua aturan threading BERLAWANAN, jangan disamakan.**
+Dibangun 2026-08-29 untuk menyatukan empat implementasi kompresi gambar yang
+sebelumnya ditulis ulang empat kali nyaris identik (`PhotoWatermark.olahPiksel`,
+`IndentCreateViewModel.compressImage`, `AddLeadViewModel.siapkanJpeg`,
+`EventViewModel.siapkanKtpJpeg`): decode(`inSampleSize`) → scale ke sisi
+terpanjang maksimum → perbaiki rotasi EXIF → loop turun-kualitas sampai anggaran
+byte. Mekanismenya sekarang satu tempat (`ImagePixelPipeline.compress`,
+matematika murninya `domain/media/ImageCompressPlan.kt`); **kebijakan yang
+sengaja beda per pemanggil TIDAK diratakan** — format (WebP/JPEG), anggaran
+byte, kualitas awal/minimum, langkah penurunan, dan "gagal → `null` (tolak) vs
+fallback ke byte asli" tetap parameter/keputusan si pemanggil (lihat `Params`
+di tiap call-site).
+1. **Efek samping: satu bug produksi nyata ikut tertutup.** `AddLeadViewModel`
+   mengirim byte JPEG dengan nama file `bukti_prospek.webp` +
+   `Content-Type: image/webp` (hardcode di `CrmRepository.uploadBuktiProspek`)
+   — server memvalidasi lewat magic byte `RIFF....WEBP`, jadi **setiap** upload
+   bukti prospek dari layar ini ditolak 400 sebelum modul ini ada. Migrasi ke
+   WebP asli (bagian dari penyatuan ke `ImagePixelPipeline`) memperbaikinya
+   sebagai efek samping. `EventViewModel` punya mismatch permukaan yang SAMA
+   (nama `.webp`, byte JPEG) tapi TERBUKTI harmless — server `upload_ktp` cuma
+   baca magic byte lalu re-encode sendiri, mengabaikan nama file/content-type
+   klien. Jangan menyamakan keduanya kalau menemukan pola serupa di tempat
+   lain — periksa validator server-nya dulu, bukan cuma gejala permukaan.
+2. **`ImagePixelPipeline.compress` punya aturan threading SAMA dengan
+   `PhotoWatermark` di atas**: pemanggil WAJIB `withContext(Dispatchers.Default)`,
+   dijaga `ImagePixelPipelineGuardTest` (pemindai sumber, satu kekecualian
+   tertulis: `PhotoWatermark.kt` sendiri — `olahPiksel` tak bisa membungkus
+   panggilan `compress` miliknya dengan `withContext` karena
+   `prepareWatermarkedJpeg` sengaja tetap fungsi SINKRON demi kontrak publik
+   lintas 12+ pemanggil; perlindungannya pindah satu tingkat ke
+   `PhotoWatermarkGuardTest`, yang memindai pemanggil `prepareWatermarkedJpeg`).
+3. **`VideoTranscoder.transcode` punya aturan threading KEBALIKANNYA — krusial,
+   jangan "diseragamkan".** `androidx.media3.transformer.Transformer`
+   mensyaratkan diakses dari SATU application thread (dibaca langsung dari
+   source `Transformer.java`: `addListener`/`start`/`cancel` semua memanggil
+   `verifyApplicationThread()`, melempar `IllegalStateException("Transformer is
+   accessed on the wrong thread.")` kalau dilanggar). Karena itu `transcode()`
+   **HARUS dipanggil TANPA `withContext(Dispatchers.Default)`** — langsung di
+   dalam `viewModelScope.launch { }` yang sudah punya Looper Main yang benar;
+   encode berat sesungguhnya tetap jalan di thread MediaCodec internal
+   Transformer sendiri, bukan di thread pemanggil. Dijaga
+   `VideoTranscoderGuardTest` — assert SEBALIKNYA dari
+   `ImagePixelPipelineGuardTest`: menolak kalau ADA
+   `withContext(Dispatchers.…)` di fungsi yang sama dengan panggilan
+   `transcode(`. Kalau kedua guard test ini kelak digabung/diseragamkan tanpa
+   membaca alasan ini dulu, salah satu arahnya PASTI jadi salah.
+4. **Video bukti Input Aktivitas: kompresi HANYA di atas 30 MB
+   (`MAX_VIDEO_BUKTI_BYTES`), bukan selalu.** `AktivitasBuktiPlan.kt` menambah
+   `MAX_VIDEO_INPUT_BYTES` (150 MB — perkiraan awal ~70 detik rekaman 1080p di
+   bitrate kamera HP kelas menengah ~17 Mbps, **belum divalidasi dengan
+   pengukuran nyata di lapangan**) sebagai ambang MASUKAN baru di titik seleksi;
+   video 30-150 MB kini lolos seleksi dan dicoba ditranscode
+   (`AktivitasViewModel.kirimVideo` → `kompresVideoBukti()`) sebelum diunggah,
+   video >150 MB tetap ditolak seketika (transcode yang pasti gagal tak
+   sepadan). `MAX_VIDEO_BUKTI_BYTES` (30 MB) sekarang ditegakkan DUA KALI:
+   target kompresi DAN gerbang akhir pasca-kompresi — gagal/timeout/output tak
+   lebih kecil/tetap >30MB → fallback ke pesan penolakan LAMA
+   (`pesanVideoTerlaluBesarSetelahKompresi()`, teks PERSIS sama), fail-soft
+   sama seperti kompresi gambar. Target scale **lebar** (bukan sisi
+   terpanjang) ke `min(1280, lebar-sumber)` — sengaja meniru filter ffmpeg
+   server (`kinerja-service/src/aktivitas_harian/video_compress.rs`,
+   `scale='min(1280,iw)':-2`) PERSIS, termasuk video PORTRAIT berlebar ≤1280
+   yang TIDAK disusutkan sama sekali
+   (`domain/media/VideoTranscodePlan.targetDimensions` — itu paritas, bukan
+   bug). **Output SELALU kontainer MP4** (muxer bawaan media3) apa pun format
+   sumbernya — jalur terkompresi memaksa nama berkas/MIME upload jadi
+   `.mp4`/`video/mp4`, kalau tidak magic bytes MP4 vs ekstensi asli
+   (`.mov`/`.webm`) bertabrakan di validator server.
+5. **`androidx.media3:media3-transformer` di-pin `1.9.4`, BUKAN `1.10.x`/
+   `1.11.x`.** Kedua versi yang lebih baru mensyaratkan `compileSdk 36`; AGP
+   8.7.3 di repo ini mentok di `compileSdk 35` (`:app:dependencies` gagal
+   keras kalau dipaksa). `1.9.4` resolve bersih dan permukaan API-nya
+   (`Transformer.Builder`, `EditedMediaItem`, `DefaultEncoderFactory`,
+   `Presentation.createForWidthAndHeight`) identik dengan yang dipakai di sini
+   — **verifikasi ulang dulu** sebelum menaikkan versi media3 (compileSdk
+   mungkin sudah naik oleh saat itu, mungkin juga belum).
+6. **Instrumented test SATU berkas gabungan**
+   (`app/src/androidTest/.../util/media/MediaCompressionApi24Test.kt`, gambar +
+   video) — kalau mencari test devicenya, ia BUKAN dua berkas terpisah
+   (`ImagePixelPipelineApi24Test`/`VideoTranscoderApi24Test`), sudah dijalankan
+   nyata di emulator API 24 sekali dan lulus (transcode sungguhan mengecilkan
+   klip H.264 asli + menghasilkan MP4 valid).
+7. **PDF TETAP tak dikompresi, SENGAJA.**
+   `IndentCreateViewModel.prepareProofUpload` masih mengirim PDF mentah apa
+   adanya (satu-satunya jalur upload PDF di app); komentar di titik itu
+   mencatat alasannya (PdfRenderer bawaan merasterisasi teks vektor — regresi
+   kualitas nyata untuk PDF born-digital; PdfBox-Android TERNYATA tak
+   diblokir JitPack seperti dugaan awal — artifact resmi Maven Central
+   resolve bersih — tapi pustakanya sendiri tak terawat 2,5+ tahun, push
+   terakhir 2024-03-18) dan prasyarat sebelum direvisit: query
+   `COUNT(*)`+`AVG(byte_size)` baris `.pdf` produksi 30 hari. Jangan bangun
+   `PdfCompressor` apa pun sebelum query itu dijalankan dan hasilnya
+   membenarkan.
 
 **Region-aware product identity.** The ERP's `kode` (product code) collides across regions —
 the same code can be a *different physical product* in a different branch region. Product
@@ -841,12 +946,18 @@ Force-update / optional-update / "Cek Pembaruan" (Settings) driven by **Firebase
     dari 6 tak mengulang tiga yang sudah naik. `POST /raport-harian/upload` memanggil
     `ensure_window_open()` di SETIAP request, jadi jendela jam yang tertutup di tengah loop
     itu skenario nyata. `send()` tak pernah dipanggil dengan daftar parsial.
-  * **Video ditolak lokal** kalau >30 MB (`MAX_EVIDENCE_BYTES` server) — tanpa transcoding.
+  * **Video >30 MB (`MAX_EVIDENCE_BYTES` server) dicoba dikompres on-device sejak
+    2026-08-29** (`VideoTranscoder`, lihat catatan arsitektur "Modul kompresi media" di
+    atas) sebelum ditolak — klaim lama "ditolak lokal tanpa transcoding" sudah BASI.
+    Ambang seleksi sekarang 150 MB (`MAX_VIDEO_INPUT_BYTES`); 30-150 MB lolos seleksi dan
+    dicoba ditranscode ke ≤30 MB, di atas 150 MB tetap ditolak seketika. Gagal/timeout/tetap
+    kebesaran pasca-kompresi → pesan penolakan lama apa adanya (fail-soft, bukan regresi).
     Ekstensi ditentukan `when` Kotlin murni (mp4/webm/mov), **bukan `MimeTypeMap`**: kelas
     itu melempar `RuntimeException("Stub!")` di unit test JVM dan tabelnya milik ROM. Nama
     berkas didahulukan atas MIME karena penyedia galeri kadang menjawab `video/mp4` untuk
     berkas `.mov`, dan server memvalidasi ekstensi × MIME × magic bytes SERENTAK — pasangan
-    yang meleset ditolak 400 SETELAH 30 MB terkirim.
+    yang meleset ditolak 400 SETELAH sampai 150 MB terkirim (video hasil kompresi sendiri
+    selalu dipaksa `.mp4`/`video/mp4`, lihat catatan arsitektur).
   * Unggahnya lewat `RaportUploadApi` + client sendiri (write 300s/read 120s, tanpa
     `HttpLoggingInterceptor`) — client bersama timeout-nya 20 detik dan level `BODY` di debug
     mem-buffer seluruh video ke heap. Video streaming lewat `UriRequestBody` (dipakai bersama
@@ -1090,3 +1201,21 @@ meminta theming penuh.
   can't be mutated until it syncs).
 - No string resources (see guideline section above) and no Gradle version catalog — both real
   gaps, both deliberately deferred rather than rushed
+- **Kompresi media (2026-08-29) sengaja punya tiga batasan, bukan bug tertunda:**
+  * **PDF TETAP tak dikompresi.** Satu-satunya jalur upload PDF (`IndentCreateViewModel`)
+    tetap passthrough mentah — bukan celah yang terlewat, tapi keputusan sadar (lihat
+    catatan arsitektur "Modul kompresi media" §7): dua opsi nyata (PdfRenderer bawaan
+    vs PdfBox-Android) sama-sama punya trade-off yang tak sepadan untuk volume PDF yang
+    belum terukur di jalur ini. Prasyarat sebelum dikerjakan: query `COUNT`+`AVG(byte_size)`
+    baris `.pdf` produksi 30 hari.
+  * **Video hanya dikompres kalau >30 MB**, bukan selalu — video kecil lewat jalur lama
+    tanpa disentuh sama sekali (keputusan produk: menghemat CPU/baterai untuk klip yang
+    sudah muat, bukan keterbatasan teknis). Kalau prioritas produk berubah (mis. selalu
+    kompres demi hemat data), tinggal ubah kondisi trigger di `AktivitasViewModel.kirimVideo`.
+  * **Angka `MAX_VIDEO_INPUT_BYTES` (150 MB) dan timeout transcode (120 detik) belum
+    divalidasi dengan pengukuran nyata di HP lapangan** — titik awal beralasan (perkiraan
+    dari bitrate kamera tipikal), bukan angka final. Begitu juga integrasi
+    `AktivitasViewModel.kirimVideo` (progres UI, fallback saat Transformer gagal di HP
+    fisik) belum diuji manual di perangkat — instrumented test yang sudah jalan
+    (`MediaCompressionApi24Test`) membuktikan `VideoTranscoder` sendiri bekerja di
+    emulator API 24, bukan integrasi ViewModel-nya.
