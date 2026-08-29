@@ -227,7 +227,7 @@ class AktivitasViewModel @Inject constructor(
                             // dikirim); penanda `nonaktif` cuma mengurangi
                             // PENYEBUT lewat `butirAktif`.
                             aktivitas = posisi?.jobdesks.orEmpty(),
-                            butirAktif = posisi?.jumlahButirAktif() ?: 0,
+                            butirAktif = jumlahButirAktif(posisi),
                             // Gagal memuat yang sudah terkirim TIDAK mengunci layar:
                             // user tetap boleh mengirim (server upsert, aman diulang).
                             submitted = (todayResult as? AuthResult.Success)

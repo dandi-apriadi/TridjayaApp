@@ -319,14 +319,18 @@ class ActivityViewModel @Inject constructor(
                         pos.await() to tempat.await()
                     }
                     if (r is AuthResult.Success) {
+                        // `.jobdesks` = nama field DI KABEL, ejaan lama.
+                        // `jumlahButirAktif(...)`, BUKAN `.jobdesks.size`:
+                        // butir yang ditandai `nonaktif` tak ditagih — penyebut
+                        // KPI & gerbang absen pulang sudah menghormatinya,
+                        // kartu ini dulu tidak. Posisi `null` (tak ketemu
+                        // divisinya) TETAP `null` di sini, bukan 0 —
+                        // `jumlahButirAktif(null)` sendiri mengembalikan 0,
+                        // yang akan salah dibaca sebagai "0 butir wajib"
+                        // alih-alih "belum diketahui".
                         aktivitasExpected =
                             pilihAktivitasUntukInput(user?.divisi.orEmpty(), r.data, penempatan)
-                                // `.jobdesks` = nama field DI KABEL, ejaan lama.
-                                // `jumlahButirAktif()`, BUKAN `.jobdesks.size`:
-                                // butir yang ditandai `nonaktif` tak ditagih —
-                                // penyebut KPI & gerbang absen pulang sudah
-                                // menghormatinya, kartu ini dulu tidak.
-                                ?.jumlahButirAktif()
+                                ?.let { jumlahButirAktif(it) }
                     }
                 }
             }
