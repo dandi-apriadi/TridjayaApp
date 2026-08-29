@@ -553,15 +553,20 @@ class ActivityRegistryTest {
     }
 
     /**
-     * Daftar cadangan offline SENGAJA tak memuat `"cs"` walau server memuatnya
-     * (`KUPON_GEBYAR_LIHAT_ROLES`): belum ada role literal `cs` di sistem, jadi
-     * ejaan itu tak akan pernah cocok dengan siapa pun dan cuma jadi baris yang
-     * tampak seperti jaring pengaman padahal mati. Petugas CS sungguhan tetap
-     * lolos lewat peta kemampuan server, yang memang sumber utamanya.
+     * **Dibuka ke SEMUA role 2026-08-29** (permintaan user) — `KUPON_GEBYAR_MENU_ROLES`
+     * kini mencerminkan `KUPON_GEBYAR_LIHAT_ROLES` server persis, termasuk `"cs"`.
+     * Berbeda dari asumsi sebelumnya, `"cs"` BUKAN baris mati: ia token divisi
+     * turunan yang sudah terbukti hidup di `AC_INSTALL_SCHEDULE_ROLES`/
+     * `VERTEL_ROLES` (`QuickAccessMenus.kt`) — petugas CS memang bisa datang
+     * dengan token role tambahan itu, bukan hanya lewat peta kemampuan server.
      */
     @Test
-    fun `daftar cadangan gebyar tidak memuat role yang tak pernah ada`() {
-        assertFalse("cs" in KUPON_GEBYAR_MENU_ROLES)
+    fun `daftar cadangan gebyar mencerminkan server persis`() {
+        assertTrue("cs" in KUPON_GEBYAR_MENU_ROLES)
+        assertTrue("manager" in KUPON_GEBYAR_MENU_ROLES)
+        assertTrue("owner" in KUPON_GEBYAR_MENU_ROLES)
+        assertTrue("superadmin" in KUPON_GEBYAR_MENU_ROLES)
+        assertTrue("admin-sales" in KUPON_GEBYAR_MENU_ROLES)
         assertTrue("karyawan" in KUPON_GEBYAR_MENU_ROLES)
         assertTrue("kepala-cabang" in KUPON_GEBYAR_MENU_ROLES)
     }
