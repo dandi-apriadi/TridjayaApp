@@ -11,12 +11,12 @@ import kotlin.math.max
  * stub di unit test JVM (tak ada Robolectric di repo ini), jadi fungsi yang MENYENTUHNYA harus
  * diuji lewat guard test pemindai sumber; yang TIDAK menyentuhnya — di sini — diuji sungguhan.
  *
- * Diekstrak dari `util/PhotoWatermark.kt` (`olahPiksel`) dan
- * `domain/leads/BuktiProspekPlan.kt` (`sampleSizeUntuk`, duplikat nyaris identik) supaya empat
- * pemanggil (`PhotoWatermark`, `IndentCreateViewModel`, `AddLeadViewModel`, `EventViewModel`)
- * berbagi satu implementasi. `domain/leads/BuktiProspekPlan.kt` masih punya salinannya sendiri
- * untuk sementara — `AddLeadViewModel` belum dipindah ke modul ini (langkah terpisah); jangan
- * hapus salinan itu sebelum pemanggilnya benar-benar pindah, atau build pecah.
+ * Diekstrak dari `util/PhotoWatermark.kt` (`olahPiksel`) dan `domain/leads/BuktiProspekPlan.kt`
+ * (`sampleSizeUntuk`, duplikat nyaris identik) supaya empat pemanggil (`PhotoWatermark`,
+ * `IndentCreateViewModel`, `AddLeadViewModel`, `EventViewModel`) berbagi satu implementasi.
+ * Salinan lama di `domain/leads/BuktiProspekPlan.kt` sudah DIHAPUS (2026-08-29) — `AddLeadViewModel`
+ * kini memanggil fungsi di sini lewat `util.ImagePixelPipeline.compress`, satu-satunya pemanggil
+ * salinan lama itu.
  */
 
 /**

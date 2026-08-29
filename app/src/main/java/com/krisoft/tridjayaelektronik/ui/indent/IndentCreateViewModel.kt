@@ -2,11 +2,8 @@ package com.krisoft.tridjayaelektronik.ui.indent
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.net.Uri
 import android.webkit.MimeTypeMap
-import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.krisoft.tridjayaelektronik.data.AuthResult
@@ -16,6 +13,7 @@ import com.krisoft.tridjayaelektronik.data.model.CreateIndentRequest
 import com.krisoft.tridjayaelektronik.domain.indent.CreateIndentUseCase
 import com.krisoft.tridjayaelektronik.domain.indent.SearchProductsUseCase
 import com.krisoft.tridjayaelektronik.domain.indent.UploadIndentProofUseCase
+import com.krisoft.tridjayaelektronik.util.ImagePixelPipeline
 import com.krisoft.tridjayaelektronik.util.bacaInfoBerkas
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -26,15 +24,24 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.File
 import javax.inject.Inject
-import kotlin.math.max
 
 /** Server caps proof uploads at 5 MB — compress toward this so camera photos never bounce. */
-private const val MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+private const val MAX_UPLOAD_BYTES = 4L * 1024 * 1024
 private const val MAX_DIMENSION = 1920
+
+// WEBP (bukan WEBP_LOSSY, yang butuh API 30+) — deprecated tapi tetap lossy & fungsional;
+// lihat catatan sama di `PhotoWatermark.kt`.
+@Suppress("DEPRECATION")
+private val IMAGE_PARAMS = ImagePixelPipeline.Params(
+    maxDimension = MAX_DIMENSION,
+    format = Bitmap.CompressFormat.WEBP,
+    startQuality = 85,
+    minQuality = 40,
+    step = 15,
+    maxBytes = MAX_UPLOAD_BYTES,
+)
 
 /**
  * Satu foto bukti yang SUDAH ada salinannya di `cacheDir/indent/`.
@@ -267,7 +274,7 @@ class IndentCreateViewModel @Inject constructor(
                     buktiUrls += sudah
                     continue
                 }
-                val siap = withContext(Dispatchers.Default) { prepareProofUpload(foto) }
+                val siap = prepareProofUpload(foto)
                 val isi = siap.getOrNull()
                 if (isi == null) {
                     gagalSiap += foto
@@ -347,68 +354,29 @@ class IndentCreateViewModel @Inject constructor(
      * pun maupun sebabnya. Sekarang sebabnya sampai ke layar (lihat
      * [pesanFotoDilewati]).
      *
-     * `runCatching` (bukan `try/catch (e: Exception)`) memang disengaja: yang
-     * paling mungkin dilempar [compressImage] adalah `OutOfMemoryError`,
-     * turunan `Error` yang tak tertangkap `catch (e: Exception)` dan akan
-     * menutup app lewat `viewModelScope` — kelas kegagalan yang sama dengan
-     * `PhotoWatermark.prepareWatermarkedJpeg`.
+     * `runCatching` (bukan `try/catch (e: Exception)`) memang disengaja: yang paling mungkin
+     * dilempar dari dalam `ImagePixelPipeline.compress` adalah `OutOfMemoryError`, turunan
+     * `Error` yang tak tertangkap `catch (e: Exception)` dan akan menutup app lewat
+     * `viewModelScope` — kelas kegagalan yang sama dengan `PhotoWatermark.prepareWatermarkedJpeg`
+     * (`ImagePixelPipeline.compress` sendiri SUDAH membungkus badannya dengan `runCatching`
+     * juga, dijaga `ImagePixelPipelineGuardTest`; lapis di sini menangkap `foto.file.readBytes()`
+     * yang berada DI LUAR pipeline).
+     *
+     * `suspend` + `withContext(Dispatchers.Default)` membungkus SELURUH badan (bukan cuma bagian
+     * kompresi) supaya `ImagePixelPipeline.compress` dipanggil di fungsi yang sama dengan
+     * pemindahan dispatcher-nya — dijaga `ImagePixelPipelineGuardTest`. Ini murni pemindahan
+     * tempat: `submit()` dulu membungkus PANGGILAN ke fungsi ini dengan
+     * `withContext(Dispatchers.Default) { prepareProofUpload(foto) }`; utasnya sama persis,
+     * cuma baris `withContext`-nya kini di dalam, bukan di kalinya `submit()`.
      */
-    private fun prepareProofUpload(foto: FotoBukti): Result<Pair<ByteArray, String>> = runCatching {
-        val raw = foto.file.readBytes()
-        if (raw.isEmpty()) error("berkas salinan kosong")
-        if (foto.mimeType == "application/pdf") return@runCatching raw to foto.mimeType
-        val compressed = compressImage(raw)
-        if (compressed != null) compressed to "image/webp" else raw to foto.mimeType
-    }
-
-    /** Downscale to [MAX_DIMENSION], fix EXIF rotation, then WebP-compress under [MAX_UPLOAD_BYTES]. */
-    private fun compressImage(raw: ByteArray): ByteArray? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-
-        var sampleSize = 1
-        while (max(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= MAX_DIMENSION) sampleSize *= 2
-        var bitmap = BitmapFactory.decodeByteArray(raw, 0, raw.size, BitmapFactory.Options().apply { inSampleSize = sampleSize })
-            ?: return null
-
-        val maxSide = max(bitmap.width, bitmap.height)
-        if (maxSide > MAX_DIMENSION) {
-            val scale = MAX_DIMENSION.toFloat() / maxSide
-            bitmap = Bitmap.createScaledBitmap(
-                bitmap,
-                (bitmap.width * scale).toInt().coerceAtLeast(1),
-                (bitmap.height * scale).toInt().coerceAtLeast(1),
-                true
-            )
+    private suspend fun prepareProofUpload(foto: FotoBukti): Result<Pair<ByteArray, String>> =
+        withContext(Dispatchers.Default) {
+            runCatching {
+                val raw = foto.file.readBytes()
+                if (raw.isEmpty()) error("berkas salinan kosong")
+                if (foto.mimeType == "application/pdf") return@runCatching raw to foto.mimeType
+                val compressed = ImagePixelPipeline.compress(raw, IMAGE_PARAMS)?.first
+                if (compressed != null) compressed to "image/webp" else raw to foto.mimeType
+            }
         }
-
-        // Re-encoding drops EXIF, so bake the camera orientation into the pixels first.
-        val orientation = runCatching {
-            ExifInterface(ByteArrayInputStream(raw))
-                .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
-        val degrees = when (orientation) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-            else -> 0f
-        }
-        if (degrees != 0f) {
-            val matrix = Matrix().apply { postRotate(degrees) }
-            bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-        }
-
-        // WEBP (bukan WEBP_LOSSY, yang butuh API 30+) — deprecated tapi tetap
-        // lossy & fungsional; lihat catatan sama di `PhotoWatermark.kt`.
-        @Suppress("DEPRECATION")
-        val format = Bitmap.CompressFormat.WEBP
-        var quality = 85
-        var out = ByteArrayOutputStream().apply { bitmap.compress(format, quality, this) }.toByteArray()
-        while (out.size > MAX_UPLOAD_BYTES && quality > 40) {
-            quality -= 15
-            out = ByteArrayOutputStream().apply { bitmap.compress(format, quality, this) }.toByteArray()
-        }
-        return out
-    }
 }

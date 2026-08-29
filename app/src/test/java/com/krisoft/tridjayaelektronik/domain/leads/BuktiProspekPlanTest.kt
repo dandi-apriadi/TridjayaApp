@@ -57,38 +57,11 @@ class WajibBuktiProspekTest {
  */
 class UkuranBuktiProspekTest {
 
-    /**
-     * Layar 1080×2400 (paling lazim di lapangan) HARUS lolos tanpa disusutkan.
-     * Inilah alasan [MAX_BUKTI_DIMENSI] 2560, bukan 1600 seperti bukti absen.
-     */
-    @Test
-    fun `tangkapan layar HP tidak disusutkan`() {
-        assertEquals(1, sampleSizeUntuk(1080, 2400))
-        assertEquals(1, sampleSizeUntuk(1440, 3200))
-    }
-
-    /**
-     * Pembagiannya SENGAJA berhenti sebelum melewati target: yang dicari adalah
-     * pangkat dua terbesar yang hasilnya MASIH ≥ [MAX_BUKTI_DIMENSI]. Foto 12 MP
-     * (4000×3000) karena itu tetap sample 1 — 4000/2 = 2000 sudah di bawah 2560,
-     * dan menyusutkannya di tahap dekode berarti membuang detail secara permanen.
-     * Penyesuaian halus ke 2560 dikerjakan `createScaledBitmap` sesudahnya, yang
-     * bisa memakai rasio bebas dan menyaring pikselnya.
-     */
-    @Test
-    fun `pembagian berhenti sebelum melewati target`() {
-        assertEquals(1, sampleSizeUntuk(4000, 3000))
-        assertEquals(2, sampleSizeUntuk(8000, 6000))
-        assertEquals(4, sampleSizeUntuk(16000, 12000))
-    }
-
-    /** Ukuran tak terbaca (0/negatif) tak boleh jadi pembagian nol atau loop tak berujung. */
-    @Test
-    fun `dimensi tak masuk akal jatuh ke satu`() {
-        assertEquals(1, sampleSizeUntuk(0, 0))
-        assertEquals(1, sampleSizeUntuk(-10, 100))
-        assertEquals(1, sampleSizeUntuk(1000, 1000, maxDimensi = 0))
-    }
+    // `sampleSizeUntuk` (kasus 1080×2400/pembagian-berhenti/dimensi-tak-masuk-akal) DIPINDAH
+    // ke `domain/media/ImageCompressPlanTest.kt` (`SampleSizeUntukTest`) 2026-08-29 bersama
+    // migrasi `AddLeadViewModel` ke `ImagePixelPipeline` — salinan fungsinya di berkas ini
+    // (`BuktiProspekPlan.sampleSizeUntuk`) sudah dihapus, jadi test-nya ikut pindah, bukan
+    // dihapus tanpa jejak.
 
     @Test
     fun `berkas di atas batas masukan ditolak dengan angkanya`() {

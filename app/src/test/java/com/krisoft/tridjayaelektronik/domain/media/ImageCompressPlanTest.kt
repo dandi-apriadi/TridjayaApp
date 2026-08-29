@@ -6,11 +6,10 @@ import org.junit.Test
 /**
  * Matematika murni di belakang `util.ImagePixelPipeline` — dekode & rotasi.
  *
- * Kasus [sampleSizeUntuk] di sini adalah cermin dari
- * `domain/leads/BuktiProspekPlanTest.kt` (`UkuranBuktiProspekTest`), yang menguji salinan lama
- * fungsi ini sebelum diekstrak ke sini. Salinan lama TETAP ADA untuk sementara —
- * `AddLeadViewModel` belum dipindah ke `ImagePixelPipeline` (langkah terpisah) — jadi kedua set
- * test ini akan tumpang tindih sampai migrasi itu selesai dan salinan lama dihapus.
+ * Kasus [sampleSizeUntuk] di sini menggantikan salinan lama yang dulu hidup di
+ * `domain/leads/BuktiProspekPlan.kt` (`UkuranBuktiProspekTest` di
+ * `BuktiProspekPlanTest.kt`) — dihapus 2026-08-29 bersama migrasi `AddLeadViewModel` ke
+ * `ImagePixelPipeline`, satu-satunya pemanggil salinan itu.
  */
 class SampleSizeUntukTest {
 

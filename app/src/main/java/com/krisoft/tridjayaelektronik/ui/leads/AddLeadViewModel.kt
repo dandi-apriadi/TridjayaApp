@@ -2,10 +2,7 @@ package com.krisoft.tridjayaelektronik.ui.leads
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.net.Uri
-import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.krisoft.tridjayaelektronik.data.AuthRepository
@@ -22,8 +19,8 @@ import com.krisoft.tridjayaelektronik.domain.leads.MAX_BUKTI_DIMENSI
 import com.krisoft.tridjayaelektronik.domain.leads.MAX_BUKTI_PROSPEK_BYTES
 import com.krisoft.tridjayaelektronik.domain.leads.masalahUkuranBukti
 import com.krisoft.tridjayaelektronik.domain.leads.peranEfektif
-import com.krisoft.tridjayaelektronik.domain.leads.sampleSizeUntuk
 import com.krisoft.tridjayaelektronik.domain.leads.wajibBuktiProspek
+import com.krisoft.tridjayaelektronik.util.ImagePixelPipeline
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -35,10 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import javax.inject.Inject
-import kotlin.math.max
 
 // Fixed option lists mirroring the web's Submit Prospek form (ProspekSubmitForm.tsx).
 val SUMBER_LEAD_OPTIONS = listOf(
@@ -49,6 +43,24 @@ val KATEGORI_PRODUK_OPTIONS = listOf("Elektronik", "Sepeda Listrik", "Furniture"
 val FINCOY_OPTIONS = listOf(
     "Cash", "KREDIVO", "SMF (Samsung Finance)", "AKULAKU", "FIF", "ADIRA", "SHOPEE",
     "INDODANA", "TOKOPEDIA", "HCI", "AEON", "SPEKTRA", "Yes Kredit", "Kredit Plus"
+)
+
+// WebP, BUKAN lagi JPEG (2026-08-29) — memperbaiki bug hidup, bukan cuma ikut konvensi app-wide:
+// `CrmRepository.uploadBuktiProspek` mengirim filename `.webp` + `Content-Type: image/webp`
+// HARDCODE sejak awal, sedangkan `siapkanJpeg` (nama fungsi TETAP, isinya kini WebP — lihat
+// KDoc-nya) mengembalikan bytes JPEG asli. Server (`kinerja-service::prospek::upload_bukti_prospek`
+// → `aktivitas_harian::domain::is_valid_raport_evidence_content`) memvalidasi MAGIC BYTE untuk
+// ekstensi "webp" (`RIFF....WEBP`) — JPEG (`FF D8 FF`) tak pernah cocok, jadi SETIAP upload bukti
+// prospek dari layar ini ditolak 400 hari ini (diverifikasi baca kode server langsung, bukan
+// dugaan). WebP asli membuat ketiganya (nama·content-type·isi) sepakat dengan sendirinya.
+@Suppress("DEPRECATION")
+private val IMAGE_PARAMS = ImagePixelPipeline.Params(
+    maxDimension = MAX_BUKTI_DIMENSI,
+    format = Bitmap.CompressFormat.WEBP,
+    startQuality = 90,
+    minQuality = 40,
+    step = 15,
+    maxBytes = MAX_BUKTI_PROSPEK_BYTES,
 )
 
 data class AddLeadUiState(
@@ -191,7 +203,7 @@ class AddLeadViewModel @Inject constructor(
         }
         _uiState.update { it.copy(mengunggahBukti = true, buktiError = null, errorMessage = null) }
         viewModelScope.launch {
-            val bytes = withContext(Dispatchers.Default) { siapkanJpeg(uri) }
+            val bytes = siapkanJpeg(uri)
             if (bytes == null) {
                 _uiState.update {
                     it.copy(
@@ -223,65 +235,27 @@ class AddLeadViewModel @Inject constructor(
     }
 
     /**
-     * Dekode → betulkan rotasi EXIF → JPEG di bawah [MAX_BUKTI_PROSPEK_BYTES].
+     * Dekode → betulkan rotasi EXIF → WebP di bawah [MAX_BUKTI_PROSPEK_BYTES]. Nama fungsi TETAP
+     * "Jpeg" walau isinya kini WebP (2026-08-29) — lihat komentar [IMAGE_PARAMS] soal kenapa
+     * gantinya WAJIB, bukan opsional. `null` = PENOLAKAN, bukan fallback ke byte asli: masih
+     * kebesaran di kualitas terendah = server pasti menolak, lebih baik gagal di sini dengan
+     * pesan yang benar daripada sesudah 8 MB terkirim (beda sengaja dari `PhotoWatermark`/
+     * `IndentCreateViewModel.prepareProofUpload`/`EventViewModel.siapkanKtpJpeg`, yang fail-soft ke
+     * byte asli — `ImagePixelPipeline.compress` sendiri SELALU fail-soft, jadi penolakannya
+     * dicek DI SINI, sesudah `compress()` kembali, bukan di dalam pipeline bersama).
      *
-     * Kode ulang ke JPEG BUKAN pilihan gaya: server memeriksa ekstensi × MIME ×
-     * magic byte serentak, sedangkan yang dikirim klien ini selalu bernama `.jpg`
-     * dengan `image/jpeg` — PNG apa adanya (bentuk paling lazim tangkapan layar)
-     * ditolak 400 sesudah terkirim. Alasan lengkapnya di `BuktiProspekPlan.kt`.
+     * `suspend` + `withContext(Dispatchers.Default)` membungkus SELURUH badan (termasuk baca
+     * `ContentResolver`) supaya `ImagePixelPipeline.compress` dipanggil di fungsi yang sama dengan
+     * pemindahan dispatcher-nya — dijaga `ImagePixelPipelineGuardTest`. `onBuktiPicked` dulu
+     * membungkus PANGGILAN ke fungsi ini dengan `withContext(Dispatchers.Default) { siapkanJpeg(uri) }`;
+     * utasnya sama persis, cuma baris `withContext`-nya kini di dalam.
      */
-    private fun siapkanJpeg(uri: Uri): ByteArray? {
+    private suspend fun siapkanJpeg(uri: Uri): ByteArray? = withContext(Dispatchers.Default) {
         val raw = runCatching {
             appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        }.getOrNull() ?: return null
-        if (raw.isEmpty()) return null
-
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-
-        var bitmap = BitmapFactory.decodeByteArray(
-            raw, 0, raw.size,
-            BitmapFactory.Options().apply { inSampleSize = sampleSizeUntuk(bounds.outWidth, bounds.outHeight) }
-        ) ?: return null
-
-        val sisiTerpanjang = max(bitmap.width, bitmap.height)
-        if (sisiTerpanjang > MAX_BUKTI_DIMENSI) {
-            val skala = MAX_BUKTI_DIMENSI.toFloat() / sisiTerpanjang
-            bitmap = Bitmap.createScaledBitmap(
-                bitmap,
-                (bitmap.width * skala).toInt().coerceAtLeast(1),
-                (bitmap.height * skala).toInt().coerceAtLeast(1),
-                true
-            )
-        }
-
-        // Kode ulang membuang EXIF, jadi rotasinya dipanggang ke piksel dulu —
-        // tanpa ini foto kamera potret tersimpan miring dan mentor membacanya miring.
-        val orientasi = runCatching {
-            ExifInterface(ByteArrayInputStream(raw))
-                .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
-        val derajat = when (orientasi) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-            else -> 0f
-        }
-        if (derajat != 0f) {
-            val matrix = Matrix().apply { postRotate(derajat) }
-            bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-        }
-
-        var kualitas = 90
-        var out = ByteArrayOutputStream().apply { bitmap.compress(Bitmap.CompressFormat.JPEG, kualitas, this) }.toByteArray()
-        while (out.size > MAX_BUKTI_PROSPEK_BYTES && kualitas > 40) {
-            kualitas -= 15
-            out = ByteArrayOutputStream().apply { bitmap.compress(Bitmap.CompressFormat.JPEG, kualitas, this) }.toByteArray()
-        }
-        // Masih kebesaran di kualitas terendah = server pasti menolak; lebih baik
-        // gagal di sini, dengan pesan yang benar, daripada sesudah 8 MB terkirim.
-        return out.takeIf { it.size <= MAX_BUKTI_PROSPEK_BYTES }
+        }.getOrNull() ?: return@withContext null
+        if (raw.isEmpty()) return@withContext null
+        ImagePixelPipeline.compress(raw, IMAGE_PARAMS)?.first?.takeIf { it.size <= MAX_BUKTI_PROSPEK_BYTES }
     }
 
     fun submit() {

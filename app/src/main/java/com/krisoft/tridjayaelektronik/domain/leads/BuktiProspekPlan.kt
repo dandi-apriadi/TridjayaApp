@@ -1,22 +1,22 @@
 package com.krisoft.tridjayaelektronik.domain.leads
 
-import kotlin.math.max
-
 /**
  * Aturan murni bukti prospek — siapa yang WAJIB melampirkannya, batas ukuran, dan
  * keputusan penyusutan sebelum unggah. Dipisah dari ViewModel supaya bisa diuji
  * tanpa perangkat, dan dari layar supaya kontrak lintas-repo di bawah terbaca utuh.
  *
- * ## Kenapa gambar SELALU dikodekan ulang jadi JPEG
+ * ## Kenapa gambar SELALU dikodekan ulang (WebP sejak 2026-08-29, dulu JPEG)
  *
  * `POST /prospek-harian/bukti` memvalidasi **ekstensi × content-type × magic byte
  * SERENTAK** (`prospek.rs` → `is_valid_raport_evidence_content`). Pasangan yang
  * meleset ditolak 400 SESUDAH seluruh berkas terkirim. Klien ini mengirim nama
- * berkas `.jpg` dengan `image/jpeg` (lihat `CrmRepository.uploadBuktiProspek`),
- * jadi PNG/WebP apa adanya dari galeri — bentuk paling lazim tangkapan layar
+ * berkas `.webp` dengan `image/webp` (lihat `CrmRepository.uploadBuktiProspek`),
+ * jadi PNG/JPEG apa adanya dari galeri — bentuk paling lazim tangkapan layar
  * percakapan — akan ditolak isinya walau ukurannya sah. Mengodekan ulang membuat
  * ketiganya sepakat dengan sendirinya, sekaligus memangkas foto kamera yang
- * melewati batas 8 MB.
+ * melewati batas 8 MB. Sebelum 2026-08-29 ini keliru JPEG (`AddLeadViewModel.siapkanJpeg`
+ * mengembalikan bytes JPEG memakai nama+content-type `.webp`) — bug hidup yang membuat
+ * SETIAP upload di layar ini ditolak 400, diperbaiki bersamaan migrasi ke `ImagePixelPipeline`.
  */
 
 /**
@@ -83,21 +83,6 @@ internal fun wajibBuktiProspek(peran: List<String>): Boolean =
 /** Gabungan role primary + `roles[]`, dibersihkan. Kosong dan duplikat dibuang. */
 internal fun peranEfektif(role: String?, roles: List<String>): List<String> =
     (listOf(role.orEmpty()) + roles).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-
-/**
- * `inSampleSize` untuk [android.graphics.BitmapFactory] — pangkat dua terbesar
- * yang masih menyisakan sisi terpanjang ≥ [maxDimensi].
- *
- * Dipisah jadi fungsi murni karena inilah satu-satunya bagian dari jalur dekode
- * yang bisa salah tanpa gejala: nilai kekecilan cuma memboroskan memori, nilai
- * kebesaran diam-diam membuang detail yang justru jadi isi buktinya.
- */
-internal fun sampleSizeUntuk(lebar: Int, tinggi: Int, maxDimensi: Int = MAX_BUKTI_DIMENSI): Int {
-    if (lebar <= 0 || tinggi <= 0 || maxDimensi <= 0) return 1
-    var sample = 1
-    while (max(lebar, tinggi) / (sample * 2) >= maxDimensi) sample *= 2
-    return sample
-}
 
 /**
  * Pesan penolakan berkas masukan, atau `null` kalau boleh lanjut.

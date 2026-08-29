@@ -34,6 +34,24 @@ class ImagePixelPipelineGuardTest {
     private val pipelineFile: File =
         File(sumberRoot, "com/krisoft/tridjayaelektronik/util/ImagePixelPipeline.kt")
 
+    /**
+     * `PhotoWatermark.kt` — KEKECUALIAN TUNGGAL di Aturan 2, dan disengaja (bukan celah, lapis
+     * pertahanan yang BERBEDA, bukan absen). `olahPiksel`/`prepareWatermarkedJpeg` TIDAK BOLEH
+     * `suspend`: kontrak publik `prepareWatermarkedJpeg` dipertahankan sebagai fungsi SINKRON
+     * lintas 12+ pemanggil yang sudah membungkusnya sendiri dengan
+     * `withContext(Dispatchers.Default) { PhotoWatermark.prepareWatermarkedJpeg(...) }` — jadi
+     * `olahPiksel` secara struktural TAK BISA membungkus panggilan `ImagePixelPipeline.compress`
+     * miliknya sendiri dengan `withContext` (bukan fungsi suspend). Perlindungannya tetap ada,
+     * cuma satu lapis lebih tinggi dan dijaga test LAIN:
+     * `PhotoWatermarkGuardTest.semua pemanggil membungkus dengan withContext` memindai SEMUA
+     * pemanggil `PhotoWatermark.prepareWatermarkedJpeg` (bukan `olahPiksel`) dan menuntut
+     * `withContext(Dispatchers.…)` persis di titik yang sama akan menjalankan
+     * `ImagePixelPipeline.compress` secara transitif. Kalau kelak `PhotoWatermark.kt` dapat
+     * call-site KEDUA ke `ImagePixelPipeline.compress` di LUAR `olahPiksel`, kekecualian ini
+     * TIDAK melindunginya — tinjau ulang sebelum menambah baris baru di sana.
+     */
+    private val dikecualikan = setOf("PhotoWatermark.kt")
+
     @Test
     fun `pipa compress berada di dalam runCatching`() {
         val isi = pipelineFile.readText()
@@ -69,7 +87,7 @@ class ImagePixelPipelineGuardTest {
     fun `semua pemanggil membungkus dengan withContext`() {
         val pelanggar = mutableListOf<String>()
         sumberRoot.walkTopDown()
-            .filter { it.isFile && it.extension == "kt" }
+            .filter { it.isFile && it.extension == "kt" && it.name !in dikecualikan }
             .forEach { berkas ->
                 val baris = berkas.readLines()
                 baris.forEachIndexed { i, isi ->
