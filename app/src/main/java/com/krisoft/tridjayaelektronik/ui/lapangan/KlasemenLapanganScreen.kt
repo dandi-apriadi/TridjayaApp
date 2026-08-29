@@ -88,8 +88,18 @@ fun KlasemenLapanganScreen(
                         )
                     }
                 }
+                // Periode + KAPAN angkanya dihitung. Umur wajib terlihat:
+                // repository menyajikan salinan cache (TTL 5 jam) dan, saat
+                // jaringan mati, salinan BASI tanpa batas umur — papan kemarin
+                // yang tampil tanpa tanda terbaca sebagai papan hari ini.
                 Text(
-                    FormatMetrik.periode(state.periode),
+                    buildString {
+                        append(FormatMetrik.periode(papan?.periode ?: state.periode))
+                        papan?.dihitungPada?.takeIf { it.isNotBlank() }?.let {
+                            append(" · dihitung ")
+                            append(it.replace('T', ' '))
+                        }
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -113,7 +123,7 @@ fun KlasemenLapanganScreen(
                         )
                     }
 
-                    papan == null || papan.peserta.isEmpty() -> Box(
+                    papan == null -> Box(
                         modifier = Modifier.fillMaxSize().padding(24.dp),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -124,11 +134,28 @@ fun KlasemenLapanganScreen(
                         )
                     }
 
+                    // Peserta kosong TIDAK boleh membuang `belumCukupData` dan
+                    // `catatan`: justru pada papan kosong keduanya satu-satunya
+                    // yang menjelaskan KENAPA kosong. Papan PDI dijamin kosong
+                    // di hari-hari awal bulan (lantai 8 hari aktif), dan tanpa
+                    // ini layarnya cuma berkata "belum ada peringkat".
                     else -> LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 120.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
+                        if (papan.peserta.isEmpty()) {
+                            item {
+                                ClayCard(modifier = Modifier.fillMaxWidth()) {
+                                    Text(
+                                        "Belum ada yang memenuhi ambang penilaian di periode ini.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(14.dp),
+                                    )
+                                }
+                            }
+                        }
                         items(papan.peserta, key = { it.karyawanId }) { peserta ->
                             BarisPeserta(peserta)
                         }

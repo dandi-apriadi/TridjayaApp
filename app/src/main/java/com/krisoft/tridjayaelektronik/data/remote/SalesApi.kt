@@ -10,7 +10,6 @@ import com.krisoft.tridjayaelektronik.data.model.SparklineListDto
 import com.krisoft.tridjayaelektronik.data.model.TransactionPageDto
 import retrofit2.Response
 import retrofit2.http.GET
-import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface SalesApi {
@@ -35,13 +34,22 @@ interface SalesApi {
     @GET("api/finance/leaderboard")
     suspend fun klasemenOmset(@Query("periode") periode: String): Response<ApiResponse<OmsetListDto>>
 
-    // Papan kerja LAPANGAN (driver & PDI) — beda dari klasemen penjualan di
-    // atas: peringkatnya sudah dihitung SERVER, jadi respons ini dipakai apa
-    // adanya tanpa agregasi di HP. `peran` = "driver" | "pdi"; path-nya tetap
-    // eksplisit di gateway (bukan wildcard), jadi peran lain akan 404.
-    @GET("api/klasemen/{peran}")
-    suspend fun papanLapangan(
-        @Path("peran") peran: String,
+    // Papan kerja LAPANGAN — beda dari klasemen penjualan di atas: peringkatnya
+    // sudah dihitung SERVER, jadi respons dipakai apa adanya tanpa agregasi.
+    //
+    // DUA metode ber-path LITERAL, sengaja BUKAN satu metode ber-`@Path`.
+    // `check-mobile-contract.sh` — gerbang WAJIB pra-rilis APK — memindai
+    // literal `@GET` dan mencocokkannya ke rute backend yang live; `{peran}`
+    // tak akan pernah cocok, jadi gerbangnya merah PERMANEN dan tak sembuh
+    // oleh deploy. Gerbang yang selalu merah adalah gerbang yang orang belajar
+    // lewati, dan itu persis mode kegagalan yang dijaga skrip itu sendiri.
+    @GET("api/klasemen/driver")
+    suspend fun papanDriver(
+        @Query("periode") periode: String,
+    ): Response<ApiResponse<PapanLapanganDto>>
+
+    @GET("api/klasemen/pdi")
+    suspend fun papanPdi(
         @Query("periode") periode: String,
     ): Response<ApiResponse<PapanLapanganDto>>
 

@@ -5,7 +5,6 @@ import com.krisoft.tridjayaelektronik.ui.home.gateAllows
 import java.util.Calendar
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -71,6 +70,8 @@ class KlasemenLapanganGateTest {
     @Test
     fun `dua peran punya slug yang dipakai di path endpoint`() {
         assertEquals(listOf("driver", "pdi"), PeranPapan.entries.map { it.slug })
-        assertNotNull(PeranPapan.entries.first { it.slug == "pdi" }.judul)
+        // Judul dipakai sebagai label chip — kosong berarti tab tanpa nama.
+        // (`assertNotNull` atas properti non-nullable Kotlin = tautologi.)
+        assertTrue(PeranPapan.entries.all { it.judul.isNotBlank() })
     }
 }

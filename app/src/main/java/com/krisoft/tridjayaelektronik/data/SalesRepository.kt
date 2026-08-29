@@ -231,7 +231,11 @@ class SalesRepository @Inject constructor(
             }
         }
         return try {
-            val response = api.papanLapangan(peran, periode)
+            // `when` atas slug, bukan `@Path` — lihat alasannya di `SalesApi`.
+            val response = when (peran) {
+                "pdi" -> api.papanPdi(periode)
+                else -> api.papanDriver(periode)
+            }
             val papan = response.body()?.data
             if (response.isSuccessful && papan != null) {
                 val payload = withContext(Dispatchers.Default) { json.encodeToString(serializer, papan) }
@@ -308,7 +312,12 @@ class SalesRepository @Inject constructor(
         }
         return AuthResult.Failure(
             parsed?.code ?: "http_${response.code()}",
-            parsed?.message ?: "Terjadi kesalahan (${response.code()})"
+            parsed?.message ?: "Terjadi kesalahan (${response.code()})",
+            // `httpStatus` diisi supaya pemanggil bisa membedakan penolakan
+            // PERMANEN (403 — orangnya memang tak berhak) dari gangguan
+            // sementara. Menebaknya dari `code` tak bisa: gateway memakai satu
+            // kode untuk beberapa status sekaligus (lihat doc `AuthResult`).
+            response.code()
         )
     }
 
