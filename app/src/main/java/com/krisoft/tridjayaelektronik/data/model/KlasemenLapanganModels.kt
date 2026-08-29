@@ -60,4 +60,16 @@ data class BelumCukupDataDto(
     val nama: String = "",
     val cabang: String? = null,
     val alasan: String = "",
+    /**
+     * `true` = AKUN orangnya nonaktif, jadi ia ada di daftar ini BUKAN karena
+     * datanya kurang (server 2026-08-29 ke atas).
+     *
+     * Default `false` menjaga APK lama/baru sama-sama waras: respons tanpa
+     * field ini tak pernah merender lencana, dan itu perilaku yang benar.
+     *
+     * **Klaim tentang AKUN, bukan status kepegawaian** — `auth_users.is_active`
+     * juga dipakai untuk suspend sementara. Jangan mengubah teksnya jadi
+     * "sudah keluar"; lihat doc `BelumCukupData::akun_nonaktif` di Rust.
+     */
+    val akunNonaktif: Boolean = false,
 )

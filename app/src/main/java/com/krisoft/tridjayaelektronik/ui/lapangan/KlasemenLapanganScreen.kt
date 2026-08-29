@@ -164,14 +164,23 @@ fun KlasemenLapanganScreen(
                             item {
                                 ClayCard(modifier = Modifier.fillMaxWidth()) {
                                     Column(Modifier.padding(14.dp)) {
+                                        // Judul HARUS sama dengan web: daftar ini
+                                        // kini memuat DUA sebab (lantai sampel &
+                                        // akun nonaktif), jadi "Belum cukup data"
+                                        // memvonis salah untuk sebab yang kedua.
                                         Text(
-                                            "Belum cukup data untuk diperingkat",
+                                            "Dilaporkan tanpa peringkat",
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.SemiBold,
                                         )
                                         papan.belumCukupData.forEach {
+                                            val label = if (it.akunNonaktif) {
+                                                "${it.nama} [akun nonaktif] — ${it.alasan}"
+                                            } else {
+                                                "${it.nama} — ${it.alasan}"
+                                            }
                                             Text(
-                                                "${it.nama} — ${it.alasan}",
+                                                label,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.padding(top = 4.dp),
