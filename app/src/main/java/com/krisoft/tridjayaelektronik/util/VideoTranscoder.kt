@@ -3,7 +3,9 @@ package com.krisoft.tridjayaelektronik.util
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.DefaultEncoderFactory
@@ -82,6 +84,7 @@ object VideoTranscoder {
      * @return [outputFile] kalau transcode berhasil DAN filenya ada & tak kosong, `null` kalau
      *   gagal/timeout/dibatalkan (fail-soft — pemanggil fallback ke berkas asli).
      */
+    @OptIn(UnstableApi::class)
     suspend fun transcode(
         context: Context,
         sourceUri: Uri,
