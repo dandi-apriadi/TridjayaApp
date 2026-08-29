@@ -55,4 +55,12 @@
          cache wajib dideklarasikan, supaya pemakaian FileProvider yang ditambah
          belakangan tak menemukan lubangnya. -->
     <cache-path name="indent" path="indent/" />
+    <!-- Berkas keluaran sementara VideoTranscoder (util/VideoTranscoder.kt) — video bukti Input
+         Aktivitas ditranscode ke sini SEBELUM diunggah, ditulis `AktivitasViewModel.kirimVideo`
+         ke `cacheDir/media-compress/`. Layar ini tak memanggil `getUriForFile` atas berkas ini
+         hari ini (upload langsung dari File via `asRequestBody`), jadi entri ini bukan penangkal
+         crash melainkan pemenuhan aturan `FileProviderPathsTest`: tiap subdirektori cache wajib
+         dideklarasikan, supaya pemakaian FileProvider yang ditambah belakangan tak menemukan
+         lubangnya (pola sama `indent` di atas). -->
+    <cache-path name="media_compress" path="media-compress/" />
 </paths>

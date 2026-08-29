@@ -253,6 +253,19 @@ dependencies {
     // on-demand), jauh lebih ringan daripada bundling CameraX+ML Kit.
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 
+    // Transcode video bukti Input Aktivitas >30MB on-device (H.264/MediaCodec hardware) sebelum
+    // upload (util/VideoTranscoder.kt) — pustaka androidx RESMI untuk transcode via MediaCodec,
+    // satu-satunya jalan realistis selain menulis ulang MediaCodec/MediaMuxer manual sendiri.
+    // Versi diverifikasi LANGSUNG dari maven-metadata.xml dl.google.com/android/maven2
+    // (latest/release=1.11.0 utk transformer, common, DAN effect), bukan diketik dari ingatan.
+    implementation("androidx.media3:media3-transformer:1.9.4")
+    // Tipe bersama Transformer (EditedMediaItem, MediaItem via androidx.media3.common, dll) —
+    // versi HARUS sama persis dengan media3-transformer, media3 tak menjamin kompat lintas versi.
+    implementation("androidx.media3:media3-common:1.9.4")
+    // Presentation.createForWidthAndHeight (scale target lebar/tinggi) — Transformer sendiri
+    // tak punya parameter dimensi, efeknya hidup di modul terpisah ini.
+    implementation("androidx.media3:media3-effect:1.9.4")
+
     // Installs the bundled baseline profile on first run (removes cold-start/first-scroll JIT jank).
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     // Consumes the profile produced by the :baselineprofile module and bundles it into the APK.

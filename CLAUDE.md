@@ -74,17 +74,37 @@ MainActivity.kt             hosts every tab's NavHost + the keep-all-tabs-alive 
 
 ## Architecture decisions worth knowing before you touch things
 
-**`java.time` DILARANG di `app/src/main`.** minSdk 24, dan `coreLibraryDesugaring` TIDAK
-diaktifkan (cek sendiri: `grep -r desugar` di semua `*.kts` — nihil), sedangkan `java.time`
-baru ada di API 26. Kompilasi tetap hijau; yang pecah adalah HP Android 7.0/7.1 di lapangan,
-dengan `NoClassDefFoundError` — turunan `Error`, BUKAN `Exception`, jadi gejalanya berbeda-beda
-tergantung penangkap terdekat: `runCatching` (menangkap `Throwable`) menelannya jadi **nol
-senyap selamanya**, sementara `catch (e: Exception)` tidak menangkapnya sama sekali dan
-**app-nya tutup**. Sudah menggigit dua kali dalam sehari (371d0f5 `isGantung` → senyap;
-`InventoryRepository.findInTransitHint` → crash saat hasil pencarian kosong). Pakai
+**`java.time` DILARANG di `app/src/main` — KLAIM INI BASI SEJAK 2026-08-19, koreksi ditulis
+2026-08-29.** Larangan kategorisnya lahir dari premis "`coreLibraryDesugaring` TIDAK diaktifkan",
+dan premis itu sendiri sudah tidak benar: `isCoreLibraryDesugaringEnabled = true` +
+`coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")` ditambahkan di commit
+`edbd42fc` (19 Agu 2026, fork mobile — lihat `18d11a5c^2` untuk history pra-impor monorepo)
+PERSIS untuk menutup crash `java.time` ini (`org.dhatim:fastexcel` memanggil
+`java.time.Instant.now()` tanpa syarat di `Workbook.finish()`, menutup app di Android 7/7.1).
+**Ini bukan asumsi** — dibuktikan lewat instrumentasi nyata di emulator API 24
+(commit `68215258`, `EksporXlsxApi24Test.kt`, `./gradlew :app:connectedDebugAndroidTest`):
+`java.time.Instant`/`java.time.Duration` dipakai LANGSUNG dan test LULUS di `system-images;
+android-24;default;x86_64`; dengan desugaring dimatikan lagi, test yang sama gagal dengan
+`NoClassDefFoundError: Failed resolution of: Ljava/time/Instant;` dan
+`Ljava/time/format/DateTimeFormatter;` — kontrol negatif yang menegaskan tanpa desugaring app
+ini memang tutup persis seperti yang diperingatkan larangan lama.
+
+**Yang berubah**: `java.time` TIDAK LAGI DILARANG kategoris di `app/src/main`. **Yang TIDAK
+berubah**: desugar_jdk_libs 2.1.4 tidak menjamin 100% permukaan API `java.time` terdesugar di
+semua versi Android lama (baru `Instant`/`Duration`/`DateTimeFormatter` yang punya bukti
+instrumentasi langsung di API 24 di repo ini). Kode BARU yang memakai kelas `java.time` di luar
+yang sudah terverifikasi di atas WAJIB diuji lewat instrumented test serupa
+(`connectedDebugAndroidTest` di AVD API 24) sebelum dianggap aman — jangan berasumsi seluruh
+paket `java.time.*`/`java.time.format.*` otomatis ikut terdesugar hanya karena flag-nya aktif.
+Tanpa bukti instrumentasi untuk API spesifik yang dipakai, tetap default ke
 `SimpleDateFormat`/`Calendar`, dan pakai ULANG helper yang sudah ada alih-alih menulis util
 tanggal ke-sekian: `parseIsoUtcMillis` (`data/model/NotificationModels.kt`) untuk parse ISO,
 `KlasemenStandings.todayIso()`/`shiftDays()` (`domain/sales/`) untuk `yyyy-MM-dd` + geser hari.
+Riwayat lama tetap berlaku sebagai alasan KENAPA ini pernah kritis (sudah menggigit dua kali
+dalam sehari: 371d0f5 `isGantung` → senyap lewat `runCatching` menelan `Throwable`;
+`InventoryRepository.findInTransitHint` → crash lewat `catch (e: Exception)` yang tak
+menangkap `Error`) — `NoClassDefFoundError`/`OutOfMemoryError` keduanya turunan `Error`, BUKAN
+`Exception`, itulah kenapa gejalanya berbeda-beda tergantung penangkap terdekat.
 
 **Tiap subdirektori `cacheDir`/`filesDir` WAJIB punya entri di
 `res/xml/file_paths.xml`.** Kalau tidak, `FileProvider.getUriForFile` melempar
