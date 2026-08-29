@@ -133,6 +133,7 @@ fun HomeScreen(
     onKomplainTugas: () -> Unit = {},
     onPemasanganAcKontrol: () -> Unit = {},
     onVertel: () -> Unit = {},
+    onKlasemenLapangan: () -> Unit = {},
     /** Buka satu menu alur SPK berdasarkan key: input/diskon/kasir/pdi/kontrol/driver. */
     onSpkMenu: (String) -> Unit = {},
     /** Buka layar isi prospek untuk satu event (id-nya). */
@@ -231,7 +232,7 @@ fun HomeScreen(
                                     onQuickAccessHargaGs,
                                     onQuickAccessSerialInput, onQuickAccessDeadstock, onQuickAccessMutasiHistori,
                                     onKomplainLapor, onKomplainSaya, onKomplainTugas,
-                                    onPemasanganAcKontrol, onVertel,
+                                    onPemasanganAcKontrol, onVertel, onKlasemenLapangan,
                                     onSpkMenu
                                 )
                             }
@@ -269,6 +270,7 @@ private fun LazyListScope.homeSection(
     onKomplainTugas: () -> Unit,
     onPemasanganAcKontrol: () -> Unit,
     onVertel: () -> Unit,
+    onKlasemenLapangan: () -> Unit,
     onSpkMenu: (String) -> Unit
 ) {
     when (section) {
@@ -306,6 +308,7 @@ private fun LazyListScope.homeSection(
                     onKomplainTugas = onKomplainTugas,
                     onPemasanganAcKontrol = onPemasanganAcKontrol,
                     onVertel = onVertel,
+                    onKlasemenLapangan = onKlasemenLapangan,
                     onSpkMenu = onSpkMenu,
                 )
             }
@@ -597,6 +600,7 @@ private fun QuickAccessRow(
     onKomplainTugas: () -> Unit,
     onPemasanganAcKontrol: () -> Unit,
     onVertel: () -> Unit,
+    onKlasemenLapangan: () -> Unit,
     onSpkMenu: (String) -> Unit,
 ) {
     // Tile dirender dari REGISTRI (`QuickAccessMenus.kt`) — hak akses tiap menu
@@ -627,6 +631,7 @@ private fun QuickAccessRow(
                         "crm" -> onLeads()
                         "indent" -> onIndent()
                         "klasemen" -> onSales()
+                        "klasemen_lapangan" -> onKlasemenLapangan()
                         "opname" -> onOpname()
                         "harga_gs" -> onHargaGs()
                         "serial_input" -> onSerialInput()
@@ -659,6 +664,7 @@ private fun quickAccessVisual(id: String): Pair<androidx.compose.ui.graphics.vec
     "crm" -> Pair(Icons.Rounded.Groups, MaterialTheme.colorScheme.tertiary)
     "indent" -> Pair(Icons.Rounded.PlaylistAddCheck, MaterialTheme.colorScheme.secondary)
     "klasemen" -> Pair(Icons.Rounded.BarChart, Color(0xFF12B76A))
+    "klasemen_lapangan" -> Pair(Icons.Rounded.EmojiEvents, Color(0xFFF79009))
     "opname" -> Pair(Icons.Rounded.FactCheck, Color(0xFF0BA5EC))
     "harga_gs" -> Pair(Icons.Rounded.PriceChange, Color(0xFFF79009))
     "serial_input" -> Pair(Icons.Rounded.Numbers, Color(0xFF667085))

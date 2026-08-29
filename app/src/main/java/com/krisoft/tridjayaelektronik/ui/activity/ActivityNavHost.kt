@@ -56,6 +56,7 @@ import com.krisoft.tridjayaelektronik.ui.serials.SerialInputScreen
 // Berikut masih tinggal di package ui.home (hanya HomeNavHost yang pindah ke
 // ui.activity) — perlu diimpor eksplisit karena tak lagi satu paket.
 import com.krisoft.tridjayaelektronik.ui.home.HomeScreen
+import com.krisoft.tridjayaelektronik.ui.lapangan.KlasemenLapanganScreen
 import com.krisoft.tridjayaelektronik.ui.home.HomeViewModel
 import com.krisoft.tridjayaelektronik.ui.home.RankingKind
 import com.krisoft.tridjayaelektronik.ui.home.RankingListScreen
@@ -107,6 +108,7 @@ private const val ROUTE_PEMASANGAN_AC = "home_pemasangan_ac"
 // meja yang dibuka saat dibutuhkan, bukan antrian harian yang menunggu jawaban.
 private const val ROUTE_PEMASANGAN_AC_KONTROL = "home_pemasangan_ac_kontrol"
 private const val ROUTE_VERTEL = "home_vertel"
+private const val ROUTE_KLASEMEN_LAPANGAN = "home_klasemen_lapangan"
 
 private fun hsDetailRoute(id: String) = "home_hs_detail/${Uri.encode(id)}"
 private const val ROUTE_GAJI = "home_gaji"
@@ -328,6 +330,9 @@ fun ActivityNavHost(
                 onQuickAccessLeads = { navController.navigate(ROUTE_LEADS_LIST) { launchSingleTop = true } },
                 onQuickAccessIndent = { navController.navigate(ROUTE_INDENT) { launchSingleTop = true } },
                 onQuickAccessSales = { navController.navigate(ROUTE_SALES) { launchSingleTop = true } },
+                onKlasemenLapangan = {
+                    navController.navigate(ROUTE_KLASEMEN_LAPANGAN) { launchSingleTop = true }
+                },
                 onQuickAccessOpname = { navController.navigate(ROUTE_OPNAME) { launchSingleTop = true } },
                 onQuickAccessAbsen = { navController.navigate(ROUTE_ABSEN) { launchSingleTop = true } },
                 onQuickAccessGaji = { navController.navigate(ROUTE_GAJI) { launchSingleTop = true } },
@@ -461,6 +466,9 @@ fun ActivityNavHost(
         }
         composable(ROUTE_VERTEL) {
             VertelScreen(onBack = { navController.popBackStack() })
+        }
+        composable(ROUTE_KLASEMEN_LAPANGAN) {
+            KlasemenLapanganScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = ROUTE_HS_DETAIL,

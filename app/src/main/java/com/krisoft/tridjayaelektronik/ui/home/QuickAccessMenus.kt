@@ -230,6 +230,20 @@ internal val VERTEL_ROLES = setOf("cs", "admin", "superadmin")
 // menu lain juga pindah lagi nanti.
 internal val QUICK_ACCESS_MENUS: List<QuickAccessMenu> = listOf(
     QuickAccessMenu(
+        id = "klasemen_lapangan",
+        // Kunci BARU, sengaja bukan `klasemen.view` (audiens klasemen PENJUALAN,
+        // yang justru tak memuat driver maupun pdi). Daftar rolenya hidup di
+        // `KLASEMEN_OPERASIONAL_ROLES` — cadangan di bawah cuma dipakai saat
+        // peta kemampuan server belum termuat (offline / server lama).
+        capability = "klasemen.operasional",
+        label = "Klasemen Lapangan",
+        allowedRoles = setOf(
+            "driver", "pdi", "delivery-control", "kepala-cabang",
+            "sales-manager", "manager", "admin", "superadmin", "owner",
+        ),
+        backendGuard = "kinerja-service klasemen.rs LIHAT_ROLES (= KLASEMEN_OPERASIONAL_ROLES)",
+    ),
+    QuickAccessMenu(
         id = "gaji",
         capability = "payroll.self",
         label = "Slip Gaji",

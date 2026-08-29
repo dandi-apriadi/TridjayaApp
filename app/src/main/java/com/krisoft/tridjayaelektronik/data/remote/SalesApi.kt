@@ -5,10 +5,12 @@ import com.krisoft.tridjayaelektronik.data.model.ExecutiveKpiDto
 import com.krisoft.tridjayaelektronik.data.model.LeaderboardReportDto
 import com.krisoft.tridjayaelektronik.data.model.MonthlyTargetDto
 import com.krisoft.tridjayaelektronik.data.model.OmsetListDto
+import com.krisoft.tridjayaelektronik.data.model.PapanLapanganDto
 import com.krisoft.tridjayaelektronik.data.model.SparklineListDto
 import com.krisoft.tridjayaelektronik.data.model.TransactionPageDto
 import retrofit2.Response
 import retrofit2.http.GET
+import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface SalesApi {
@@ -32,6 +34,16 @@ interface SalesApi {
     // rows, aggregated client-side. Fallback when salesLeaderboard() is role-guarded (403).
     @GET("api/finance/leaderboard")
     suspend fun klasemenOmset(@Query("periode") periode: String): Response<ApiResponse<OmsetListDto>>
+
+    // Papan kerja LAPANGAN (driver & PDI) — beda dari klasemen penjualan di
+    // atas: peringkatnya sudah dihitung SERVER, jadi respons ini dipakai apa
+    // adanya tanpa agregasi di HP. `peran` = "driver" | "pdi"; path-nya tetap
+    // eksplisit di gateway (bukan wildcard), jadi peran lain akan 404.
+    @GET("api/klasemen/{peran}")
+    suspend fun papanLapangan(
+        @Path("peran") peran: String,
+        @Query("periode") periode: String,
+    ): Response<ApiResponse<PapanLapanganDto>>
 
     @GET("api/owner/sales-transactions")
     suspend fun salesTransactions(
