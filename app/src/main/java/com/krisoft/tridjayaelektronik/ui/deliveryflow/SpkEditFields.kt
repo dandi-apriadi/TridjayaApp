@@ -21,8 +21,8 @@ import kotlinx.serialization.json.JsonPrimitive
  * jangan "melengkapi"-nya.** `PATCH /inventory/delivery/{id}` memang
  * menerimanya, TAPI **SUPER-ADMIN SAJA** (setara `kodeDealer`) dan berlaku
  * SE-SPK, sedangkan [SPK_EDIT_FIELDS] adalah daftar field yang boleh disunting
- * oleh SIAPA PUN yang lolos [bolehSuntingSpk] — termasuk sales PEMILIK SPK saat
- * `pending_discount`. Tak satu pun field super-admin ada di sini, dan itu bukan
+ * oleh SIAPA PUN yang lolos [bolehSuntingSpk] — termasuk sales PEMILIK SPK
+ * selagi belum sampai PDI. Tak satu pun field super-admin ada di sini, dan itu bukan
  * kelalaian: menambahkannya membuat sales melihat kolom yang servernya jawab
  * 403, atau lebih buruk, memindahkan uang satu SPK ke kasir cabang lain lewat
  * layar sunting biasa. Koreksi lokasi pembayaran adalah pekerjaan super-admin
@@ -159,6 +159,20 @@ fun spkBolehDisunting(job: DeliveryJobDto): Boolean =
             job.status == DeliveryStatusKey.PENDING_PERBAIKAN)
 
 /**
+ * Status yang membuat SPK masih "di tangan sales" — cerminan
+ * `sales_pemilik_revisi` di `edit_job`.
+ *
+ * SENGAJA lebih sempit dari [spkBolehDisunting]: daftar itu memuat
+ * `pending_perbaikan`, yang untuk SALES dijawab **403** server (tahap itu sudah
+ * SESUDAH PDI). Menyatukan keduanya memunculkan tombol yang pasti gagal —
+ * kelas bug "menu tampil, backend 403" yang sudah mahal di repo ini.
+ */
+private val STATUS_SALES_BOLEH_REVISI = setOf(
+    DeliveryStatusKey.PENDING_DISCOUNT,
+    DeliveryStatusKey.PENDING_PDI,
+)
+
+/**
  * Siapa yang boleh menekan "Ubah Isi SPK" pada unit ini.
  *
  * Cerminan guard `edit_job` yang DILEBARKAN 2026-08-06: selain administrator,
@@ -169,14 +183,21 @@ fun spkBolehDisunting(job: DeliveryJobDto): Boolean =
  * tombolnya tak pernah muncul di HP dan sales harus membuka web hanya untuk
  * mengubah satu angka.
  *
+ * **DILEBARKAN LAGI 2026-08-29** (permintaan user): jendelanya kini "belum
+ * sampai PDI", jadi `pending_pdi` ikut. SPK TANPA diskon lahir LANGSUNG di
+ * `pending_pdi` dan tak pernah menyentuh `pending_discount` sama sekali —
+ * dengan aturan lama, mayoritas sales tak pernah punya jendela koreksi dan satu
+ * warna tertukar berarti membatalkan SPK lalu mengetik ulang.
+ *
  * Kepemilikan tetap satu-satunya batas: sales LAIN dijawab 403 server, dan
- * jendelanya sempit (hanya `pending_discount`, hanya sebelum tercatat di GS).
+ * jendelanya tetap berhenti di PDI (tahap sesudahnya tertutup, termasuk
+ * `pending_perbaikan`) serta sebelum tercatat di GS.
  */
 fun bolehSuntingSpk(job: DeliveryJobDto, isAdmin: Boolean, currentUserId: String): Boolean {
     if (!spkBolehDisunting(job)) return false
     if (isAdmin) return true
     val pemilik = !job.salesUserId.isNullOrBlank() && job.salesUserId == currentUserId
-    return pemilik && job.status == DeliveryStatusKey.PENDING_DISCOUNT
+    return pemilik && job.status in STATUS_SALES_BOLEH_REVISI
 }
 
 /** Alasan koreksi wajib — jejaknya hidup di `activity_log` gateway, dan jejak

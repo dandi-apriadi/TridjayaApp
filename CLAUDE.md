@@ -254,7 +254,10 @@ Konsekuensi yang mengikat app:
 - **Diskon ditolak TIDAK lagi melepas unit.** SPK kembali ke sales dan unitnya
   tetap `pending_discount` sampai dia memilih: revisi diskon (lewat web —
   `POST /discount-requests` tak pernah dipanggil dari app), sunting isi SPK
-  (`bolehSuntingSpk`: admin, ATAU sales PEMILIK saat `pending_discount`), atau
+  (`bolehSuntingSpk`: admin, ATAU sales PEMILIK selagi SPK **belum sampai PDI**
+  — `pending_discount` ATAU `pending_pdi`, dilebarkan 2026-08-29; daftarnya
+  `STATUS_SALES_BOLEH_REVISI` di `SpkEditFields.kt`, SENGAJA lebih sempit dari
+  `spkBolehDisunting` yang memuat `pending_perbaikan` untuk admin), atau
   `POST /discount-requests/{id}/lanjut-tanpa-diskon`. Tanpa jalan keluar itu SPK
   mandek permanen dari sisi app **tanpa satu pun pesan error**.
 - **Gate serah terima dinilai atas unit yang DIBUKA, bukan se-SPK.** Driver yang
