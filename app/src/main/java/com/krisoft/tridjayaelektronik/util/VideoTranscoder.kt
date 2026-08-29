@@ -92,6 +92,26 @@ object VideoTranscoder {
         sourceHeight: Int,
         outputFile: File,
         params: Params = Params(),
+    ): File? {
+        val result = doTranscode(context, sourceUri, sourceWidth, sourceHeight, outputFile, params)
+        // Jaring pengaman TERAKHIR: kalau exception dilempar SEBELUM `doTranscode` sempat
+        // menjalankan `outputFile.delete()`-nya sendiri (mis. Builder/start melempar sebelum
+        // listener pernah dipanggil), berkas sementara yang sudah sempat ditulis MediaMuxer
+        // tetap harus lenyap. `File.delete()` aman dipanggil dua kali / atas berkas yang tak
+        // ada (no-op, tak melempar) — jadi baris ini tak pernah merusak jalur sukses (`result`
+        // != null berarti berkas ini justru outputnya, bukan sampah).
+        if (result == null) outputFile.delete()
+        return result
+    }
+
+    @OptIn(UnstableApi::class)
+    private suspend fun doTranscode(
+        context: Context,
+        sourceUri: Uri,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        outputFile: File,
+        params: Params,
     ): File? = runCatching {
         val (targetWidth, targetHeight) = targetDimensions(sourceWidth, sourceHeight, params.maxWidth)
         val encoderFactory = DefaultEncoderFactory.Builder(context)
