@@ -239,8 +239,25 @@ class HomeServiceDetailViewModel @Inject constructor(
     fun tugaskanDriver(driverId: String, tanggal: String?) =
         jalankan { repository.assignTarik(ticketId, driverId, jadwalUntukServer(tanggal)) }
 
+    /**
+     * **`lastOrNull`, BUKAN `firstOrNull` (2026-08-29).** [fotoTerunggah] hanya
+     * BERTAMBAH — [unggahFoto] menulis `it.fotoTerunggah + r.data`, tak pernah
+     * mengganti — sementara aksi ini cuma mengirim SATU foto. Yang membuat
+     * elemen pertama berbahaya adalah tombolnya sendiri: ia berbunyi "Foto siap
+     * — **jepret ulang**", jadi satu-satunya cara memperbaiki foto yang salah
+     * adalah tindakan yang dijamin gagal memperbaikinya. Nol error; server
+     * menerima URL apa pun sebagai bukti serah terima.
+     *
+     * Sisa yang sengaja dibiarkan: jepretan yang ditinggalkan tetap terunggah
+     * di server sebagai berkas yatim. Itu ongkos penyimpanan, bukan bukti yang
+     * salah — beda kelas dari yang diperbaiki di sini.
+     *
+     * Aturannya hidup di [fotoUntukAmbilUnit] (fungsi murni, diuji) supaya
+     * satu kata yang salah tak bisa kembali tanpa gerbang. Baca doc-nya juga
+     * untuk alasan kenapa ini BUKAN penjaga kebocoran lintas-tahap.
+     */
     fun tandaiUnitDiambil(catatan: String?) = jalankan {
-        repository.ambilUnit(ticketId, _state.value.fotoTerunggah.firstOrNull(), catatan)
+        repository.ambilUnit(ticketId, fotoUntukAmbilUnit(_state.value.fotoTerunggah), catatan)
     }
 
     fun hapusPesan() = _state.update { it.copy(pesan = null, error = null) }

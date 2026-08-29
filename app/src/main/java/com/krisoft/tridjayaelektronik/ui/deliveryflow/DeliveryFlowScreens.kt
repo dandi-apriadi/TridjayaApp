@@ -1804,7 +1804,13 @@ private fun PdiAction(
     Spacer(Modifier.height(10.dp))
     GpsStatusRow(photoState) { vm.refreshGps() }
     Spacer(Modifier.height(8.dp))
-    PhotoBox(photoState.pdiPhoto, "Foto unit siap (opsional)") { cam.launch(uri) }
+    // Label TANPA `*` selama masih tahap peringatan: di berkas ini `*` berarti
+    // WAJIB (checklist menempelkannya dari `item.wajib`), jadi memasangnya
+    // sebelum tombolnya benar-benar diblokir adalah janji yang tak ditepati —
+    // dan janji semacam itu mengajari petugas bahwa `*` boleh diabaikan, yang
+    // merusak artinya di seluruh form. Tambahkan `*` di sini pada saat yang
+    // sama dengan mengembalikan `fotoPdiSiap` ke `enabled` tombol Simpan.
+    PhotoBox(photoState.pdiPhoto, "Foto unit siap") { cam.launch(uri) }
 
     // Form REJECTED dikecualikan (paritas gate backend pasca-093): semua form
     // rejected = wajib buat form BARU — form create dirender lagi (dulu
@@ -1982,6 +1988,54 @@ private fun PdiAction(
     // ditolak backend". Form rejected diabaikan (paritas 093).
     val akiApproved = activeAkiForms.isNotEmpty() && activeAkiForms.all { it.approvalStatus == "approved" }
     val missingCatatan = checklist.any { hasil[it.id] == "tidak" && catatan[it.id].orEmpty().isBlank() }
+    // Foto unit siap DITAGIH, belum diblokir (2026-08-29) — di APK ia selama
+    // ini opsional sementara form web `PdiDetailPage` sudah mewajibkannya
+    // sejak lama, dan tak ada yang pernah menyebutnya. Asimetrinya bukan
+    // sekadar tak rapi: PDI adalah satu-satunya tahap yang memotret barangnya
+    // SEBELUM keluar gudang, jadi baris yang lolos tanpa foto meninggalkan
+    // lubang tepat di titik yang paling dibutuhkan saat konsumen mengeluh unit
+    // datang cacat — dan lubang itu hanya muncul pada baris yang dikerjakan
+    // lewat HP, tanpa satu pun tanda di data bahwa penyebabnya platform.
+    //
+    // **TAHAP 1: PERINGATAN, BELUM MEMBLOKIR** (keputusan user 2026-08-29).
+    // Draf pertama perubahan ini mematikan tombol Simpan, dan angka produksi
+    // menunjukkan itu terlalu tajam untuk langsung: dari 701 baris PDI unit
+    // besar Agustus, 149 (21,3%) tak berfoto — dan sebarannya timpang, satu
+    // petugas menyumbang 80 dari 94 barisnya sendiri (85%). Mematikan tombol
+    // tanpa pemberitahuan berarti orang itu membuka unit pertamanya besok
+    // pagi, mengisi checklist seperti biasa, lalu menyimpulkan app-nya rusak —
+    // dan antrian PDI cabangnya berhenti sampai ada yang menjelaskan. Jadi
+    // sekarang: peringatan merah yang tak bisa dilewatkan mata, tombol tetap
+    // hidup. Menaikkannya jadi gate = kembalikan `fotoPdiSiap` ke `enabled`
+    // di bawah, SETELAH petugas PDI diberi tahu.
+    //
+    // Server SENGAJA tak ikut ditegakkan sampai kapan pun soal ini diputuskan:
+    // `submit_pdi` menerima `readyPhotoUrl` opsional demi kompat APK lama
+    // (`delivery.rs:4702-4705`), jadi menyalakannya mematikan PDI di seluruh
+    // APK yang masih beredar, bukan cuma yang baru.
+    //
+    // `pdiPhotoConfirmed` ikut disyaratkan, bukan cuma `pdiPhoto != null` —
+    // pola sama `hasPhoto` di tiga tahap serah terima (`SetoranKasirAction`,
+    // `DeliverAction`, `SelfPickupCompleteAction`). Disebut NAMA, bukan nomor
+    // baris: berkas ini 4.700 baris dan sitasi baris di dalamnya sudah basi
+    // sebelum commit-nya mendarat — versi pertama komentar ini menunjuk :2419
+    // /:2897/:2968 yang sudah meleset 22 baris gara-gara hunk di atasnya
+    // sendiri, dan tiga tempat yang ditunjuknya tetap terlihat masuk akal
+    // sehingga kesalahannya tak menimbulkan kecurigaan.
+    val fotoPdiSiap = photoState.pdiPhoto != null && photoState.pdiPhotoConfirmed
+    if (!fotoPdiSiap) {
+        // Merah, bukan kuning: kuning di berkas ini (`Color(0xFFB5670C)`)
+        // dipakai untuk keadaan yang memang sedang menunggu pihak lain —
+        // approval aki. Yang ini menunggu petugas itu sendiri, dan ia akan
+        // melewatinya kalau warnanya tak menuntut apa-apa.
+        Text(
+            "Foto unit siap belum diambil — akan diwajibkan. Ambil sekarang selagi unitnya di depan kamu.",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.error,
+        )
+        Spacer(Modifier.height(8.dp))
+    }
     ExpressiveFilledButton(
         onClick = {
             val bodies = checklist.map { com.krisoft.tridjayaelektronik.data.model.PdiChecklistItemBody(item = it.itemLabel, hasil = hasil[it.id] ?: "ok", catatan = catatan[it.id]?.trim()?.ifBlank { null }) }

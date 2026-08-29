@@ -2,6 +2,8 @@ package com.krisoft.tridjayaelektronik.ui.deliveryflow
 
 import com.krisoft.tridjayaelektronik.data.model.DiscountRequestDto
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -284,5 +286,23 @@ class DiskonPotonganTest {
         // masih dipegang sales, itu yang menjelaskan kenapa SPK tak jalan.
         val q = (1..6).map { req(id = "r$it", baris = it, status = "rejected") }
         assertEquals(6, ringkasDaftar(q, batas = 4).size)
+    }
+
+    /**
+     * Satu-satunya titik unggah alur delivery yang boleh dari galeri, dan
+     * sampai 2026-08-29 hasilnya dicap kalimat yang sama persis dengan hasil
+     * kamera. Karena stempel jamnya jam PROSES, foto lama tercetak berjam hari
+     * ini — approver tak punya cara membedakannya, dan server tak menyimpan
+     * apa pun soal asal foto.
+     */
+    @Test
+    fun `judul watermark bukti acc membedakan galeri dari kamera`() {
+        assertEquals("TRIDJAYA · ACC DISKON", watermarkTitleBuktiAcc(dariGaleri = false))
+        assertEquals("TRIDJAYA · ACC DISKON (GALERI)", watermarkTitleBuktiAcc(dariGaleri = true))
+        // Ditegaskan terpisah dari string di atas: yang penting bagi approver
+        // adalah ADANYA penanda, bukan ejaannya. Kalau kalimatnya kelak
+        // diperhalus, baris ini yang harus tetap hijau.
+        assertTrue(watermarkTitleBuktiAcc(dariGaleri = true).contains("GALERI"))
+        assertFalse(watermarkTitleBuktiAcc(dariGaleri = false).contains("GALERI"))
     }
 }

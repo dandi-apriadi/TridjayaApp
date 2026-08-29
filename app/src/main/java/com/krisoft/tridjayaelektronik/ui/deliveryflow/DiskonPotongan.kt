@@ -233,3 +233,23 @@ fun ringkasDaftar(urut: List<DiscountRequestDto>, batas: Int = BATAS_RINGKAS): L
     val tampil = urut.filter { barisTuntas(it.status) }.take(kuotaTuntas).map { it.id }.toSet()
     return urut.filter { !barisTuntas(it.status) || it.id in tampil }
 }
+
+/**
+ * Judul watermark bukti acc diskon. **Galeri DIBEDAKAN** — dan ini satu-satunya
+ * titik unggah di seluruh alur delivery yang memang boleh memilih dari galeri
+ * (`SpkItemCard`, tombol "Galeri"); enam titik lainnya kamera-saja.
+ *
+ * Alasannya sama persis dengan `AktivitasBuktiPlan.watermarkTitleBukti`:
+ * stempel jam di bar watermark adalah jam **PROSES**, bukan jam foto diambil.
+ * Tanpa pembeda, tangkapan layar persetujuan dari chat bulan lalu tercetak
+ * dengan jam hari ini dan terlihat identik dengan foto yang baru dijepret di
+ * depan approver. Approver bukti diskon tak punya sumber lain untuk
+ * mengetahuinya — server tak menyimpan apa pun soal asal foto
+ * (`delivery/upload.rs` nol EXIF, nol penanda), jadi piksel inilah satu-satunya
+ * tempat keterangan itu bisa hidup.
+ *
+ * Web SENGAJA tak ikut: `<input type="file">` tak pernah memberi tahu asal
+ * berkasnya, jadi label apa pun di sana adalah tebakan.
+ */
+fun watermarkTitleBuktiAcc(dariGaleri: Boolean): String =
+    if (dariGaleri) "TRIDJAYA · ACC DISKON (GALERI)" else "TRIDJAYA · ACC DISKON"

@@ -500,4 +500,30 @@ class HomeServicePlanTest {
             assertNull("${mode.name} bukan daftar laporan pribadi", mode.sayaLapor)
         }
     }
+
+    /**
+     * Bukti serah terima unit yang DITARIK. Daftarnya cuma bertambah
+     * (`unggahFoto` menulis `fotoTerunggah + r.data`) sementara aksinya cuma
+     * mengirim satu URL — sampai 2026-08-29 yang terkirim elemen PERTAMA,
+     * yaitu jepretan tertua yang masih tertahan di layar.
+     */
+    @Test
+    fun `foto ambil unit memakai jepretan TERBARU`() {
+        // Tombolnya sendiri berbunyi "Foto siap — jepret ulang". Menekannya
+        // MENAMBAH, tidak mengganti — jadi `first` mengirim justru foto yang
+        // barusan diminta diganti. Ini SATU-SATUNYA jalan masuk bug-nya:
+        // foto bukti kunjungan tak bisa nyangkut ke sini (tombol ambil-unit
+        // hanya tampil di status `tarik_ditugaskan`, dan status cuma berubah
+        // lewat `muat()` yang berjalan setelah daftar dikosongkan).
+        assertEquals("/b.webp", fotoUntukAmbilUnit(listOf("/a.webp", "/b.webp")))
+        // Tiga jepretan: aturannya sama, elemen terakhir. Ada di sini karena
+        // "jepret ulang" bisa ditekan berkali-kali.
+        assertEquals("/c.webp", fotoUntukAmbilUnit(listOf("/a.webp", "/b.webp", "/c.webp")))
+        // Satu foto: kedua aturan sepakat, jadi ini BUKAN kasus yang
+        // membedakan — ada di sini supaya jalur normal ikut terkunci.
+        assertEquals("/satu.webp", fotoUntukAmbilUnit(listOf("/satu.webp")))
+        // Belum ada foto sama sekali: null, bukan string kosong. Server
+        // membedakan "tanpa bukti" dari "bukti beralamat kosong".
+        assertNull(fotoUntukAmbilUnit(emptyList()))
+    }
 }

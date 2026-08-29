@@ -114,6 +114,34 @@ internal fun bolehMulai(status: String): HsGate = when (status) {
 }
 
 /**
+ * Foto mana dari [fotoTerunggah] yang dipakai sebagai bukti serah terima saat
+ * unit ditandai sudah diambil.
+ *
+ * Jawabannya **yang TERAKHIR**, dan itu bukan selera: daftarnya hanya
+ * BERTAMBAH (`HomeServiceDetailViewModel.unggahFoto` menulis `fotoTerunggah +
+ * r.data`, tak pernah mengganti) sementara aksi ini cuma mengirim satu URL.
+ * Sampai 2026-08-29 yang terkirim elemen PERTAMA, dan tombolnya sendiri yang
+ * membuat itu berbahaya: ia berbunyi **"Foto siap — jepret ulang"**, sehingga
+ * satu-satunya cara memperbaiki foto yang salah adalah tindakan yang dijamin
+ * gagal memperbaikinya — yang terkirim justru foto yang diminta diganti. Nol
+ * error; server menerima URL apa pun sebagai bukti serah terima.
+ *
+ * **Ini BUKAN penjaga kebocoran lintas-tahap.** Foto bukti kunjungan tak bisa
+ * nyangkut sampai ke sini: tombol "Tutup kunjungan" hanya tampil saat status
+ * `dikerjakan` dan "Unit sudah diambil" hanya saat `tarik_ditugaskan`, status
+ * cuma berubah lewat `muat()`, dan satu-satunya `muat()` yang dipicu aksi
+ * berjalan SETELAH `fotoTerunggah` dikosongkan. Pengosongan itulah penjaganya
+ * — kalau kelak ada yang menambah auto-refresh atau merapikan `jalankan`
+ * sampai pengosongannya hilang, `lastOrNull` TIDAK akan menolong: ia memilih
+ * foto terbaru, tak pernah membuang foto tahap lain.
+ *
+ * Dipisah ke sini, bukan ditulis inline di ViewModel, supaya aturannya
+ * terkunci test: yang salah dulu adalah satu kata, dan satu kata bisa berbalik
+ * lagi tanpa satu pun gerbang menyadarinya.
+ */
+internal fun fotoUntukAmbilUnit(fotoTerunggah: List<String>): String? = fotoTerunggah.lastOrNull()
+
+/**
  * Syarat tutup kunjungan — cerminan validasi server (`domain.rs`), ditulis di
  * klien supaya teknisi tak kehilangan isian formnya gara-gara 400 di ujung.
  */

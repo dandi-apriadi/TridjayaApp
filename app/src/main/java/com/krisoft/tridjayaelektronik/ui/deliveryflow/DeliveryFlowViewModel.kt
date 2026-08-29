@@ -835,10 +835,36 @@ class DeliveryFlowViewModel @Inject constructor(
     // menghindari 2 footgun yang sempat ketemu di sini: (a) race kalau UI flip "foto siap" sebelum
     // watermark async selesai, (b) Coil meng-cache bitmap mentah berbasis path file yang isinya
     // berubah-ubah (file capture ditulis ulang tiap retake, key cache Coil tidak tahu itu).
+    /**
+     * **Kegagalan olah piksel WAJIB bersuara sejak 2026-08-29.** Sebelumnya
+     * `prepared == null` hanya menulis `null` ke state, tanpa satu pun pesan.
+     * Itu masih bisa ditolerir selagi foto PDI opsional: tombol Simpan tetap
+     * hidup dan PDI tersimpan tanpa foto. Begitu [DeliveryFlowScreens] mulai
+     * MEWAJIBKAN fotonya, diamnya berubah sifat — tombol Simpan mati bertulis
+     * "Foto unit siap dulu" persis sesudah petugas memotret, dan satu-satunya
+     * penjelasan yang tersedia baginya adalah menyalahkan dirinya sendiri.
+     *
+     * Jalur `null`-nya nyata dan tak jarang: `prepareWatermarkedJpeg`
+     * mengembalikan `null` untuk berkas 0 byte (kamera OEM yang tetap menjawab
+     * `ok == true`), gambar yang tak terdekode, dan `OutOfMemoryError` yang
+     * ditelan `runCatching`. Toast `PESAN_KAMERA_TAK_TERSIMPAN` di layar TIDAK
+     * menangkap satu pun dari itu — ia hanya menyala saat `ok == false`.
+     *
+     * Kalimatnya memakai [pesanGagalDekode] yang sudah dipakai
+     * [uploadBuktiAccPhoto] untuk kegagalan yang persis sama. `dariGaleri =
+     * false` karena titik ini kamera-saja, jadi "coba jepret ulang" memang
+     * jalan keluar yang benar di sini.
+     */
     fun onPdiPhotoCaptured(file: File) = viewModelScope.launch {
         val prepared = watermarked(file, "TRIDJAYA · PDI")
         pdiPhotoBytes = prepared?.first
-        _state.update { it.copy(pdiPhoto = prepared?.second, pdiPhotoConfirmed = false) }
+        _state.update {
+            it.copy(
+                pdiPhoto = prepared?.second,
+                pdiPhotoConfirmed = false,
+                actionError = if (prepared == null) pesanGagalDekode(dariGaleri = false) else it.actionError,
+            )
+        }
     }
 
     fun hasPdiPhoto(): Boolean = pdiPhotoBytes != null
@@ -911,9 +937,21 @@ class DeliveryFlowViewModel @Inject constructor(
      *  menyembunyikan satu-satunya jalan keluar yang benar (ganti formatnya /
      *  pakai Kamera). [dariGaleri] memilih kalimatnya lewat `pesanGagalDekode`
      *  — HEIC yang gagal di API 24-27 akan gagal lagi selamanya, jadi
-     *  "jepret ulang" hanya benar untuk kamera. */
+     *  "jepret ulang" hanya benar untuk kamera.
+     *
+     *  **[dariGaleri] juga memilih JUDUL watermark-nya (2026-08-29).** Ini
+     *  satu-satunya titik unggah di alur delivery yang memang boleh memilih
+     *  dari galeri, dan sampai hari ini hasilnya dicap kalimat yang persis
+     *  sama dengan hasil kamera. Stempel jam di bar watermark adalah jam
+     *  PROSES, bukan jam foto diambil — jadi tanpa pembeda, tangkapan layar
+     *  persetujuan dari chat bulan lalu terlihat identik dengan foto yang
+     *  baru dijepret di depan approver. Approver yang memeriksa bukti diskon
+     *  tak punya cara lain mengetahuinya. Polanya diambil dari
+     *  `AktivitasBuktiPlan.watermarkTitleBukti`, yang sudah menempuh
+     *  persoalan yang sama untuk bukti aktivitas. Aturannya sendiri hidup di
+     *  [watermarkTitleBuktiAcc] (fungsi murni, diuji). */
     suspend fun uploadBuktiAccPhoto(file: File, dariGaleri: Boolean): AuthResult<String> {
-        val prepared = watermarked(file, "TRIDJAYA · ACC DISKON")
+        val prepared = watermarked(file, watermarkTitleBuktiAcc(dariGaleri))
             ?: return AuthResult.Failure("dekode_gagal", pesanGagalDekode(dariGaleri))
         return when (val up = repository.uploadPhoto(prepared.first, "acc_diskon_${System.currentTimeMillis()}.webp")) {
             is AuthResult.Success -> AuthResult.Success(up.data)
