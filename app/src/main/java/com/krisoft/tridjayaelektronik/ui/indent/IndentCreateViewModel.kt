@@ -374,6 +374,30 @@ class IndentCreateViewModel @Inject constructor(
             runCatching {
                 val raw = foto.file.readBytes()
                 if (raw.isEmpty()) error("berkas salinan kosong")
+                // PDF SENGAJA TIDAK dikompres di sini — ini keputusan desain (riset kompresi
+                // media on-device, 2026-08-29), bukan sesuatu yang belum sempat dikerjakan.
+                // Dua opsi nyata dipertimbangkan: android.graphics.pdf.PdfRenderer (bawaan, nol
+                // dependency) merasterisasi SELURUH halaman termasuk teks vektor — untuk PDF
+                // born-digital (faktur/kontrak, kemungkinan besar isi jalur bukti indent ini)
+                // itu regresi kualitas nyata (hilang searchable/selectable, berpotensi buram),
+                // layak disingkirkan terlepas dari volume; sedangkan com.tom-roush:pdfbox-android
+                // ternyata TIDAK diblokir teknis oleh JitPack seperti dugaan awal (artifact resmi
+                // di Maven Central resolve bersih — jp2-android cuma compileOnly di source pustaka
+                // itu, tak muncul di POM konsumen) tapi tetap ditunda karena pustakanya sendiri
+                // terbukti tak terawat 2,5+ tahun (push terakhir 2024-03-18, rilis Maven terakhir
+                // Jan 2023, 125 issue terbuka) — risiko pemeliharaan nyata untuk manfaat yang
+                // volumenya di jalur ini (satu-satunya upload PDF di app, admin/indent, bukan
+                // hot-path tangkap-lapangan) belum terukur sama sekali. Prasyarat sebelum
+                // membangun kompresi PDF apa pun: satu query murah COUNT(*)+AVG(byte_size) atas
+                // baris indent_pemesanan.bukti_urls berekstensi .pdf di produksi 30 hari terakhir
+                // — kalau share-nya berarti DAN shape-nya "born-digital" (banyak halaman, byte/
+                // halaman rendah), pdfbox-android via Maven Central (WAJIB
+                // JPEGFactory.createFromImage, BUKAN LosslessFactory — GitHub issue
+                // TomRoush/PdfBox-Android#271: LosslessFactory bisa MEMBESARKAN file drastis)
+                // adalah jalan yang benar, bukan PdfRenderer. Sampai query itu dijalankan,
+                // passthrough mentah di baris berikut ini SUDAH BENAR: fail-soft yang sama dengan
+                // seluruh pipa gambar/video di berkas ini, PDF tak pernah gagal karena kompresi
+                // yang memang belum ada. Jangan mencoba lagi tanpa data itu.
                 if (foto.mimeType == "application/pdf") return@runCatching raw to foto.mimeType
                 val compressed = ImagePixelPipeline.compress(raw, IMAGE_PARAMS)?.first
                 if (compressed != null) compressed to "image/webp" else raw to foto.mimeType
