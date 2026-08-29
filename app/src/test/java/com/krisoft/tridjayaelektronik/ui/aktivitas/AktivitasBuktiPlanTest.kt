@@ -133,16 +133,52 @@ class AktivitasBuktiPlanTest {
     }
 
     @Test
-    fun `video di atas 30MB ditolak sebelum menyentuh jaringan`() {
+    fun `video sampai MAX_VIDEO_BUKTI_BYTES lolos gerbang tanpa syarat`() {
         // Angkanya ditulis literal sebagai penjaga terhadap MAX_EVIDENCE_BYTES
-        // di kinerja-service/src/raport.rs:14.
+        // di kinerja-service/src/raport.rs:14 — ini budget SERVER, ditegakkan
+        // dua kali (lihat KDoc MAX_VIDEO_BUKTI_BYTES): sekali di sini sebagai
+        // ambang "boleh lolos tanpa kompresi", sekali lagi oleh
+        // AktivitasViewModel.kirimVideo SETELAH kompresi dicoba.
         assertEquals(30L * 1024 * 1024, MAX_VIDEO_BUKTI_BYTES)
-
-        val gate = gateKirimBukti(0, adaVideo = true, ukuranVideoBytes = MAX_VIDEO_BUKTI_BYTES + 1)
-        assertFalse(gate.ok)
-        assertTrue(gate.alasan!!.contains("30 MB"))
-
         assertTrue(gateKirimBukti(0, adaVideo = true, ukuranVideoBytes = MAX_VIDEO_BUKTI_BYTES).ok)
+    }
+
+    /**
+     * INTI perubahan 2026-08-29 (kompresi video otomatis): video di atas
+     * 30 MB TIDAK LAGI ditolak seketika di titik seleksi — ia diberi
+     * kesempatan dikompres dulu oleh `AktivitasViewModel.kirimVideo`. Gerbang
+     * di sini hanya menahan yang jelas MUSTAHIL, bukan yang cuma di atas
+     * budget server.
+     */
+    @Test
+    fun `video di atas 30MB tapi di bawah ambang masukan tetap lolos gerbang — kesempatan dikompres`() {
+        assertTrue(
+            "video sedikit di atas budget server harus tetap lolos, bukan ditolak seketika",
+            gateKirimBukti(0, adaVideo = true, ukuranVideoBytes = MAX_VIDEO_BUKTI_BYTES + 1).ok,
+        )
+        assertTrue(
+            "tepat di ambang masukan masih harus lolos",
+            gateKirimBukti(0, adaVideo = true, ukuranVideoBytes = MAX_VIDEO_INPUT_BYTES).ok,
+        )
+    }
+
+    @Test
+    fun `video di atas ambang MASUKAN ditolak sebelum menyentuh jaringan`() {
+        assertEquals(150L * 1024 * 1024, MAX_VIDEO_INPUT_BYTES)
+
+        val gate = gateKirimBukti(0, adaVideo = true, ukuranVideoBytes = MAX_VIDEO_INPUT_BYTES + 1)
+        assertFalse(gate.ok)
+        assertTrue(gate.alasan!!.contains("150 MB"))
+    }
+
+    @Test
+    fun `pesan gagal kompresi memakai teks lama persis, bukan kalimat baru`() {
+        // TEKS PERSIS pesan lama sebelum kompresi otomatis ada — supaya
+        // kegagalan kompresi jatuh ke pesan yang sudah dikenal user.
+        assertEquals(
+            "Video terlalu besar (maks 30 MB). Potong videonya atau turunkan kualitas perekam ke 720p.",
+            pesanVideoTerlaluBesarSetelahKompresi(),
+        )
     }
 
     @Test

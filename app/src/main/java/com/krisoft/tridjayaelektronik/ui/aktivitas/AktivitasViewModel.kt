@@ -1,6 +1,8 @@
 package com.krisoft.tridjayaelektronik.ui.aktivitas
 
 import android.content.ContentResolver
+import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -13,7 +15,9 @@ import com.krisoft.tridjayaelektronik.data.model.jumlahButirAktif
 import com.krisoft.tridjayaelektronik.domain.sales.KlasemenStandings
 import com.krisoft.tridjayaelektronik.ui.home.effectiveRoles
 import com.krisoft.tridjayaelektronik.util.PhotoWatermark
+import com.krisoft.tridjayaelektronik.util.VideoTranscoder
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -24,6 +28,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 import javax.inject.Inject
 
 /**
@@ -165,6 +170,7 @@ data class AktivitasUiState(
 class AktivitasViewModel @Inject constructor(
     private val repository: AktivitasRepository,
     private val authRepository: AuthRepository,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AktivitasUiState())
@@ -448,6 +454,22 @@ class AktivitasViewModel @Inject constructor(
         send(index, aktivitas, mode = "image", evidenceUrl = evidenceUrl)
     }
 
+    /**
+     * Kirim video bukti. Video di atas [MAX_VIDEO_BUKTI_BYTES] (30 MB) DICOBA
+     * dikompres dulu (2026-08-29, `VideoTranscoder`) sebelum ditolak — video
+     * yang dulu ditolak seketika di [gateKirimBukti] sekarang bisa terkirim
+     * kalau hasil kompresinya muat.
+     *
+     * Video yang SUDAH di bawah budget TIDAK disentuh sama sekali: mengompres
+     * ulang video yang sudah muat cuma membakar CPU/baterai petugas (dan
+     * waktu tunggu nyata — transcode 30 MB butuh beberapa detik di HP kelas
+     * bawah) untuk hasil yang tak berarti apa pun.
+     *
+     * Kompresi FAIL-SOFT sepenuhnya: gagal/timeout/hasil tetap kebesaran →
+     * jatuh ke perilaku LAMA ([pesanVideoTerlaluBesarSetelahKompresi]), bukan
+     * kegagalan upload baru. Berkas sementara SELALU dihapus di akhir — baik
+     * upload sukses maupun gagal — persis pola `pdf_compress.rs` sisi server.
+     */
     private suspend fun kirimVideo(
         index: Int,
         aktivitas: String,
@@ -459,14 +481,55 @@ class AktivitasViewModel @Inject constructor(
             finish(index, "Format video harus MP4, WEBM, atau MOV.")
             return
         }
-        setProgres(index, "Mengunggah video (${formatUkuranBerkas(video.ukuranBytes)})…")
+
+        var uploadUri = video.uri
+        var uploadNamaBerkas = namaBerkasVideo(ext, System.currentTimeMillis())
+        var uploadMime = mimeVideo(ext)
+        var uploadBytes = video.ukuranBytes
+        var localFile: File? = null
+
+        if (video.ukuranBytes > MAX_VIDEO_BUKTI_BYTES) {
+            setProgres(index, "Mengompres video (${formatUkuranBerkas(video.ukuranBytes)})…")
+            val terkompresi = kompresVideoBukti(video)
+            if (terkompresi != null && terkompresi.length() in 1 until video.ukuranBytes) {
+                localFile = terkompresi
+                uploadUri = Uri.fromFile(terkompresi)
+                uploadBytes = terkompresi.length()
+                // Transformer SELALU menulis kontainer MP4 (muxer bawaan
+                // media3), apa pun format sumbernya — mengunggah dengan
+                // ekstensi/MIME video ASLI (mis. .mov/.webm) akan membuat
+                // magic bytes (MP4 sungguhan) tak cocok dengan yang diklaim
+                // nama berkas, dan server memvalidasi keduanya SERENTAK
+                // (`is_valid_raport_evidence_content`) → 400 SETELAH upload
+                // penuh, kelas kegagalan yang sama persis yang sudah
+                // didokumentasikan `ekstensiVideo`/`mimeVideo` untuk pasangan
+                // lain.
+                uploadNamaBerkas = namaBerkasVideo("mp4", System.currentTimeMillis())
+                uploadMime = mimeVideo("mp4")
+            } else {
+                terkompresi?.delete()
+            }
+        }
+
+        if (uploadBytes > MAX_VIDEO_BUKTI_BYTES) {
+            localFile?.delete()
+            finish(index, pesanVideoTerlaluBesarSetelahKompresi())
+            return
+        }
+
+        setProgres(index, "Mengunggah video (${formatUkuranBerkas(uploadBytes)})…")
         val hasil = repository.uploadEvidenceVideo(
             resolver = resolver,
-            uri = video.uri,
-            namaFile = namaBerkasVideo(ext, System.currentTimeMillis()),
-            mimeType = mimeVideo(ext),
-            ukuranBytes = video.ukuranBytes,
+            uri = uploadUri,
+            namaFile = uploadNamaBerkas,
+            mimeType = uploadMime,
+            ukuranBytes = uploadBytes,
+            localFile = localFile,
         )
+        // Semantik "finally": berkas sementara tak berguna lagi apa pun hasil
+        // upload-nya (sukses = sudah di server, gagal = akan dicoba ulang
+        // dari `video.uri` asli via staging, bukan dari salinan ini).
+        runCatching { localFile?.delete() }
         when (hasil) {
             is AuthResult.Failure ->
                 if (gagalPermanen(hasil.httpStatus)) blokir(index, "Video ditolak", hasil.message)
@@ -478,6 +541,75 @@ class AktivitasViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Coba kompres [video] lewat [VideoTranscoder] ke berkas sementara di
+     * `cacheDir/media-compress/` (dijaga `FileProviderPathsTest`), nama UUID
+     * acak — pola sama server (`pdf_compress.rs`): tak pernah menimpa berkas
+     * lain, dan tak menyisakan petunjuk isi kalau tertinggal.
+     *
+     * `null` = dimensi tak terbaca ATAU transcode gagal/timeout — pemanggil
+     * ([kirimVideo]) fallback ke berkas asli (fail-soft).
+     *
+     * **WAJIB dipanggil TANPA `withContext(Dispatchers.…)` di sekitarnya** —
+     * lihat KDoc kelas [VideoTranscoder] soal `verifyApplicationThread()`.
+     * Dijaga `VideoTranscoderGuardTest`.
+     */
+    private suspend fun kompresVideoBukti(video: VideoBukti): File? {
+        val (lebar, tinggi) = dimensiVideoPascaRotasi(appContext, video.uri) ?: return null
+        val output = File(appContext.cacheDir, "media-compress/${UUID.randomUUID()}.mp4")
+        output.parentFile?.mkdirs()
+        return VideoTranscoder.transcode(
+            context = appContext,
+            sourceUri = video.uri,
+            sourceWidth = lebar,
+            sourceHeight = tinggi,
+            outputFile = output,
+        )
+    }
+
+    /**
+     * Dimensi video SESUDAH rotasi tampilan. `METADATA_KEY_VIDEO_WIDTH/HEIGHT`
+     * mengembalikan ukuran MENTAH encoder; `METADATA_KEY_VIDEO_ROTATION`
+     * memberi derajat putar untuk tampil benar — keduanya ditukar posisi kalau
+     * putarannya 90/270. `VideoTranscoder`/`Presentation` butuh dimensi
+     * TAMPILAN: video portrait yang direkam sensor landscape + rotasi
+     * metadata 90° akan salah target scale (lebar↔tinggi tertukar) kalau ini
+     * diabaikan.
+     *
+     * Dijalankan di [Dispatchers.Default] (bukan Main) — `setDataSource`
+     * melakukan I/O baca berkas, sama alasannya dengan kenapa `ImagePixelPipeline`
+     * tak boleh dipanggil dari Main. TIDAK berkonflik dengan larangan
+     * `withContext` di sekitar [VideoTranscoder.transcode]: fungsi ini fungsi
+     * TERPISAH yang selesai (dan `withContext`-nya sudah keluar) SEBELUM
+     * [kompresVideoBukti] memanggil `transcode`.
+     *
+     * `null` = metadata tak terbaca (berkas rusak/tak didukung) atau
+     * `Throwable` apa pun tertangkap — pemanggil fallback ke berkas asli,
+     * bukan mencoba transcode dengan dimensi 0×0.
+     */
+    private suspend fun dimensiVideoPascaRotasi(context: Context, uri: Uri): Pair<Int, Int>? =
+        withContext(Dispatchers.Default) {
+            runCatching {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, uri)
+                    val lebar = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                        ?.toIntOrNull() ?: 0
+                    val tinggi = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                        ?.toIntOrNull() ?: 0
+                    val rotasi = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                        ?.toIntOrNull() ?: 0
+                    when {
+                        lebar <= 0 || tinggi <= 0 -> null
+                        rotasi == 90 || rotasi == 270 -> tinggi to lebar
+                        else -> lebar to tinggi
+                    }
+                } finally {
+                    retriever.release()
+                }
+            }.getOrNull()
+        }
 
     /**
      * "Tidak ada bukti" — server mewajibkan alasan minimal 10 karakter; dicek

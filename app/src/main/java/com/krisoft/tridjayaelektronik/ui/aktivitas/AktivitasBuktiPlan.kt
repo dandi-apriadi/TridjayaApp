@@ -62,8 +62,39 @@ internal const val MAX_GAMBAR_INPUT_BYTES = 25L * 1024 * 1024
  * SENGAJA bernama beda dari `MAX_VIDEO_BYTES` milik bukti chat (50 MB) supaya
  * auto-import tak menyeret angka yang salah: keduanya endpoint berbeda dengan
  * batas berbeda.
+ *
+ * **Tetap budget SERVER, ditegakkan DUA KALI sejak kompresi video otomatis
+ * (2026-08-29)**: sekali di sini sebagai target kompresi
+ * (`AktivitasViewModel.kirimVideo` mencoba menekan video ke bawah angka ini),
+ * dan sekali lagi SETELAH kompresi selesai sebagai gerbang terakhir sebelum
+ * upload. [MAX_VIDEO_INPUT_BYTES] di bawah ini yang jadi ambang MASUKAN baru;
+ * angka ini tidak berubah.
  */
 internal const val MAX_VIDEO_BUKTI_BYTES = 30L * 1024 * 1024
+
+/**
+ * Ambang MASUKAN sebelum kompresi otomatis dicoba sama sekali (2026-08-29) —
+ * BUKAN budget server, [MAX_VIDEO_BUKTI_BYTES] itu, tetap ditegakkan SETELAH
+ * kompresi (lihat `AktivitasViewModel.kirimVideo`).
+ *
+ * Video di atas [MAX_VIDEO_BUKTI_BYTES] tapi di bawah ambang INI sekarang
+ * boleh masuk staging: `kirimVideo` akan MENCOBA mengompresnya dulu sebelum
+ * menolak, jadi video yang dulu ditolak di titik SELEKSI (`gateKirimBukti`)
+ * sekarang punya kesempatan terkirim. Video di atas ambang ini tetap ditolak
+ * di titik seleksi — menahannya SEBELUM satu byte pun diproses lebih jujur
+ * daripada membuat petugas menunggu beberapa detik transcode (di HP kelas
+ * bawah, nyata) untuk penolakan yang sudah nyaris pasti.
+ *
+ * **150 MB, titik awal beralasan — bukan angka final.** Rekaman kamera HP di
+ * 1080p pada bitrate encoder H.264 hardware kelas menengah/bawah yang umum
+ * (~17 Mbps, patokan industri, bukan hasil ukur khusus repo ini) berarti
+ * 150 MB ≈ 70 detik. Bukti raport secara alami pendek (dokumentasi SATU
+ * aktivitas, bukan rekaman panjang), jadi 70 detik sudah lapang untuk kasus
+ * wajar sambil tetap menahan video yang jelas di luar kebutuhan fitur ini.
+ * Perlu divalidasi dengan pengukuran nyata di HP lapangan sebelum dianggap
+ * final — sama seperti [com.krisoft.tridjayaelektronik.util.VideoTranscoder.Params.timeoutMs].
+ */
+internal const val MAX_VIDEO_INPUT_BYTES = 150L * 1024 * 1024
 
 /** Hasil pemeriksaan sebelum unggah. [alasan] null saat [ok]. */
 internal data class BuktiGate(val ok: Boolean, val alasan: String? = null)
@@ -113,15 +144,38 @@ internal fun gateKirimBukti(
     jumlahGambar > MAX_GAMBAR ->
         BuktiGate(false, "Maksimal $MAX_GAMBAR gambar per aktivitas.")
 
-    ukuranVideoBytes > MAX_VIDEO_BUKTI_BYTES ->
+    // Ambang MASUKAN, bukan budget server — lihat KDoc [MAX_VIDEO_INPUT_BYTES].
+    // Video di atas MAX_VIDEO_BUKTI_BYTES (30 MB) TETAP lolos gerbang ini
+    // selama masih di bawah angka ini: `kirimVideo` yang akan mencoba
+    // mengompresnya sebelum menolak.
+    ukuranVideoBytes > MAX_VIDEO_INPUT_BYTES ->
         BuktiGate(
             false,
-            "Video terlalu besar (maks ${MAX_VIDEO_BUKTI_BYTES / (1024 * 1024)} MB). " +
+            "Video terlalu besar (maks ${MAX_VIDEO_INPUT_BYTES / (1024 * 1024)} MB — bahkan " +
+                "dengan kompresi otomatis kemungkinan besar tetap ditolak server). " +
                 "Potong videonya atau turunkan kualitas perekam ke 720p.",
         )
 
     else -> BuktiGate(true)
 }
+
+/**
+ * Pesan penolakan video yang MASIH di atas [MAX_VIDEO_BUKTI_BYTES] SETELAH
+ * kompresi dicoba (gagal, timeout, atau hasilnya tetap kebesaran).
+ *
+ * TEKS PERSIS pesan lama sebelum kompresi otomatis video ada (sebelum
+ * 2026-08-29) — saat itu inilah SATU-satunya jawaban untuk video >30 MB,
+ * ditulis langsung sebagai alasan di [gateKirimBukti]. Sekarang gerbang itu
+ * memakai [MAX_VIDEO_INPUT_BYTES] yang lebih longgar, dan kalimat ini pindah
+ * ke sini supaya kegagalan kompresi jatuh ke pesan yang SUDAH DIKENAL user —
+ * bukan pesan baru yang belum pernah teruji di lapangan.
+ * `AktivitasViewModel.kirimVideo` memanggilnya sebagai fallback; ini murni
+ * mengembalikan perilaku SEBELUM kompresi otomatis ada untuk video yang tetap
+ * tak bisa dikirim, bukan regresi baru.
+ */
+internal fun pesanVideoTerlaluBesarSetelahKompresi(): String =
+    "Video terlalu besar (maks ${MAX_VIDEO_BUKTI_BYTES / (1024 * 1024)} MB). " +
+        "Potong videonya atau turunkan kualitas perekam ke 720p."
 
 /**
  * Ekstensi video yang server terima, atau null kalau tak dikenal.

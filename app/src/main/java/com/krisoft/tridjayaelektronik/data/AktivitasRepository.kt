@@ -18,8 +18,10 @@ import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Response
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -212,18 +214,29 @@ class AktivitasRepository @Inject constructor(
     /**
      * Upload bukti VIDEO → URL relatif.
      *
-     * STREAMING dari [ContentResolver] lewat [UriRequestBody], tidak pernah
-     * lewat `ByteArray`: batas server 30 MB sedangkan heap HP lapangan bisa
-     * <128 MB, jadi `readBytes()` di sini = `OutOfMemoryError` di HP yang
-     * justru paling sering dipakai.
+     * STREAMING, tidak pernah lewat `ByteArray`: batas server 30 MB sedangkan
+     * heap HP lapangan bisa <128 MB, jadi `readBytes()` di sini =
+     * `OutOfMemoryError` di HP yang justru paling sering dipakai.
+     *
+     * [localFile] (2026-08-29, `AktivitasViewModel.kirimVideo`) = keluaran
+     * `VideoTranscoder` yang sudah ditulis ke `cacheDir` — dipakai lewat
+     * [asRequestBody] (streaming dari disk, sama seperti [UriRequestBody]),
+     * BUKAN [uri]/[resolver] (`Uri` galeri asli, video yang BELUM dikompres).
+     * `null` = jalur lama, langsung dari [uri]. Pemanggil yang menentukan
+     * yang mana; fungsi ini tak menilai ukuran/kompresi sama sekali.
      *
      * [mimeType] dan ekstensi pada [namaFile] WAJIB sepasang — server memeriksa
      * keduanya bersama magic bytes, dan pasangan yang meleset ditolak 400
      * SETELAH seluruh berkas terkirim. Pakai `ekstensiVideo`/`mimeVideo`
-     * (`ui/raport/AktivitasBuktiPlan.kt`), jangan menebak sendiri.
+     * (`ui/aktivitas/AktivitasBuktiPlan.kt`), jangan menebak sendiri — dan
+     * kalau [localFile] berasal dari `VideoTranscoder`, ingat keluarannya
+     * SELALU kontainer MP4 (muxer bawaan media3) apa pun format sumbernya,
+     * jadi [namaFile]/[mimeType] wajib `mp4`, bukan ekstensi video asli.
      *
-     * [ukuranBytes] hanya untuk header `Content-Length`; `0` = biarkan OkHttp
-     * mengirim chunked (kolom `SIZE` tak selalu terbaca dari penyedia galeri).
+     * [ukuranBytes] hanya untuk header `Content-Length` pada jalur [uri];
+     * `0` = biarkan OkHttp mengirim chunked (kolom `SIZE` tak selalu terbaca
+     * dari penyedia galeri). Diabaikan saat [localFile] terisi — `asRequestBody`
+     * menghitung panjangnya sendiri dari `File.length()`.
      */
     suspend fun uploadEvidenceVideo(
         resolver: ContentResolver,
@@ -231,8 +244,13 @@ class AktivitasRepository @Inject constructor(
         namaFile: String,
         mimeType: String,
         ukuranBytes: Long = 0L,
+        localFile: File? = null,
     ): AuthResult<String> = try {
-        val body = UriRequestBody(resolver, uri, mimeType.toMediaTypeOrNull(), ukuranBytes)
+        val body = if (localFile != null) {
+            localFile.asRequestBody(mimeType.toMediaTypeOrNull())
+        } else {
+            UriRequestBody(resolver, uri, mimeType.toMediaTypeOrNull(), ukuranBytes)
+        }
         val part = MultipartBody.Part.createFormData("file", namaFile, body)
         val response = uploadApi.uploadEvidence(part)
         val data = response.body()?.data
