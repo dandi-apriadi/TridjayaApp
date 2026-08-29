@@ -89,4 +89,22 @@ object VertelPlan {
                 else -> 0
             }
         }
+
+    /**
+     * Daftar yang benar-benar dirender di layar kerja.
+     *
+     * [tampilkanSelesai] `false` (bawaan) MEMBUANG baris yang sudah ditelepon,
+     * bukan sekadar menenggelamkannya seperti [urutKerja] — begitu `catat()`
+     * sukses, baris itu HILANG dari sini pada komposisi berikutnya tanpa perlu
+     * refresh apa pun, karena statenya sendiri yang berubah (`panggilan`
+     * terisi). Ini yang membuat verifikator tak perlu menggulir melewati
+     * puluhan baris selesai untuk sampai ke pekerjaan berikutnya.
+     *
+     * `true` mengembalikan SEMUA baris (lewat [urutKerja] apa adanya) — jalur
+     * ini WAJIB ada: `FormCatat` mendukung "Perbarui hasil" untuk mengoreksi
+     * salah catat, dan koreksi mustahil kalau barisnya sudah tak pernah bisa
+     * ditemukan lagi di layar.
+     */
+    fun daftarTampil(baris: List<BarisVertelDto>, tampilkanSelesai: Boolean): List<BarisVertelDto> =
+        urutKerja(if (tampilkanSelesai) baris else baris.filterNot(::sudahDitelepon))
 }

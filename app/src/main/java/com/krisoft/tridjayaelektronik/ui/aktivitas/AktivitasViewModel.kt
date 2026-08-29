@@ -279,11 +279,19 @@ class AktivitasViewModel @Inject constructor(
      * persistable dan hilang saat proses mati, jadi menyalinnya nanti (saat
      * Kirim) berarti kehilangan berkas tanpa penjelasan.
      *
-     * [diabaikan] = jumlah yang dibuang layar karena kelebihan slot / terlalu
-     * besar / tak terbaca. Dilaporkan, tidak ditelan.
+     * [terlaluBesar] dan [takTerbaca] adalah dua sebab BERBEDA yang sampai vc116
+     * ditumpuk jadi satu penghitung lalu dijelaskan dengan satu kalimat tentang
+     * kuota — lihat [pesanGambarDiabaikan] untuk kenapa itu merugikan. Dilaporkan
+     * per sebab, tidak ditelan dan tidak disamarkan.
      */
-    fun tambahFotoGaleri(index: Int, files: List<File>, diabaikan: Int = 0) {
-        if (files.isEmpty() && diabaikan == 0) return
+    fun tambahFotoGaleri(
+        index: Int,
+        files: List<File>,
+        terlaluBesar: Int = 0,
+        takTerbaca: Int = 0,
+        sebabTakTerbaca: String? = null,
+    ) {
+        if (files.isEmpty() && terlaluBesar == 0 && takTerbaca == 0) return
         // Sisa slot dihitung SEBELUM state berubah — menghitungnya sesudah akan
         // membaca daftar yang sudah bertambah dan selalu melaporkan 0 diabaikan.
         val muat = (MAX_GAMBAR - pilihanUntuk(index).gambar.size).coerceAtLeast(0)
@@ -294,11 +302,10 @@ class AktivitasViewModel @Inject constructor(
                 video = null,
             )
         }
-        val total = diabaikan + takMuat
-        if (total > 0) {
-            _state.update {
-                it.copy(message = "$total gambar diabaikan — maksimal $MAX_GAMBAR gambar per aktivitas.")
-            }
+        // SETELAH setPilihan — `setPilihan` menulis `message = null`, jadi pesan
+        // yang disusun sebelumnya akan terhapus tanpa pernah terlihat.
+        pesanGambarDiabaikan(takMuat, terlaluBesar, takTerbaca, sebabTakTerbaca)?.let { pesan ->
+            _state.update { it.copy(message = pesan) }
         }
     }
 

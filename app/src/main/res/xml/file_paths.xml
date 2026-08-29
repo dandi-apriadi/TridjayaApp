@@ -48,4 +48,11 @@
          DIBUKA, bukan saat tombol kamera ditekan (kelas kegagalan `serial`).
          Dijaga `FileProviderPathsTest`. -->
     <cache-path name="kupon_gebyar" path="kupon-gebyar/" />
+    <!-- Salinan foto bukti pengajuan indent, ditulis `IndentCreateViewModel.kt` ke
+         `cacheDir/indent/`. Layar ini TIDAK memanggil `getUriForFile` hari ini
+         (berkasnya cuma dibaca sendiri), jadi entri ini bukan penangkal crash
+         melainkan pemenuhan aturan `FileProviderPathsTest`: tiap subdirektori
+         cache wajib dideklarasikan, supaya pemakaian FileProvider yang ditambah
+         belakangan tak menemukan lubangnya. -->
+    <cache-path name="indent" path="indent/" />
 </paths>

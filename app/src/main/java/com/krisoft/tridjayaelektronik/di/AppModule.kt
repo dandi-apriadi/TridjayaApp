@@ -247,13 +247,26 @@ object AppModule {
         }
     }
 
+    /**
+     * Peringatan WA penugasan tak terkirim (`leads.assignmentWarning`). ALTER
+     * eksplisit dengan alasan yang sama seperti empat migrasi di atas: tabel
+     * `leads` memegang antrean offline yang BELUM sampai server, jadi jatuh ke
+     * `fallbackToDestructiveMigration()` berarti menghapus prospek yang orangnya
+     * sudah ketik dan kira tersimpan.
+     */
+    private val MIGRATION_17_18 = object : Migration(17, 18) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `leads` ADD COLUMN `assignmentWarning` TEXT")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "tridjaya.db")
             .addMigrations(
                 MIGRATION_11_12, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
-                MIGRATION_16_17,
+                MIGRATION_16_17, MIGRATION_17_18,
             )
             // KOREKSI 2026-08-18 atas komentar lama ("local cache only — safe to
             // wipe"): itu SUDAH TIDAK BENAR sejak `leads` mendapat antrean

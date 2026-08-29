@@ -1,5 +1,6 @@
 package com.krisoft.tridjayaelektronik.ui.deliveryflow
 
+import android.widget.Toast
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -116,6 +117,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.MoneyTextField
 import com.krisoft.tridjayaelektronik.ui.theme.ScrollableCenter
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1156,7 +1158,25 @@ fun DeliveryJobDetailScreen(id: String, onBack: () -> Unit, viewModel: DeliveryF
                                 "sales_delivery" -> "Sales Antar Sendiri"
                                 else -> "Driver"
                             })
-                            InfoLine("PDI", if (job.pdiRequired == false) "PDI Mandiri (sales)" else "PDI (tim PDI)")
+                            // Badge ini menampilkan APA YANG DIPILIH sales/admin saat SPK
+                            // dibuat (toggle "Siapa yang mengecek unit" di SpkItemCard) —
+                            // TIDAK diubah jadi "Mandiri" begitu saja, supaya pilihan asli
+                            // tetap jujur ditampilkan. Tapi untuk self_pickup/sales_delivery,
+                            // `is_self_pdi` backend TETAP mengizinkan sales pemilik SPK
+                            // mengerjakan sendiri terlepas dari pilihan "Tim PDI cabang" ini
+                            // (unitnya memang tak pernah lepas dari tangan sales) — tanpa
+                            // catatan ini, badge "PDI (tim PDI)" menyesatkan: sales/admin
+                            // mengira ada tim lain yang akan mengerjakan dan menunggu
+                            // notifikasi yang bisa jadi tak pernah dikirim/tak ada
+                            // penerimanya (cabang tanpa staf PDI), padahal sales sendiri
+                            // sudah boleh langsung lanjut ke PDI.
+                            val pdiBadge = when {
+                                job.pdiRequired == false -> "PDI Mandiri (sales)"
+                                job.deliveryMethod == "self_pickup" || job.deliveryMethod == "sales_delivery" ->
+                                    "PDI (tim PDI) — sales tetap bisa kerjakan sendiri"
+                                else -> "PDI (tim PDI)"
+                            }
+                            InfoLine("PDI", pdiBadge)
                             InfoLine("Surat Jalan", job.deliveryNoteNo)
                             InfoLine("Driver", job.assignedDriverName)
                             InfoLine("Jadwal", job.scheduledDate?.let(::formatWaktuId))
@@ -1272,8 +1292,19 @@ fun DeliveryJobDetailScreen(id: String, onBack: () -> Unit, viewModel: DeliveryF
                                 Spacer(Modifier.height(8.dp))
                                 SimpleAction("Berangkat (Dispatch)", state.submitting) { viewModel.dispatch(job.id) {} }
                             }
+                        // DC/admin atas unit yang SUDAH punya driver. Ditaruh
+                        // SESUDAH cabang `isMyDriverJob` di atas dengan sengaja:
+                        // orang yang merangkap driver + DC harus melihat tombol
+                        // KERJANYA dulu (Berangkat), bukan alat kelolanya.
+                        job.status == DeliveryStatusKey.ASSIGNED && access.jadwal ->
+                            KelolaDriverAction(job, viewModel, state.submitting, state.drivers, bolehBatal = true)
                         job.status == DeliveryStatusKey.IN_TRANSIT && isMyDriverJob ->
                             DeliverAction(job, viewModel, state.submitting, state.driverChecklist, state.driverChecklistError)
+                        // Sudah berangkat: "batal" tak lagi punya arti operasional
+                        // (barangnya fisik di tangan orang), tapi PINDAH masih —
+                        // motor mogok / driver sakit di tengah jalan itu nyata.
+                        job.status == DeliveryStatusKey.IN_TRANSIT && access.jadwal ->
+                            KelolaDriverAction(job, viewModel, state.submitting, state.drivers, bolehBatal = false)
                         // Unit sudah sampai konsumen tapi uangnya belum tercatat masuk.
                         // Berlaku SEMUA jenis pembayaran (2026-07-28) — sebelumnya
                         // non-COD tak punya titik konfirmasi sama sekali.
@@ -1645,7 +1676,10 @@ private fun PdiAction(
     val file = remember { File(context.cacheDir, "delivery/pdi_$id.jpg").apply { parentFile?.mkdirs() } }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
     val photoState by vm.state.collectAsState()
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onPdiPhotoCaptured(file) }
+    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onPdiPhotoCaptured(file) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
 
     // Hasil checklist per item.id: hasil (ok/tidak/na) default "ok" + catatan.
     val hasil = rememberSaveable(checklist, saver = petaJawabanSaver) {
@@ -1803,7 +1837,11 @@ private fun PdiAction(
             val akiPhotoFile = remember { File(context.cacheDir, "delivery/aki_$id.jpg").apply { parentFile?.mkdirs() } }
             val akiPhotoUri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", akiPhotoFile) }
             val akiCam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-                if (!ok) return@rememberLauncherForActivityResult
+                // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+                if (!ok) {
+                    Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+                    return@rememberLauncherForActivityResult
+                }
                 akiPhotoUploading = true
                 akiScope.launch {
                     val url = vm.uploadAkiPhoto(akiPhotoFile)
@@ -2311,7 +2349,10 @@ private fun SetoranKasirAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, s
     val context = LocalContext.current
     val file = remember { File(context.cacheDir, "delivery/setoran_${job.id}.jpg").apply { parentFile?.mkdirs() } }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onDeliverPhotoCaptured(file) }
+    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onDeliverPhotoCaptured(file) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
     // Nominal per unit-id. Kunci `job.id` supaya berpindah SPK mengosongkan
     // isian — kalau tidak, angka SPK sebelumnya ikut terkirim (pola sama
     // [ConfirmSpkAction], dan alasan Saver-nya ada di [petaJawabanSaver]).
@@ -2434,29 +2475,24 @@ private fun AssignAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, submitt
     Text("Assign Driver + Jadwal", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
     Spacer(Modifier.height(4.dp))
     // Fan-out `assign_driver` (2026-08-05). Konsekuensi operasional yang WAJIB
-    // disebut: memecah satu SPK ke dua driver tak lagi bisa lewat assign
-    // satu-satu — tugaskan sekali, lalu pindahkan unitnya lewat "reassign" di
-    // web (jalur itu sengaja TIDAK difan-out justru supaya pemecahan tetap
-    // mungkin). Tanpa kalimat ini DC akan mengira app-nya rusak.
+    // disebut: memecah satu SPK ke dua driver tak bisa lewat assign satu-satu —
+    // tugaskan sekali, lalu pindahkan unitnya lewat "Pindah Driver" (jalur
+    // `reassign` sengaja TIDAK difan-out justru supaya pemecahan tetap mungkin).
+    // Tanpa kalimat ini DC akan mengira app-nya rusak.
+    //
+    // Kalimat "lewat menu reassign di WEB" dibuang 2026-08-28: sejak
+    // `KelolaDriverAction` ada, jalurnya sudah ada di HP dan menyuruh DC pindah
+    // ke browser justru menyembunyikan tombol yang tepat di layar berikutnya.
     SpkFanOutNote(
         "Driver & jadwal ini berlaku untuk SELURUH unit SPK yang masih menunggu penjadwalan. " +
             "Unit \"diambil sendiri\" dilewati. Mau dipecah ke dua driver? Tugaskan sekali dulu, " +
-            "lalu pindahkan unitnya lewat menu reassign di web."
+            "lalu buka unitnya dan pakai \"Pindah Driver\"."
     )
     Spacer(Modifier.height(8.dp))
-    // Filter driver SE-REGION (paritas web `driversForRegion` 2026-07-21): job
-    // Jawa hanya driver Jawa, Manado (D-06/D-07) hanya driver Manado. Region
-    // driver dibaca dari `cabang_name` /api/users ("...Manado..." → Manado);
-    // kosong = tak diketahui → fail-soft ikut tampil (pola web saat store gagal).
-    val jobRegion = BranchRegions.dealerRegion(job.kodeDealer)
-    val regionDrivers = drivers.filter { d ->
-        val r = when {
-            d.cabangName.isBlank() -> null
-            d.cabangName.contains("manado", ignoreCase = true) -> BranchRegions.REGION_MANADO
-            else -> BranchRegions.REGION_JAWA
-        }
-        r == null || r == jobRegion
-    }
+    // SEMUA driver ditampilkan, lintas cabang/region — se-cabang di atas, cabang
+    // asal ditulis di tiap baris. Alasan lengkap kenapa penyaringan region dibuang
+    // (dan kenapa `cabang_name` tak boleh jadi kunci) ada di `DriverPicker.kt`.
+    val pickable = driverBisaDitugaskan(drivers, job.kodeDealer)
     // Sales antar sendiri (2026-07-24): fallback manual kalau auto-assign backend
     // gagal (map_url kosong saat surat jalan terbit) — DC bisa pilih sales pembuat
     // SPK sbg driver, sama seperti opsi driver asli.
@@ -2477,33 +2513,44 @@ private fun AssignAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, submitt
         }
         Spacer(Modifier.height(10.dp))
     }
-    if (regionDrivers.isNotEmpty()) {
+    if (pickable.isNotEmpty()) {
         Text(
-            "Pilih driver (region ${BranchRegions.regionLabel(jobRegion)})",
+            "Pilih driver (semua cabang)",
             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(6.dp))
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            regionDrivers.forEach { d ->
+            pickable.forEach { d ->
                 val sel = driverId == d.effectiveId
                 Surface(onClick = { driverId = d.effectiveId; driverName = d.name }, shape = RoundedCornerShape(12.dp),
                     color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth()) {
-                    Text(d.name.ifBlank { d.effectiveId }, color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+                        Text(d.name.ifBlank { d.effectiveId }, color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        // Cabang asal driver dipajang apa adanya — inilah pengganti
+                        // filter region: DC melihat driver itu dari cabang mana dan
+                        // memutuskan sendiri, alih-alih daftarnya dipangkas diam-diam.
+                        val cabang = d.cabangName.trim()
+                        if (cabang.isNotEmpty()) {
+                            Text(cabang, style = MaterialTheme.typography.labelSmall,
+                                color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }
     } else {
-        // Fallback bila daftar driver tak bisa dimuat (role tak berizin / endpoint
-        // kosong) ATAU tak ada driver se-region — input manual = escape hatch
-        // (enforce region cuma di klien, backend tak menolak lintas region).
-        if (drivers.isNotEmpty()) {
-            Text(
-                "Tidak ada driver terdaftar di region ${BranchRegions.regionLabel(jobRegion)} — isi manual bila memang perlu lintas region.",
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error
-            )
-            Spacer(Modifier.height(6.dp))
-        }
+        // Satu-satunya sebab daftarnya kosong sekarang: rosternya sendiri tak
+        // terpakai (role tak berizin / endpoint kosong / semua id kosong) — BUKAN
+        // lagi "tak ada driver se-region". Input manual tetap ada supaya DC tak
+        // terkunci saat API mati; server menerima user id apa pun (`assign_driver`
+        // cuma memeriksa role si penugas).
+        Text(
+            "Daftar driver tidak bisa dimuat — isi nama & ID driver secara manual.",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(6.dp))
         ExpressiveTextField(driverName, { driverName = it }, label = "Nama driver", modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(10.dp))
         ExpressiveTextField(driverId, { driverId = it }, label = "ID driver (user id)", modifier = Modifier.fillMaxWidth())
@@ -2521,6 +2568,164 @@ private fun AssignAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, submitt
         modifier = Modifier.fillMaxWidth()
     ) {
         if (submitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary) else Text("Assign Driver")
+    }
+}
+
+/**
+ * Kelola driver pada unit yang SUDAH ditugaskan — Batalkan & Pindahkan.
+ *
+ * **Kenapa ini ada.** Sampai 2026-08-28 kedua endpoint-nya (`unassign`,
+ * `reassign`) hanya punya klien di web, jadi DC yang bekerja dari HP wajib
+ * pindah ke browser untuk koreksi salah-tugas — dan layar ini sendiri
+ * menyuruhnya begitu ("pindahkan unitnya lewat menu reassign di web").
+ *
+ * [bolehBatal] `false` saat unit sudah `in_transit`: server memang menolak
+ * `unassign` sesudah berangkat, jadi menampilkan tombolnya cuma menghasilkan
+ * pesan validasi. PINDAH tetap boleh sampai unit diterima konsumen.
+ *
+ * **Jalur ini TIDAK di-fan-out se-SPK** (beda dari `assign`), dan itu justru
+ * fiturnya: memecah satu SPK ke dua driver hanya bisa lewat sini.
+ */
+@Composable
+private fun KelolaDriverAction(
+    job: DeliveryJobDto,
+    vm: DeliveryFlowViewModel,
+    submitting: Boolean,
+    drivers: List<com.krisoft.tridjayaelektronik.data.model.DriverDto>,
+    bolehBatal: Boolean,
+) {
+    var mode by remember(job.id) { mutableStateOf("") }
+    var driverId by remember(job.id) { mutableStateOf("") }
+    var driverName by remember(job.id) { mutableStateOf("") }
+    var tanggal by remember(job.id) { mutableStateOf("") }
+    var alasan by remember(job.id) { mutableStateOf("") }
+
+    Text("Kelola Driver", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+    Spacer(Modifier.height(4.dp))
+    SpkFanOutNote(
+        if (bolehBatal) {
+            "Berlaku untuk UNIT INI SAJA, bukan seluruh SPK — inilah cara memecah satu SPK ke dua driver."
+        } else {
+            "Unit sudah berangkat: penugasan tak bisa dibatalkan, tapi masih bisa dipindahkan ke driver lain."
+        }
+    )
+    Spacer(Modifier.height(8.dp))
+    job.assignedDriverName?.takeIf { it.isNotBlank() }?.let {
+        Text(
+            "Driver sekarang: $it",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+    }
+
+    Row(modifier = Modifier.fillMaxWidth()) {
+        if (bolehBatal) {
+            OutlinedButton(
+                onClick = { mode = if (mode == "batal") "" else "batal" },
+                enabled = !submitting,
+                modifier = Modifier.weight(1f)
+            ) { Text(if (mode == "batal") "Tutup" else "Batalkan") }
+            Spacer(Modifier.width(8.dp))
+        }
+        OutlinedButton(
+            onClick = { mode = if (mode == "pindah") "" else "pindah" },
+            enabled = !submitting,
+            modifier = Modifier.weight(1f)
+        ) { Text(if (mode == "pindah") "Tutup" else "Pindah Driver") }
+    }
+
+    when (mode) {
+        "batal" -> {
+            Spacer(Modifier.height(10.dp))
+            // Alasan OPSIONAL di server, tapi ia masuk teks notifikasi driver
+            // yang unitnya ditarik — tanpa itu ia cuma tahu tugasnya hilang.
+            ExpressiveTextField(
+                alasan, { alasan = it },
+                label = "Alasan (dikirim ke driver)",
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(10.dp))
+            ExpressiveFilledButton(
+                onClick = { vm.unassign(job.id, alasan) { mode = ""; alasan = "" } },
+                enabled = !submitting,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (submitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                else Text("Batalkan Penugasan")
+            }
+        }
+        "pindah" -> {
+            Spacer(Modifier.height(10.dp))
+            // `driverBisaDitugaskan` + `effectiveId` dipakai ULANG dari jalur
+            // assign — himpunan driver yang sah sama persis, dan `effectiveId`
+            // (bukan `id`) itu yang dibandingkan server: `delivery_jobs
+            // .assigned_driver_id` huruf kecil sementara `auth_users.id`
+            // UPPERCASE.
+            val pindahable = driverBisaDitugaskan(drivers, job.kodeDealer)
+                // Driver yang SEDANG memegang unit ini dibuang dari pilihan —
+                // server menolaknya ("Driver baru sama dengan driver sekarang"),
+                // jadi menampilkannya cuma menawarkan tombol yang pasti gagal.
+                .filterNot { d ->
+                    job.assignedDriverId?.equals(d.effectiveId, ignoreCase = true) == true
+                }
+            if (pindahable.isEmpty()) {
+                Text(
+                    "Tak ada driver lain yang bisa dipilih untuk cabang ini.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                pindahable.forEach { d ->
+                    val sel = driverId == d.effectiveId
+                    Surface(
+                        onClick = { driverId = d.effectiveId; driverName = d.name },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+                            Text(
+                                d.name.ifBlank { d.effectiveId },
+                                color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis
+                            )
+                            val cabang = d.cabangName.trim()
+                            if (cabang.isNotEmpty()) {
+                                Text(
+                                    cabang, style = MaterialTheme.typography.labelSmall,
+                                    color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            // KOSONG = pertahankan tanggal yang ada. Sengaja tidak di-prefill
+            // dengan hari ini: memindahkan driver tak selalu berarti menggeser
+            // jadwal, dan prefill membuat penggeseran jadi efek samping senyap.
+            ExpressiveTextField(
+                tanggal, { tanggal = it },
+                label = "Jadwal baru (kosongkan = tetap)",
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(10.dp))
+            ExpressiveFilledButton(
+                onClick = {
+                    vm.reassign(job.id, driverId, driverName, tanggal) {
+                        mode = ""; driverId = ""; driverName = ""; tanggal = ""
+                    }
+                },
+                enabled = !submitting && driverId.trim().isNotEmpty(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (submitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                else Text("Pindahkan ke Driver Ini")
+            }
+        }
     }
 }
 
@@ -2553,12 +2758,18 @@ private fun DeliverAction(
     val file = remember { File(context.cacheDir, "delivery/deliver_$id.jpg").apply { parentFile?.mkdirs() } }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
     val photoState by vm.state.collectAsState()
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onDeliverPhotoCaptured(file) }
+    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onDeliverPhotoCaptured(file) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
     // 088: foto bukti terima uang (wajib bila job.driverTerimaUang == true)
     val needCash = job.driverTerimaUang == true
     val cashFile = remember { File(context.cacheDir, "delivery/cash_$id.jpg").apply { parentFile?.mkdirs() } }
     val cashUri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", cashFile) }
-    val cashCam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onCashPhotoCaptured(cashFile) }
+    val cashCam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onCashPhotoCaptured(cashFile) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
     // 088: checklist serah-terima stage=driver (fail-open bila kosong)
     val hasil = rememberSaveable(driverChecklist, saver = petaJawabanSaver) {
         mutableStateMapOf<String, String>().apply { driverChecklist.forEach { put(it.id, "ok") } }
@@ -2726,7 +2937,10 @@ private fun SelfPickupCompleteAction(job: DeliveryJobDto, vm: DeliveryFlowViewMo
     val photoState by vm.state.collectAsState()
     // Reuse slot foto [DeliveryFlowViewModel.onDeliverPhotoCaptured] — job self_pickup
     // (pending_scheduling) tak pernah bareng job in_transit (deliver) di layar yang sama.
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onDeliverPhotoCaptured(file) }
+    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onDeliverPhotoCaptured(file) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
 
     photoState.deliverPhoto?.takeIf { !photoState.deliverPhotoConfirmed }?.let { bmp ->
         PhotoReviewDialog(bmp, onRetake = { vm.retakeDeliverPhoto() }, onConfirm = { vm.confirmDeliverPhoto() })
@@ -3322,7 +3536,9 @@ fun CreateSpkScreen(
                                 onRemove = { items = items.filterIndexed { i, _ -> i != idx } },
                                 onSerialFocus = { viewModel.ensureSerials(spkCabang, item.kodeBarang) },
                                 uploadPoPhoto = { file -> viewModel.uploadPoPhoto(file) },
-                                uploadBuktiAcc = { file -> viewModel.uploadBuktiAccPhoto(file) },
+                                uploadBuktiAcc = { file, dariGaleri ->
+                                    viewModel.uploadBuktiAccPhoto(file, dariGaleri)
+                                },
                                 deliveryMethod = deliveryMethodSel,
                             )
                         }

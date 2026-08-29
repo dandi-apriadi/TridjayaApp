@@ -41,6 +41,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.krisoft.tridjayaelektronik.data.model.KpiDetailData
 import com.krisoft.tridjayaelektronik.data.model.KpiItemDto
+import com.krisoft.tridjayaelektronik.data.model.KpiBracketDto
+import com.krisoft.tridjayaelektronik.data.model.dampakAlasanKpi
+import com.krisoft.tridjayaelektronik.data.model.judulAlasanKpi
 import com.krisoft.tridjayaelektronik.data.model.KpiKaryawanRowDto
 import com.krisoft.tridjayaelektronik.data.model.formatKpiNumber
 import com.krisoft.tridjayaelektronik.data.model.formatPeriodeId
@@ -150,7 +153,11 @@ fun KpiScreen(
                 if (state.canManage && viewing == null) {
                     item {
                         Text(
-                            text = "KPI Karyawan",
+                            // "KPI Seluruh Karyawan" — sama dengan nama papan di web.
+                            // Daftar ini duduk DI DALAM layar "KPI Saya", jadi judul
+                            // "KPI Karyawan" saja membuat dua hal berbeda berjejer
+                            // dengan nama yang nyaris sama di satu layar.
+                            text = "KPI Seluruh Karyawan",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)
@@ -308,13 +315,168 @@ private fun VerdictText(detail: KpiDetailData) {
         return
     }
     detail.bracket?.let { bracket ->
-        val reward = bracket.kind == "reward"
+        // Cabang `netral` WAJIB eksplisit dan didahulukan. Tanpa itu `kind`
+        // apa pun selain "reward" jatuh ke else dan dirender "Punishment Rp 0"
+        // MERAH — padahal model bonus per indikator tak punya denda sama sekali
+        // dan mengirim "netral" justru untuk menyatakan itu. Orang yang cuma
+        // tak dapat bonus terbaca seperti sedang dihukum, dan itu memicu
+        // keberatan yang tak seharusnya ada.
+        when {
+            bracket.kind == "netral" -> {
+                Text(
+                    text = "Netral · ${formatRupiah(bracket.amount.toDouble())}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = if (bracket.modelBonus) {
+                        // Rp 0 di model bonus BUKAN "pas target": `amount` =
+                        // Σ(nominal kategori × bobot) dan nominalnya nol hanya
+                        // untuk KURANG. Menyebutnya "tak ada reward maupun
+                        // punishment" membacakan kebalikannya.
+                        "Belum ada indikator yang mencapai kategori SEDANG (≥80%), " +
+                            "atau belum ada yang dinilai."
+                    } else {
+                        // Pita netral 91-100% (migrasi 155) — hanya berlaku untuk
+                        // vonis aturan lama di snapshot periode terkunci.
+                        "Capaian 91–100%: tidak ada reward maupun punishment."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            else -> {
+                val reward = bracket.kind == "reward"
+                // Aturan LAMA menamainya REWARD, bukan Bonus. Memakai satu label
+                // untuk keduanya membuat arsip Juli terbaca seolah lahir dari
+                // model bonus hari ini — padahal angkanya tak bisa direproduksi
+                // model itu.
+                val label = when {
+                    !reward -> "Punishment "   // hanya snapshot periode terkunci
+                    bracket.modelBonus -> "Bonus "
+                    else -> "Reward "
+                }
+                Text(
+                    text = label + formatRupiah(bracket.amount.toDouble()),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (reward) RewardColor else PunishmentColor
+                )
+            }
+        }
+        // Pembanding "dari berapa" — DI LUAR `when`, jadi vonis Rp 0 ikut
+        // mendapatkannya. Menaruhnya hanya di cabang non-netral membuat orang
+        // yang justru kehilangan paling banyak (Rp 0 dari maksimal Rp 1,5 jt)
+        // satu-satunya yang tak pernah melihat skalanya.
+        bracket.bonusMaksRp?.takeIf { it > 0 }?.let { maks ->
+            Text(
+                text = "dari maksimal ${formatRupiah(maks.toDouble())}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        BracketAlasanList(bracket)
+    }
+}
+
+/**
+ * Rincian "kenapa bonusnya tidak penuh" — indikator mana yang kehilangan
+ * rupiah, urut dari yang terbesar (server yang mengurutkan).
+ *
+ * **Dirender untuk KEDUA model**, dengan judul & satuan yang mengikuti model
+ * yang melahirkan vonisnya ([KpiBracketDto.modelBonus]) — paritas dengan
+ * `KpiBracketAlasan` di web.
+ *
+ * Versi pertama panel ini (2026-08-28 pagi) `return` lebih awal untuk snapshot
+ * periode terkunci, dengan alasan yang BENAR sebagiannya: baris lama tak punya
+ * `hilangRp`, dan membacanya sebagai `0` mencetak "−Rp 0" untuk SETIAP baris —
+ * daftar yang terbaca "tak ada yang hilang" padahal sebabnya cuma tak terbaca.
+ * Yang keliru adalah OBATNYA: web tidak menahan diri, ia mengganti SATUANNYA
+ * (`dampakPct` + "poin"). Menahan diri berarti karyawan yang membuka periode
+ * Juli/Agustus dari HP melihat "Punishment Rp 250.000" TANPA satu baris sebab,
+ * sementara rekannya di web melihat daftar penyebabnya — denda rupiah yang tak
+ * bisa dibantah dari kanal lapangan, persis kerugian yang panel ini ada untuk
+ * menutup.
+ *
+ * Angka rupiah tanpa sebab tak bisa dibantah — itu alasan panel ini ada.
+ * `alasan` kosong dirender sebagai pernyataan POSITIF **hanya di model bonus**:
+ * di sana ia berarti tiap indikator BAGUS SEKALI, sedangkan di snapshot lama ia
+ * cuma berarti rinciannya tak tersimpan.
+ */
+@Composable
+private fun BracketAlasanList(bracket: KpiBracketDto) {
+    // `alasan` kosong ditangani BERBEDA per model, dan itu bukan kerapian:
+    // di model bonus ia berarti "tiap indikator BAGUS SEKALI" (kabar baik yang
+    // layak dinyatakan), sedangkan di snapshot aturan lama ia cuma berarti
+    // rinciannya memang tak tersimpan — mengumumkan "bonus penuh" di sana akan
+    // mengarang kabar baik atas vonis yang bisa saja denda.
+    if (bracket.alasan.isEmpty()) {
+        if (!bracket.modelBonus) return
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
-            text = (if (reward) "Reward " else "Punishment ") + formatRupiah(bracket.amount.toDouble()),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = if (reward) RewardColor else PunishmentColor
+            text = "Semua indikator BAGUS SEKALI — bonus penuh.",
+            style = MaterialTheme.typography.bodySmall,
+            color = RewardColor
         )
+        return
+    }
+    Spacer(modifier = Modifier.height(10.dp))
+    Text(
+        // Judul & satuan ikut MODEL yang melahirkan vonis ini — aturannya hidup
+        // sebagai fungsi murni di `KpiModels.kt` supaya bisa diuji tanpa Compose.
+        text = judulAlasanKpi(bracket.modelBonus),
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(4.dp))
+    bracket.alasan.forEach { a ->
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = a.indikator + if (a.dinilai) "" else " (belum dinilai)",
+                style = MaterialTheme.typography.bodySmall,
+                // "belum dinilai" BUKAN kinerja buruk — itu penilaian yang belum
+                // dikerjakan HR, dan mewarnainya merah menyalahkan orang yang salah.
+                color = if (a.dinilai) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    PendingColor
+                },
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            val dampak = dampakAlasanKpi(
+                baris = a,
+                modelBonus = bracket.modelBonus,
+                formatRupiah = { formatRupiah(it) },
+                formatAngka = { formatKpiNumber(it) },
+            )
+            dampak?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    // Merah untuk KEDUA model, termasuk `dampakPct` positif —
+                    // cerminan `text-error` web. Panel ini mendaftar apa yang
+                    // MENEKAN vonis; mewarnai sebagiannya hijau membuat daftar
+                    // terbaca sebagai campuran untung-rugi, bukan sebab.
+                    color = PunishmentColor
+                )
+            }
+            // Kategori (BAGUS SEKALI/CUKUP/…) ikut dirender seperti web: tanpa
+            // itu baris "−Rp 450.000" tak memberi tahu SEBERAPA jauh capaiannya
+            // dari yang membayar penuh.
+            a.kategori?.takeIf { it.isNotBlank() }?.let {
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
 
@@ -378,6 +540,27 @@ private fun IndicatorCard(item: KpiItemDto) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp)
             )
+            // Baris RUPIAH per indikator — dan inilah yang benar-benar dibayar.
+            // `hasilBobot` di atas cuma bahan skor total yang dipajang; sejak
+            // model bonus per indikator, uangnya = Σ `bonusRp` tiap baris.
+            // Keduanya `null` untuk snapshot periode terkunci (aturan lama tak
+            // punya konsep ini), jadi barisnya menghilang, bukan mencetak Rp 0.
+            item.bonusRp?.let { rp ->
+                Text(
+                    text = buildString {
+                        item.kategori?.takeIf { it.isNotBlank() }?.let { append(it).append(" · ") }
+                        append("bonus ").append(formatRupiah(rp.toDouble()))
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    // Rp 0 bukan hukuman — di model ini indikator yang belum
+                    // mencapai SEDANG hanya GAGAL MENAMBAH, tak pernah mengurangi
+                    // bonus indikator lain. Mewarnainya merah membacakan denda
+                    // yang tak ada.
+                    color = if (rp > 0) RewardColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
         }
     }
 }

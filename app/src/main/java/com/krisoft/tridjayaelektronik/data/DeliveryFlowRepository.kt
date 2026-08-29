@@ -3,6 +3,8 @@ package com.krisoft.tridjayaelektronik.data
 import com.krisoft.tridjayaelektronik.data.model.SerialRegistryRow
 import com.krisoft.tridjayaelektronik.data.model.ApiErrorResponse
 import com.krisoft.tridjayaelektronik.data.model.AssignBody
+import com.krisoft.tridjayaelektronik.data.model.ReassignBody
+import com.krisoft.tridjayaelektronik.data.model.UnassignBody
 import com.krisoft.tridjayaelektronik.data.model.ConfirmSpkBody
 import com.krisoft.tridjayaelektronik.data.model.SetoranKasirBody
 import com.krisoft.tridjayaelektronik.data.model.CreateDeliveryBody
@@ -213,6 +215,41 @@ class DeliveryFlowRepository @Inject constructor(
 
     suspend fun assign(id: String, body: AssignBody): AuthResult<DeliveryJobDto> =
         call("Gagal assign driver") { api.assign(id, body) }
+
+    /** Batalkan penjadwalan — server menolak kalau unit sudah berangkat. */
+    suspend fun unassign(id: String, reason: String?): AuthResult<DeliveryJobDto> =
+        call("Gagal membatalkan penugasan") {
+            api.unassign(id, UnassignBody(reason?.trim()?.takeIf { it.isNotBlank() }))
+        }
+
+    /**
+     * Pindahkan ke driver lain. [scheduledDate] kosong/null = PERTAHANKAN
+     * tanggal yang ada (server: `COALESCE(NULLIF(?, ''), scheduled_date)`) —
+     * bukan menghapus jadwal.
+     */
+    suspend fun reassign(
+        id: String,
+        driverId: String,
+        driverName: String?,
+        scheduledDate: String?,
+    ): AuthResult<DeliveryJobDto> {
+        val driver = driverId.trim()
+        // Ditolak di sini supaya pemutus dapat pesan yang jelas, bukan 400
+        // generik — pola sama `rejectManualUnit`.
+        if (driver.isEmpty()) {
+            return AuthResult.Failure("validation", "Driver baru wajib dipilih")
+        }
+        return call("Gagal memindahkan driver") {
+            api.reassign(
+                id,
+                ReassignBody(
+                    driverId = driver,
+                    driverName = driverName?.trim()?.takeIf { it.isNotBlank() },
+                    scheduledDate = scheduledDate?.trim()?.takeIf { it.isNotBlank() },
+                ),
+            )
+        }
+    }
 
     suspend fun dispatch(id: String): AuthResult<DeliveryJobDto> =
         call("Gagal berangkat") { api.dispatch(id) }
@@ -466,7 +503,7 @@ class DeliveryFlowRepository @Inject constructor(
 
     /** Upload foto (JPEG) → URL relatif untuk dikirim di body tahap (PDI/deliver). */
     suspend fun uploadPhoto(bytes: ByteArray, filename: String): AuthResult<String> = try {
-        val part = MultipartBody.Part.createFormData("file", filename, bytes.toRequestBody("image/jpeg".toMediaType()))
+        val part = MultipartBody.Part.createFormData("file", filename, bytes.toRequestBody("image/webp".toMediaType()))
         val response = api.uploadPhoto(part)
         val data = response.body()?.data
         if (response.isSuccessful && data != null && data.url.isNotBlank()) AuthResult.Success(data.url)

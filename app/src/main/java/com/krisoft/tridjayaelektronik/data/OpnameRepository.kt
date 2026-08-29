@@ -2,6 +2,8 @@ package com.krisoft.tridjayaelektronik.data
 
 import com.krisoft.tridjayaelektronik.data.local.OpnameUnitDao
 import com.krisoft.tridjayaelektronik.data.local.OpnameUnitEntity
+import com.krisoft.tridjayaelektronik.data.model.ApproveBatchData
+import com.krisoft.tridjayaelektronik.data.model.ApproveBatchRequest
 import com.krisoft.tridjayaelektronik.data.model.ApiErrorResponse
 import com.krisoft.tridjayaelektronik.data.model.ApiResponse
 import com.krisoft.tridjayaelektronik.data.model.CreateOpnameUnitsData
@@ -336,6 +338,23 @@ class OpnameRepository @Inject constructor(
             is AuthResult.Success -> AuthResult.Success(Unit)
             is AuthResult.Failure -> r
         }
+
+    /**
+     * Approve MASSAL satu sesi. [unitIds] wajib tidak kosong — daftar kosong
+     * berarti "seluruh pending sesi ini" bagi server, dan itu bisa melampaui
+     * yang tampil di layar.
+     */
+    suspend fun approveManualUnitsBatch(
+        sessionId: String,
+        unitIds: List<String>,
+    ): AuthResult<ApproveBatchData> {
+        if (unitIds.isEmpty()) {
+            return AuthResult.Failure("validation", "Tak ada unit yang dipilih")
+        }
+        return call("Gagal menyetujui unit") {
+            api.approveManualUnitsBatch(sessionId, ApproveBatchRequest(unitIds))
+        }
+    }
 
     /** [alasan] WAJIB. Ditolak di sini dulu supaya pemutus dapat pesan yang jelas,
      *  bukan 400 generik dari server. */

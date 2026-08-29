@@ -15,7 +15,14 @@ import kotlinx.serialization.Serializable
 data class KpiPositionDto(
     val id: String = "",
     val judul: String = "",
-    /** "sales" (insentif persen) | "non_sales" (reward/punishment rupiah). */
+    /**
+     * `"sales"` | `"non_sales"` — sejak model bonus per indikator (Excel Sept
+     * 2026) keduanya cuma memilih TABEL NOMINAL (sales 2jt/1,5jt/750rb/0,
+     * non-sales 1,5jt/750rb/500rb/0), BUKAN lagi "sales = insentif persen,
+     * non_sales = reward/punishment rupiah" seperti tertulis di sini sampai
+     * 2026-08-28. Insentif persen sudah dicabut — server selalu mengirim
+     * `insentif: null` untuk vonis model baru.
+     */
     val bracketMode: String = "",
     /** Posisi dipilih otomatis dari masa kerja (hr_roster.tgl_masuk). */
     val auto: Boolean = false
@@ -42,17 +49,135 @@ data class KpiItemDto(
     /** actual / target — rasio, bukan persen. Bisa > 1. */
     val achievement: Double = 0.0,
     val hasilBobot: Double = 0.0,
+    /**
+     * Kategori Excel indikator ini: `BAGUS SEKALI` / `BAGUS` / `SEDANG` /
+     * `KURANG` (`ScoredItem.kategori`). `null` untuk vonis model LAMA yang
+     * tersimpan di snapshot periode terkunci.
+     */
+    val kategori: String? = null,
+    /**
+     * Rupiah yang indikator INI sumbangkan ke bonus. **Di sinilah uangnya
+     * sekarang** — `hasilBobot` tinggal bahan skor total yang dipajang;
+     * menjumlahkan kolom ini = bonus orang itu. `null` di snapshot model lama.
+     */
+    val bonusRp: Long? = null,
     /** "auto" (dihitung sistem) | "manual" (input HR) | null (belum ada). */
     val source: String? = null
 )
 
-/** Vonis rupiah posisi non_sales. */
+/**
+ * Satu baris ALASAN kenapa bonus tidak penuh — cerminan `BracketAlasan`
+ * (kinerja-service `kpi/scoring.rs`), diurutkan server dari rupiah hilang
+ * terbesar.
+ *
+ * **Hampir semuanya nullable, dan itu cerminan data nyata, bukan kelonggaran.**
+ * `kpi_snapshot` periode TERKUNCI (Juli & Agustus 2026) menyimpan bentuk LAMA
+ * yang hanya punya [dampakPct] — [bonusRp]/[hilangRp]/[kategori] memang tak ada
+ * di sana. Menjadikannya non-null ber-default `0` membuat layar mencetak
+ * "−Rp 0" untuk SETIAP indikator: daftar yang terbaca "tak ada yang hilang"
+ * padahal sebabnya cuma tak terbaca. Web menuliskan jebakan yang sama persis di
+ * `useKpiStore.ts`.
+ */
+@Serializable
+data class KpiBracketAlasanDto(
+    val indikator: String = "",
+    /** Capaian indikator (1.0 = tepat target). Nol untuk yang belum dinilai. */
+    val achievement: Double = 0.0,
+    val bobot: Double = 0.0,
+    val kategori: String? = null,
+    /** Rupiah yang benar-benar didapat dari indikator ini. */
+    val bonusRp: Long? = null,
+    /** Rupiah kalau indikator ini BAGUS SEKALI. */
+    val bonusMaksRp: Long? = null,
+    /** `bonusMaksRp − bonusRp`. Selalu >= 0 — indikator tak pernah MENGURANGI
+     *  bonus indikator lain, ia hanya gagal menambah. */
+    val hilangRp: Long? = null,
+    /** Bentuk LAMA (poin persen). HANYA ada di snapshot periode terkunci. */
+    val dampakPct: Double? = null,
+    /** `false` = belum dinilai HR. Bedanya penting: capaian rendah itu kinerja,
+     *  indikator kosong itu penilaian yang belum dikerjakan — dan di model bonus
+     *  keduanya sama-sama membayar Rp 0. */
+    val dinilai: Boolean = false
+)
+
+/**
+ * Vonis rupiah. **Sejak model bonus per indikator (Excel Sept 2026) BERLAKU
+ * UNTUK KEDUA `bracketMode`** — posisi sales tak lagi dibayar sebagai persen.
+ */
 @Serializable
 data class KpiBracketDto(
-    /** "reward" | "punishment". */
+    /**
+     * `"reward"` saat bonus > 0, `"netral"` saat Rp 0.
+     *
+     * **`"punishment"` SUDAH TIDAK PERNAH TERBIT** sejak 2026-08-19 — model
+     * Excel tak punya satu pun angka negatif, dan `scoring.rs::payload` menulis
+     * `if amount > 0 { "reward" } else { "netral" }`. Nilainya tetap mungkin
+     * MUNCUL karena `kpi_snapshot` periode terkunci (Juli & Agustus 2026)
+     * menyimpan vonis aturan lama apa adanya; layar wajib bisa merendernya,
+     * bukan menganggapnya data rusak.
+     */
     val kind: String = "",
-    val amount: Long = 0
-)
+    val amount: Long = 0,
+    /** Kategori dari SKOR TOTAL — label saja, TIDAK menggerakkan uang. */
+    val kategoriTotal: String? = null,
+    /** Bonus kalau SEMUA indikator BAGUS SEKALI. Pembanding untuk [amount]. */
+    val bonusMaksRp: Long? = null,
+    /** Absen pada respons lama / snapshot yang belum disegarkan. */
+    val alasan: List<KpiBracketAlasanDto> = emptyList()
+) {
+    /**
+     * MODEL MANA yang melahirkan vonis ini — dibaca dari BENTUK payload, bukan
+     * dari periode yang sedang dibuka.
+     *
+     * Alasannya sama dengan yang ditulis web di `KpiHasilBadge.tsx`: komponen
+     * yang menerima "periode terkunci" sebagai parameter menuntut TIAP pemanggil
+     * ingat mengopernya, dan yang lupa memberi label salah tanpa satu pun error.
+     * Bentuknya sudah cukup memutuskan — `bonusMaksRp` HANYA ada di vonis model
+     * bonus per indikator; snapshot Juli & Agustus 2026 tak pernah punya field
+     * itu.
+     */
+    val modelBonus: Boolean get() = bonusMaksRp != null
+}
+
+/**
+ * Judul panel rincian, mengikuti MODEL yang melahirkan vonisnya.
+ *
+ * Memakai satu judul untuk keduanya membuat arsip Juli terbaca seolah lahir
+ * dari model bonus hari ini — padahal satuan angkanya pun berbeda (rupiah vs
+ * poin persen). Cerminan `KpiBracketAlasan` di web.
+ */
+internal fun judulAlasanKpi(modelBonus: Boolean): String =
+    if (modelBonus) "Kenapa bonusnya tidak penuh"
+    else "Indikator yang menekan vonis (aturan lama)"
+
+/**
+ * Satuan dampak satu baris alasan — `null` bila baris itu memang tak menyimpan
+ * angkanya (lalu layar tak mencetak apa pun, bukan mencetak nol).
+ *
+ * **Inilah aturan yang paling mudah dirusak.** Baris model bonus menyimpan
+ * `hilangRp`, baris snapshot periode terkunci hanya `dampakPct`. Membaca
+ * `hilangRp ?: 0` pada yang kedua mencetak "−Rp 0" untuk SETIAP indikator —
+ * daftar yang terbaca "tak ada yang hilang" padahal sebabnya cuma tak terbaca.
+ * Membaca `dampakPct` pada yang pertama sama salahnya dari arah sebaliknya.
+ *
+ * SATU perbedaan yang disengaja dari web: `KpiBracketAlasan.tsx` menulis
+ * `hilangRp ?? 0` sehingga baris yang kehilangan angkanya tetap tercetak
+ * "−Rp 0". Di sini angkanya `null` → barisnya tak mencetak apa-apa. Nol yang
+ * dikarang tak bisa dibedakan dari nol yang benar; ruang kosong bisa.
+ *
+ * [formatRupiah] & [formatAngka] disuntikkan supaya fungsi ini bisa diuji tanpa
+ * Compose/Android — pemformatannya sendiri sudah punya testnya sendiri.
+ */
+internal fun dampakAlasanKpi(
+    baris: KpiBracketAlasanDto,
+    modelBonus: Boolean,
+    formatRupiah: (Double) -> String,
+    formatAngka: (Double) -> String,
+): String? = if (modelBonus) {
+    baris.hilangRp?.let { "−${formatRupiah(it.toDouble())}" }
+} else {
+    baris.dampakPct?.let { "${if (it > 0) "+" else ""}${formatAngka(it)} poin" }
+}
 
 @Serializable
 data class KpiInsentifKomponenDto(

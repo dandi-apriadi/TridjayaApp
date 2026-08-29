@@ -51,7 +51,7 @@ class EventRepository @Inject constructor(
     suspend fun unggahKtp(bytes: ByteArray, namaFile: String): AuthResult<String> = try {
         // Nama part WAJIB "file" — itu yang dibaca server.
         val part = MultipartBody.Part.createFormData(
-            "file", namaFile, bytes.toRequestBody("image/jpeg".toMediaType()),
+            "file", namaFile, bytes.toRequestBody("image/webp".toMediaType()),
         )
         val response = api.unggahKtp(part)
         val data = response.body()?.data

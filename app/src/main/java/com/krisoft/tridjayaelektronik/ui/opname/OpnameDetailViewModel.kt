@@ -528,7 +528,7 @@ class OpnameDetailViewModel @Inject constructor(
                 updateManual { it.copy(uploading = false, error = "Foto tidak terbaca, ambil ulang") }
                 return@launch
             }
-            val nama = "opname_manual_${if (kind == SerialPhotoKind.SERIAL) "label" else "barang"}_${System.currentTimeMillis()}.jpg"
+            val nama = "opname_manual_${if (kind == SerialPhotoKind.SERIAL) "label" else "barang"}_${System.currentTimeMillis()}.webp"
             when (val up = serialRepository.uploadPhoto(bytes, nama)) {
                 is AuthResult.Success -> updateManual {
                     if (kind == SerialPhotoKind.SERIAL) {
@@ -648,7 +648,7 @@ class OpnameDetailViewModel @Inject constructor(
                 updateProposal { it.copy(uploading = false, error = "Foto tidak terbaca, ambil ulang") }
                 return@launch
             }
-            val nama = "sn_${if (kind == SerialPhotoKind.SERIAL) "serial" else "barang"}_${System.currentTimeMillis()}.jpg"
+            val nama = "sn_${if (kind == SerialPhotoKind.SERIAL) "serial" else "barang"}_${System.currentTimeMillis()}.webp"
             when (val up = serialRepository.uploadPhoto(bytes, nama)) {
                 is AuthResult.Success -> updateProposal {
                     if (kind == SerialPhotoKind.SERIAL) {

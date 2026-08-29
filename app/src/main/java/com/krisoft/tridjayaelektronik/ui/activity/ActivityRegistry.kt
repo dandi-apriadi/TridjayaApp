@@ -4,6 +4,8 @@ import com.krisoft.tridjayaelektronik.ui.acinstall.JABATAN_PETUGAS_PEMASANGAN
 import com.krisoft.tridjayaelektronik.ui.acinstall.punyaJabatanPetugasPemasangan
 import com.krisoft.tridjayaelektronik.ui.home.ALL_LOGGED_IN
 import com.krisoft.tridjayaelektronik.ui.home.CRM_MENU_ROLES
+import com.krisoft.tridjayaelektronik.ui.home.KNOWN_ROLES
+import com.krisoft.tridjayaelektronik.ui.home.SPK_BLOCKED_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.SERIAL_INPUT_MENU_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.STAFF_MENU_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.SPK_MENU_ROLES
@@ -264,29 +266,53 @@ internal val KASIR_QUEUE_ROLES = setOf("kasir", "admin", "superadmin")
  * memakai `spk.pipeline` padahal menavigasi langsung ke form input, jadi
  * manager/owner menekannya lalu dijawab 403.
  */
-internal val SPK_CREATE_ROLES: Set<String> = SPK_MENU_ROLES - "manager" - "owner"
+internal val SPK_CREATE_BLOCKED_ROLES: Set<String> = SPK_BLOCKED_ROLES + setOf("manager", "owner")
+
+internal val SPK_CREATE_ROLES: Set<String> = KNOWN_ROLES - SPK_CREATE_BLOCKED_ROLES
 
 /**
  * Cerminan `capabilities::KUPON_GEBYAR_LIHAT_ROLES` (rust-shared) — cadangan
  * OFFLINE saja; sumber utamanya kunci `kupon_gebyar.lihat` dari
  * `GET /api/me/capabilities`.
  *
- * SENGAJA lebar: programnya memang untuk "setiap karyawan di cabang terkait"
- * (arahan owner). Menyempitkannya di sini akan mengunci orang yang justru
- * diminta mengerjakannya.
+ * **DISAMAKAN PERSIS dengan daftar server 2026-08-28.** Sebelumnya isinya
+ * `kepala-cabang, admin-sales, karyawan, manager, admin, superadmin, owner` —
+ * menyimpang di TIGA arah sekaligus dari `KUPON_GEBYAR_LIHAT_ROLES`, dan tiap
+ * arah merugikan orang yang berbeda:
+ *  - **kurang**: `kasir` tak pernah ada di sini padahal server memuatnya, jadi
+ *    kasir offline kehilangan kartu yang jadi haknya;
+ *  - **lebih (LIMA role)**: `admin-sales`, `manager`, `admin`, `superadmin`,
+ *    `owner`. Doc server EKSPLISIT mengecualikan mereka ("pengawasan
+ *    lintas-cabang mereka lewat Papan Gebyar, bukan daftar konsumen ini") —
+ *    offline mereka melihat kartunya lalu dijawab 403 begitu online, persis pola
+ *    "menu tampil, endpoint 403" yang CLAUDE.md repo ini justru ingin dicegah.
+ *    **`admin-sales` termasuk di sini, BUKAN sebagai salah ketik**: ia slug
+ *    efektif yang hidup (`Role::AdminSales`, dan `divisi_access_slugs` melipat
+ *    `sales`/`sales-head` jadi `admin-sales` — `auth.rs`), jadi membuangnya
+ *    adalah penyempitan yang DISENGAJA server, bukan pembetulan ejaan. Draf
+ *    pertama komentar ini menyebutnya "baris mati"; kalau aturan itu diterapkan
+ *    ke daftar lain — mis. mencabut `admin-sales` dari `STAFF_MENU_ROLES` yang
+ *    `STAFF_SELF_SERVICE_ROLES` memang memuatnya — seluruh orang berdivisi sales
+ *    kehilangan kartu Absen & Slip Gaji saat offline, tanpa error.
  *
- * **`"cs"` yang ada di daftar server sengaja TIDAK ditulis di sini**, alasan
- * sama dengan [HS_LAPOR_ROLES] dulu: belum ada role literal `cs` di sistem,
- * jadi ejaan itu tak akan pernah cocok dengan role siapa pun dan cuma jadi
- * baris yang tampak seperti jaring pengaman padahal mati. Ia juga tak ada di
- * `KNOWN_ROLES`, jadi menuliskannya akan MEMERAHKAN `ActivityRegistryTest`.
- * Petugas CS sungguhan tetap lolos lewat peta kemampuan server.
+ * SENGAJA tetap lebar sampai `karyawan`: programnya memang untuk "setiap
+ * karyawan di cabang terkait" (arahan owner). Menyempitkannya akan mengunci
+ * orang yang justru diminta mengerjakannya.
+ *
+ * **`cs` memang TIDAK ada di `KUPON_GEBYAR_LIHAT_ROLES`** — jangan
+ * menambahkannya "biar selaras". Doc Rust menyebutnya eksplisit sebagai salah
+ * satu role yang TETAP dikecualikan; pengawasan CS lewat
+ * `KUPON_GEBYAR_MONITOR_ROLES` (Papan Gebyar), bukan daftar konsumen ini.
+ * Menuliskannya di sini akan MEMERAHKAN `CadanganRoleCerminRustTest` dengan
+ * `LEBIH: [cs]`. (Draf pertama komentar ini menyalin kalimat "cs ada di daftar
+ * server tapi sengaja tak ditulis" dari [HS_LAPOR_ROLES] — di sana kalimat itu
+ * benar, di sini premisnya salah sejak awal.)
  *
  * **Daftar ini BUKAN gerbang yang sesungguhnya.** Yang menentukan siapa melihat
  * kartunya adalah vonis cabang dari server — lihat [kuponGebyarCardVisible].
  */
 internal val KUPON_GEBYAR_MENU_ROLES = setOf(
-    "kepala-cabang", "admin-sales", "karyawan", "manager", "admin", "superadmin", "owner",
+    "kepala-cabang", "admin-penjualan", "kasir", "karyawan",
 )
 
 /**
@@ -379,6 +405,28 @@ internal val ACTIVITY_ITEMS: List<ActivityItem> = listOf(
         backendGuard = "tanpa guard: kinerja-service home_service/handlers.rs create_ticket login-only (self-scoped)",
         source = ActivitySource.NONE,
         navKey = "hs_lapor",
+        hiddenFromActivity = true,
+    ),
+    ActivityItem(
+        id = "komplain_saya",
+        label = "Komplain Saya",
+        subtitle = "Tiket yang kamu laporkan",
+        kind = ActivityKind.AKSI,
+        // `null`, alasan SAMA dengan `lapor_komplain` di atas: `sayaLapor`
+        // adalah jalur SELF-SCOPED (server memaksa `pelapor_user_id` = id
+        // aktor, tak pernah dari query), jadi kunci apa pun di sini lebih
+        // sempit dari servernya. Siapa pun yang boleh MELAPOR harus bisa
+        // melihat laporannya sendiri — kalau tidak, tiketnya lenyap dari
+        // pandangannya begitu layar sukses ditutup.
+        capability = null,
+        allowedRoles = HS_LAPOR_ROLES,
+        backendGuard = "tanpa guard: kinerja-service home_service/service.rs list sayaLapor (self-scoped, pelapor_user_id = id aktor)",
+        source = ActivitySource.NONE,
+        navKey = "hs_saya",
+        // Disembunyikan dari Activity mengikuti `lapor_komplain`: keduanya
+        // pintu ke modul yang sama dan tinggal berdampingan di Akses Cepat.
+        // Menaruh riwayat pribadi di antrian kerja harian juga salah tempat —
+        // ia bukan sesuatu yang harus dikerjakan hari ini.
         hiddenFromActivity = true,
     ),
     ActivityItem(

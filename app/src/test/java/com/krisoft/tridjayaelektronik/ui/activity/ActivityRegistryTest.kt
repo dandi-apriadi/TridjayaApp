@@ -43,7 +43,7 @@ class ActivityRegistryTest {
     }
 
     @Test
-    fun `hanya tiga item yang boleh tanpa kunci kemampuan`() {
+    fun `hanya empat item yang boleh tanpa kunci kemampuan`() {
         // raport: hak `upsert_raport` belum punya kunci di /api/me/capabilities.
         // inventory/cari_semua PINDAH ke QUICK_ACCESS_MENUS 2026-07-30 (lihat
         // MenuAccessGateTest.kt) — bukan lagi milik registri ini.
@@ -55,9 +55,14 @@ class ActivityRegistryTest {
         // membuatnya — `tugas-saya` self-scoped, dan anggota tim dipilih
         // per-ORANG sehingga tak ada daftar role yang benar untuk "petugas
         // pemasangan". Yang menyempitkan tampilannya `jabatan`, bukan role.
-        // Ketiganya WAJIB menyebutkan alasannya di `backendGuard`.
+        // `komplain_saya` menyusul 2026-08-28, alasannya SAMA PERSIS dengan
+        // `lapor_komplain` dan memang pasangannya: `sayaLapor` self-scoped —
+        // server memaksa `pelapor_user_id` = id aktor dan tak pernah membacanya
+        // dari query, jadi kunci apa pun di klien lebih SEMPIT dari servernya.
+        // Siapa pun yang boleh melapor harus bisa melihat laporannya sendiri.
+        // Keempatnya WAJIB menyebutkan alasannya di `backendGuard`.
         val tanpaKunci = ACTIVITY_ITEMS.filter { it.capability == null }.map { it.id }
-        assertEquals(listOf("aktivitas", "lapor_komplain", "pemasangan_ac"), tanpaKunci)
+        assertEquals(listOf("aktivitas", "lapor_komplain", "komplain_saya", "pemasangan_ac"), tanpaKunci)
     }
 
     // ── Gate JABATAN (bukan role) ────────────────────────────────────────────

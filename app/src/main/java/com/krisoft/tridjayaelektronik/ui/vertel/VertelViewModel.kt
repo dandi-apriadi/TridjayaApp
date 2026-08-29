@@ -32,6 +32,10 @@ data class VertelUiState(
     val tanggal: String? = null,
     /** `noTransaksi` baris yang form catatannya sedang dibuka. */
     val terbuka: String? = null,
+    /** `false` (bawaan) = baris yang sudah ditelepon disembunyikan dari daftar
+     *  kerja ([VertelPlan.daftarTampil]) — dinyalakan manual saat verifikator
+     *  perlu meninjau/mengoreksi catatan yang sudah masuk. */
+    val tampilkanSelesai: Boolean = false,
 )
 
 /**
@@ -96,6 +100,8 @@ class VertelViewModel @Inject constructor(
     fun buka(noTransaksi: String?) = _state.update { it.copy(terbuka = noTransaksi, actionError = null) }
 
     fun bersihkanActionError() = _state.update { it.copy(actionError = null) }
+
+    fun toggleTampilkanSelesai() = _state.update { it.copy(tampilkanSelesai = !it.tampilkanSelesai) }
 
     /**
      * [tanggalTransaksi] adalah tanggal TRANSAKSI dari barisnya, BUKAN tanggal

@@ -201,7 +201,7 @@ class AddLeadViewModel @Inject constructor(
                 }
                 return@launch
             }
-            when (val hasil = crmRepository.uploadBuktiProspek(bytes, "bukti_prospek.jpg")) {
+            when (val hasil = crmRepository.uploadBuktiProspek(bytes, "bukti_prospek.webp")) {
                 is AuthResult.Success -> _uiState.update {
                     it.copy(mengunggahBukti = false, buktiUrl = hasil.data, buktiNama = nama.ifBlank { "bukti.jpg" })
                 }

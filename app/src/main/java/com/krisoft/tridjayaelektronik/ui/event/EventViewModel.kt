@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.EventRepository
 import com.krisoft.tridjayaelektronik.data.model.EventDto
+import com.krisoft.tridjayaelektronik.ui.aktivitas.pesanGagalDekode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,7 +123,7 @@ class EventViewModel @Inject constructor(
      * Dikompres dulu di HP: server menolak >5MB, dan foto kamera full-res HP baru rutin
      * melewatinya — sales di lapangan cuma akan melihat "gagal unggah" tanpa sebab.
      */
-    fun unggahKtp(file: File) {
+    fun unggahKtp(file: File, dariGaleri: Boolean = false) {
         if (_uiState.value.mengunggahKtp) return
         _uiState.update { it.copy(mengunggahKtp = true, pesanError = null, pesanSukses = null) }
         viewModelScope.launch {
@@ -133,11 +134,20 @@ class EventViewModel @Inject constructor(
             // membuka mode "w" = CREATE), jadi menghapus di sini tidak mematikan tombolnya.
             val siap = withContext(Dispatchers.Default) { siapkanKtpJpeg(file).also { file.delete() } }
             if (siap == null) {
-                _uiState.update { it.copy(mengunggahKtp = false, pesanError = "Foto tidak terbaca, coba ambil ulang.") }
+                // "Coba ambil ulang" hanya benar untuk KAMERA. Foto galeri yang
+                // gagal didekode di HP Android 7/8 (HEIC dari iPhone, masuk
+                // lewat Bluetooth/kartu SD — `BitmapFactory` baru bisa HEIF di
+                // API 28 sedangkan minSdk 24) akan gagal lagi setiap kali,
+                // jadi kalimat itu menyuruh mengulang hal yang mustahil.
+                // Kalimat per-sumber dipinjam dari `pesanGagalDekode` (jalur
+                // raport), bukan ditulis ulang.
+                _uiState.update {
+                    it.copy(mengunggahKtp = false, pesanError = pesanGagalDekode(dariGaleri))
+                }
                 return@launch
             }
             val (bytes, bitmap) = siap
-            when (val res = repository.unggahKtp(bytes, "ktp_${System.currentTimeMillis()}.jpg")) {
+            when (val res = repository.unggahKtp(bytes, "ktp_${System.currentTimeMillis()}.webp")) {
                 is AuthResult.Failure ->
                     _uiState.update { it.copy(mengunggahKtp = false, pesanError = res.message) }
                 is AuthResult.Success -> _uiState.update {

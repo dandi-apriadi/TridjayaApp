@@ -9,6 +9,8 @@ import com.krisoft.tridjayaelektronik.data.model.CreateIndentRequest
 import com.krisoft.tridjayaelektronik.data.model.CreateOpnameRequest
 import com.krisoft.tridjayaelektronik.data.model.IndentDto
 import com.krisoft.tridjayaelektronik.data.model.IndentListData
+import com.krisoft.tridjayaelektronik.data.model.ApproveBatchData
+import com.krisoft.tridjayaelektronik.data.model.ApproveBatchRequest
 import com.krisoft.tridjayaelektronik.data.model.ManualUnitListData
 import com.krisoft.tridjayaelektronik.data.model.MutasiHistoriDetailListDto
 import com.krisoft.tridjayaelektronik.data.model.MutasiHistoriListDto
@@ -123,6 +125,22 @@ interface InventoryApi {
         @Path("id") id: String,
         @Path("unitId") unitId: String
     ): Response<ApiResponse<OpnameDetailDto>>
+
+    /**
+     * Approve MASSAL, per SESI (`approve_manual_units_batch`). Reject sengaja
+     * tak punya padanan massal di server — menolak MENGUBAH hitungan dan bisa
+     * menghapus baris item, jadi ia tetap satu-per-satu dengan alasan wajib.
+     *
+     * `unitIds` WAJIB diisi eksplisit walau server menerima daftar kosong
+     * (= seluruh pending sesi itu): antrian di app bisa tersaring/berumur
+     * beberapa menit, jadi mengirim kosong berarti menyetujui unit yang tak
+     * pernah dilihat pemutusnya.
+     */
+    @POST("api/inventory/opname/{id}/units/approve-batch")
+    suspend fun approveManualUnitsBatch(
+        @Path("id") id: String,
+        @Body body: ApproveBatchRequest
+    ): Response<ApiResponse<ApproveBatchData>>
 
     @POST("api/inventory/opname/{id}/units/{unitId}/reject")
     suspend fun rejectManualUnit(

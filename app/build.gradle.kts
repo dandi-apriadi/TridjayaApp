@@ -31,8 +31,8 @@ android {
         // satu-satunya cara menguji jalur yang cuma pecah di runtime Android
         // lama (mis. `java.time` di API < 26).
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 108
-        versionName = "2.97"
+        versionCode = 120
+        versionName = "3.09"
 
         // Gateway Rust tridjaya, deployed at tridjaya.com (HTTPS, no emulator/LAN
         // workaround needed since it's a public domain). Migrated 2026-07-13 from
@@ -62,6 +62,35 @@ android {
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
+
+                // v1 (JAR signing) WAJIB DINYALAKAN EKSPLISIT — insiden 2026-08-28.
+                //
+                // AGP mematikan v1 sendiri begitu `minSdk >= 24`, karena untuk
+                // MEMASANG APK v2 memang sudah cukup di Android 7+. Alasan itu
+                // benar dan tetap benar; yang salah adalah menganggapnya cukup
+                // untuk semua hal.
+                //
+                // `UpdateManager.ditandatanganiKitaSendiri()` (audit keamanan
+                // 2026-08, temuan 3.5) memeriksa sertifikat APK yang BARU
+                // DIUNDUH lewat `PackageManager.getPackageArchiveInfo()`. Untuk
+                // berkas APK LEPAS — bukan paket terpasang — panggilan itu di
+                // banyak versi/ROM Android hanya membaca **JAR signature (v1)**.
+                // Tanpa v1, `signingInfo`/`signatures` kosong, pemeriksanya
+                // fail-closed, dan SETIAP update ditolak dengan kalimat
+                // "tanda tangannya bukan milik aplikasi ini" — tuduhan yang
+                // salah terhadap APK kita sendiri, plus berkasnya dihapus.
+                //
+                // Rusak DIAM-DIAM sejak pemeriksa itu mendarat (`06009bef`,
+                // 24 Agu 23:38) sampai 28 Agu: `mandatory=false` membuat orang
+                // sekadar mengabaikan update yang gagal, jadi tak ada yang
+                // melapor. Rilis 3.06 menyalakan `mandatory=true` dan seluruh
+                // fleet menabraknya serentak.
+                //
+                // JANGAN matikan lagi dengan alasan "minSdk 24 tak butuh v1".
+                // Ongkosnya cuma ukuran APK; yang dibeli adalah satu-satunya
+                // jalur update yang dipunyai app ini.
+                enableV1Signing = true
+                enableV2Signing = true
             }
         }
     }
@@ -278,7 +307,24 @@ val berkasMappingRilis = layout.buildDirectory.file("outputs/mapping/release/map
 // `cadangan-lokal/` hidup DI LUAR repo (sejajar dengannya) — sengaja, sama
 // seperti keystore: arsip yang tinggal di dalam pohon kerja git adalah arsip
 // yang lenyap pada `git clean -xdf` berikutnya.
-val direktoriArsipRilis = rootProject.file("../cadangan-lokal")
+//
+// **Letaknya DUA kandidat, bukan satu path mati.** `../cadangan-lokal` benar
+// untuk repo mobile berdiri sendiri (`Tridjaya/TridjayaApp` + `Tridjaya/
+// cadangan-lokal`), tapi sejak subtree 2026-08-21 `rootProject` bisa juga
+// `<monorepo>/mobile`, dan dari sana arsipnya ada di `../../cadangan-lokal`.
+// Terbukti menggigit saat rilis 3.03 (2026-08-28): build SUKSES, APK terunggah,
+// dan peta R8-nya TIDAK terarsip — satu baris `warn` di antara 58 task, yang
+// baru ketahuan karena kebetulan dibaca. Peta yang hilang tak menimbulkan
+// keluhan sampai ada crash report yang harus dibaca berbulan-bulan kemudian,
+// dan saat itu ia tak bisa dibuat ulang.
+// `ARSIP_RILIS_DIR` (env) menang atas keduanya, untuk mesin dengan layout lain.
+val kandidatArsipRilis = listOfNotNull(
+    System.getenv("ARSIP_RILIS_DIR")?.let { File(it) },
+    rootProject.file("../cadangan-lokal"),    // repo mobile berdiri sendiri
+    rootProject.file("../../cadangan-lokal"), // mobile/ di dalam monorepo
+)
+val direktoriArsipRilis = kandidatArsipRilis.firstOrNull { it.isDirectory }
+    ?: kandidatArsipRilis.last()
 
 val arsipkanMappingRilis = tasks.register("arsipkanMappingRilis") {
     description = "Salin mapping.txt R8 ke ../cadangan-lokal/ dengan nama ber-versi."
@@ -293,7 +339,17 @@ val arsipkanMappingRilis = tasks.register("arsipkanMappingRilis") {
             return@doLast
         }
         if (!direktoriArsipRilis.isDirectory) {
-            logger.warn("arsip mapping DILEWATI: ${direktoriArsipRilis.path} tak ada — peta untuk $versiNamaRilis TIDAK terarsip")
+            // Pesannya menyebut SEMUA kandidat yang dicoba: "direktori X tak
+            // ada" pada layout yang salah membuat orang membuat direktori di
+            // tempat yang juga salah.
+            logger.warn(
+                "arsip mapping DILEWATI: tak ada direktori arsip — peta untuk " +
+                    "$versiNamaRilis vc$versiKodeRilis TIDAK terarsip. Yang dicoba: " +
+                    kandidatArsipRilis.joinToString(", ") { it.path } +
+                    ". Set ARSIP_RILIS_DIR=/path/ke/cadangan-lokal lalu jalankan " +
+                    "ulang `gradlew arsipkanMappingRilis` — mapping.txt hasil build " +
+                    "tadi masih ada, jadi arsipnya tak perlu build ulang.",
+            )
             return@doLast
         }
         val tujuan = File(direktoriArsipRilis, "mapping-$versiNamaRilis-vc$versiKodeRilis.txt")

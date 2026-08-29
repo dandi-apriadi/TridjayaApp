@@ -329,7 +329,7 @@ data class ChecklistItemDto(
 data class ChecklistConfigData(val items: List<ChecklistItemDto> = emptyList())
 
 /** Driver untuk dropdown assign (`GET /api/users?role=driver`). Field 1-kata → aman snake/camel;
- *  `cabang_name` snake_case (UserPublic auth-service TANPA rename_all camelCase). */
+ *  `cabang_name`/`is_active` snake_case (UserPublic auth-service TANPA rename_all camelCase). */
 @Serializable
 data class DriverDto(
     val id: String? = null,
@@ -337,9 +337,19 @@ data class DriverDto(
     val name: String = "",
     val nik: String? = null,
     val role: String? = null,
-    /** Nama cabang penuh (mis. "Tridjaya Elektronik Manado Bahu") — dipakai filter
-     *  driver se-region di AssignAction (paritas web `driversForRegion` 2026-07-21). */
-    @SerialName("cabang_name") val cabangName: String = ""
+    /**
+     * Nama cabang untuk DIPAJANG saja (mis. "Samrat", "Bahu", "Pagaden").
+     *
+     * JANGAN dipakai sebagai kunci region/cabang. Ia cerminan `cabang.nama` yang
+     * ditulis ulang auth-service tiap user disimpan, jadi bentuknya berubah tanpa
+     * migrasi apa pun menyentuh `auth_users` — migrasi 126 memendekkan
+     * "Tridjaya Elektronik Manado Bahu" jadi "Bahu" dan mematikan filter yang
+     * menebak region darinya (lihat [com.krisoft.tridjayaelektronik.ui.deliveryflow.driverBisaDitugaskan]).
+     */
+    @SerialName("cabang_name") val cabangName: String = "",
+    /** `false` = akun dinonaktifkan → tak bisa login, jadi tak boleh ditugaskan.
+     *  Default `true`: server lama tanpa field ini berperilaku persis seperti dulu. */
+    @SerialName("is_active") val isActive: Boolean = true
 ) {
     val effectiveId: String get() = (id ?: userId).orEmpty()
 }
@@ -991,6 +1001,31 @@ data class AssignBody(
     val driverName: String? = null,
     val scheduledDate: String,
     val customerMapUrl: String? = null
+)
+
+/**
+ * Body PINDAH driver (`reassign_driver_handler`). Sengaja TERPISAH dari
+ * [AssignBody]: di sana `scheduledDate` WAJIB, di sini opsional — memindahkan
+ * driver tak selalu berarti mengubah tanggal kirim, dan string kosong berarti
+ * "pertahankan tanggal yang ada" (`COALESCE(NULLIF(?, ''), scheduled_date)`
+ * di SQL-nya), bukan "hapus jadwal".
+ *
+ * **Jalur ini SENGAJA tidak di-fan-out se-SPK di server**, beda dari `assign`.
+ * Justru itu yang membuat pemecahan satu SPK ke dua driver tetap mungkin:
+ * tugaskan sekali (kena semua unit), lalu pindahkan unit tertentu lewat sini.
+ */
+@Serializable
+data class ReassignBody(
+    val driverId: String,
+    val driverName: String? = null,
+    val scheduledDate: String? = null
+)
+
+/** Body BATAL penjadwalan. `reason` tak disimpan di kolom mana pun — ia masuk
+ *  teks notifikasi driver yang unitnya ditarik, dan terekam `activity_log`. */
+@Serializable
+data class UnassignBody(
+    val reason: String? = null
 )
 
 @Serializable

@@ -1,5 +1,6 @@
 package com.krisoft.tridjayaelektronik.ui.aktivitas
 
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -68,6 +69,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.SkeletonCard
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
 import com.krisoft.tridjayaelektronik.util.bacaInfoBerkas
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import java.io.File
 
 /**
@@ -114,7 +116,13 @@ fun AktivitasScreen(
     var slot by remember { mutableIntStateOf(0) }
 
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        pending?.let { (index, file) -> if (ok) viewModel.tambahFotoKamera(index, file) }
+        // `ok == false` tak lagi ditelan: kegagalan simpan foto kamera dulu
+        // menghasilkan nol pesan, jadi petugas menyangka buktinya terkirim.
+        // Lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        pending?.let { (index, file) ->
+            if (ok) viewModel.tambahFotoKamera(index, file)
+            else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+        }
         pending = null
     }
 
@@ -126,12 +134,18 @@ fun AktivitasScreen(
         val index = indexAktif ?: return@rememberLauncherForActivityResult
         indexAktif = null
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        var gagal = 0
+        // Dua sebab, DUA penghitung. Menggabungkannya (sampai vc116) membuat
+        // foto cloud yang tak terbaca dijelaskan sebagai kuota penuh — keterangan
+        // yang bisa dibantah pengguna di depan matanya sendiri saat ia baru
+        // memilih 2 dari 10. Sebab aslinya dibawa ikut lewat `sebabTakTerbaca`.
+        var terlaluBesar = 0
+        var takTerbaca = 0
+        var sebabTakTerbaca: String? = null
         val files = uris.mapNotNull { uri ->
             val (_, ukuran) = bacaInfoBerkas(resolver, uri)
             // Hanya yang TERBUKTI kebesaran dibuang; ukuran 0 = tak terbaca.
             if (ukuran > MAX_GAMBAR_INPUT_BYTES) {
-                gagal++
+                terlaluBesar++
                 return@mapNotNull null
             }
             // Nama berkasnya PATH FileProvider, bukan teks layar — ejaan
@@ -141,10 +155,26 @@ fun AktivitasScreen(
             runCatching {
                 resolver.openInputStream(uri)?.use { inp ->
                     target.outputStream().use { out -> inp.copyTo(out) }
-                } ?: error("stream null")
-            }.fold(onSuccess = { target }, onFailure = { gagal++; null })
+                } ?: error("openInputStream null")
+            }.fold(
+                onSuccess = { target },
+                onFailure = { e ->
+                    takTerbaca++
+                    // Sebab PERTAMA saja: satu kalimat untuk satu pemilihan, dan
+                    // yang pertama gagal biasanya mewakili sisanya (semuanya dari
+                    // penyedia galeri yang sama).
+                    if (sebabTakTerbaca == null) sebabTakTerbaca = e.javaClass.simpleName
+                    null
+                },
+            )
         }
-        viewModel.tambahFotoGaleri(index, files, diabaikan = gagal)
+        viewModel.tambahFotoGaleri(
+            index = index,
+            files = files,
+            terlaluBesar = terlaluBesar,
+            takTerbaca = takTerbaca,
+            sebabTakTerbaca = sebabTakTerbaca,
+        )
     }
 
     val videoPicker = rememberLauncherForActivityResult(

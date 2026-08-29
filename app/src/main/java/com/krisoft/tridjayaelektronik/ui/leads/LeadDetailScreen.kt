@@ -303,6 +303,27 @@ private fun ProspectHeroCard(
                 }
             }
 
+            lead.assignmentWarning?.let { pesan ->
+                Spacer(modifier = Modifier.height(10.dp))
+                // Oranye, bukan merah: lead-nya TERSIMPAN di server, yang gagal
+                // cuma pemberitahuan ke penerimanya. Memakai `errorContainer`
+                // seperti blok di bawah akan membacakan "gagal simpan" dan
+                // memancing sales mengetik ulang prospek yang sudah ada.
+                Surface(
+                    color = Color(0xFFB5670C).copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text(
+                        text = "$pesan Hubungi penerimanya langsung supaya lead ini tak terlewat.",
+                        color = Color(0xFFB5670C),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
+            }
+
             lead.syncRejectReason?.let { alasan ->
                 Spacer(modifier = Modifier.height(10.dp))
                 Surface(

@@ -96,6 +96,7 @@ private const val ROUTE_HS_TRIASE = "home_hs_triase"
 private const val ROUTE_HS_TEKNISI = "home_hs_teknisi"
 private const val ROUTE_HS_TARIK = "home_hs_tarik"
 private const val ROUTE_HS_DRIVER = "home_hs_driver"
+private const val ROUTE_HS_SAYA = "home_hs_saya"
 private const val ROUTE_HS_DETAIL = "home_hs_detail/{id}"
 
 /** Tugas pemasangan AC (sisi petugas). Prefiks `home_` mengikuti seluruh route
@@ -215,6 +216,7 @@ internal fun routeForNavKey(navKey: String): String? = when (navKey) {
     "hs_teknisi" -> ROUTE_HS_TEKNISI
     "hs_tarik" -> ROUTE_HS_TARIK
     "hs_driver" -> ROUTE_HS_DRIVER
+    "hs_saya" -> ROUTE_HS_SAYA
     "pemasangan_ac" -> ROUTE_PEMASANGAN_AC
     // Bukti chat harian: layar karyawan (kirim) vs antrian kepala cabang (periksa).
     "indent" -> ROUTE_INDENT
@@ -337,6 +339,7 @@ fun ActivityNavHost(
                 // Home Service: dua ubin Akses Cepat (2026-08-15). Route-nya sudah
                 // lama ada di tabel ini — yang selama ini hilang cuma pintunya.
                 onKomplainLapor = { navController.navigate(ROUTE_HS_LAPOR) { launchSingleTop = true } },
+                onKomplainSaya = { navController.navigate(ROUTE_HS_SAYA) { launchSingleTop = true } },
                 onKomplainTugas = { navController.navigate(ROUTE_HS_TEKNISI) { launchSingleTop = true } },
                 onPemasanganAcKontrol = {
                     navController.navigate(ROUTE_PEMASANGAN_AC_KONTROL) { launchSingleTop = true }
@@ -438,6 +441,7 @@ fun ActivityNavHost(
             ROUTE_HS_TEKNISI to HsMode.TEKNISI,
             ROUTE_HS_TARIK to HsMode.TARIK,
             ROUTE_HS_DRIVER to HsMode.DRIVER,
+            ROUTE_HS_SAYA to HsMode.SAYA_LAPOR,
         ).forEach { (route, mode) ->
             composable(route) {
                 HomeServiceListScreen(

@@ -88,7 +88,7 @@ data class AttendanceUiState(
     val hasCheckedIn: Boolean get() = today?.checkInAt != null
     val hasCheckedOut: Boolean get() = today?.checkOutAt != null
     val hasLocation: Boolean get() = lat != null && lng != null
-    val rekap: AttendanceRekap get() = buildRekap(history, offRequests)
+    val rekap: AttendanceRekap get() = buildRekap(history, offRequests, todayDto?.tanggal)
     val gateMasuk: GateMasuk
         get() = gateAbsenMasuk(inArea, geofenceLengkap, geofence?.cabangNama, distanceM)
 }
@@ -290,7 +290,7 @@ class AttendanceViewModel @Inject constructor(
         if (state.submitting) return
         _uiState.update { it.copy(submitting = true, actionError = null) }
         viewModelScope.launch {
-            val filename = "selfie_${System.currentTimeMillis()}.jpg"
+            val filename = "selfie_${System.currentTimeMillis()}.webp"
             when (val upload = repository.uploadPhoto(bytes, filename)) {
                 is AuthResult.Failure ->
                     _uiState.update { it.copy(submitting = false, actionError = upload.message) }

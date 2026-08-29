@@ -57,6 +57,20 @@ interface LeadDao {
     @Query("UPDATE leads SET syncRejectReason = :reason WHERE id = :id")
     suspend fun markSyncRejected(id: Long, reason: String)
 
+    /**
+     * Catat bahwa WA penugasan untuk lead ini tak terkirim. Dipanggil dengan id
+     * SERVER dan SESUDAH `replaceAll` sinkronisasi — baris temp-nya sudah
+     * dihapus saat push berhasil, dan `replaceAll` akan menimpa apa pun yang
+     * ditulis sebelum itu.
+     *
+     * No-op bila barisnya tak ada (lead dilempar ke sales lain DAN tarikan
+     * `createdBy` kebetulan gagal). Peringatannya hilang, lead-nya tidak — itu
+     * kompromi yang disengaja: mengarang baris demi menampung peringatan jauh
+     * lebih buruk daripada peringatan yang tak sempat tampil.
+     */
+    @Query("UPDATE leads SET assignmentWarning = :pesan WHERE id = :id")
+    suspend fun markAssignmentWarning(id: Long, pesan: String)
+
     @Query("SELECT * FROM leads WHERE id = :id")
     suspend fun byId(id: Long): LeadEntity?
 

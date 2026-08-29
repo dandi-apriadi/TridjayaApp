@@ -1,6 +1,7 @@
 package com.krisoft.tridjayaelektronik.ui.deliveryflow
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -53,12 +54,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.kondisiLabel
 import com.krisoft.tridjayaelektronik.data.model.BrokerOption
 import com.krisoft.tridjayaelektronik.data.model.SerialRegistryRow
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveOutlinedButton
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveTextField
 import com.krisoft.tridjayaelektronik.ui.theme.MoneyTextField
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -121,7 +124,7 @@ fun SpkItemCard(
     /** Watermark+upload foto PO barang ini, return URL (null = gagal). */
     uploadPoPhoto: suspend (File) -> String?,
     /** Watermark+upload foto bukti acc diskon barang ini, return URL (null = gagal). */
-    uploadBuktiAcc: suspend (File) -> String?,
+    uploadBuktiAcc: suspend (File, Boolean) -> AuthResult<String>,
     /** Metode pengiriman SPK (header, bukan per-barang): "driver" | "self_pickup" |
      *  "sales_delivery". COD (uang diambil driver) cuma relevan "driver" (2026-07-26). */
     deliveryMethod: String = "driver",
@@ -243,6 +246,20 @@ fun SpkItemCard(
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "Sales isi checklist PDI + foto unit sendiri — langsung diarahkan ke form-nya begitu SPK ini selesai dibuat. Kasir baru bisa proses setelah PDI mandiri ini lengkap.",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else if (deliveryMethod == "self_pickup" || deliveryMethod == "sales_delivery") {
+                    // Peringatan ini BUKAN mengubah keputusan (backend `is_self_pdi`
+                    // tetap mengizinkan sales lanjut sendiri terlepas dari pilihan ini
+                    // untuk kedua metode ini), tapi mencegah ekspektasi salah SAAT
+                    // memilih: sales/admin yang menekan "Tim PDI cabang" di sini
+                    // mengira ada tim lain yang akan dinotifikasi & mengerjakan —
+                    // padahal untuk unit yang diambil/diantar sendiri, sales pemilik
+                    // SPK-nya tetap bisa (dan kalau cabangnya tak punya staf PDI,
+                    // SATU-SATUNYA yang bisa) langsung lanjut isi PDI sendiri.
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Karena metode diambil/diantar sendiri, Anda (sales) tetap bisa langsung isi PDI sendiri kapan saja — tak perlu menunggu tim PDI cabang, terutama kalau cabang ini belum punya staf PDI.",
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -506,7 +523,11 @@ private fun PoPhotoField(
     val file = remember { File(context.cacheDir, "delivery/po_item_${System.currentTimeMillis()}.jpg").apply { parentFile?.mkdirs() } }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
     val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (!ok) return@rememberLauncherForActivityResult
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (!ok) {
+            error = PESAN_KAMERA_TAK_TERSIMPAN
+            return@rememberLauncherForActivityResult
+        }
         uploading = true
         error = null
         scope.launch {
@@ -579,14 +600,20 @@ private fun AccDiskonField(accDiskon: String, onAccChange: (String) -> Unit) {
 
 /** Bukti acc: kamera ATAU galeri. Keduanya bermuara ke berkas cache yang
  *  SAMA supaya jalur unggahnya (watermark + POST) cuma satu, bukan dua yang
- *  bisa menyimpang diam-diam. `GetContent()` = Android Photo Picker, tak
- *  butuh izin penyimpanan. */
+ *  bisa menyimpang diam-diam.
+ *
+ *  Picker-nya `PickVisualMedia` (Photo Picker) dan **tidak butuh izin apa
+ *  pun** — jangan ditambal `READ_MEDIA_*`. Sampai 2026-08-28 baris ini
+ *  memakai `GetContent()` sambil mengklaim dirinya Photo Picker; itu keliru
+ *  (`GetContent()` = `ACTION_GET_CONTENT`, pemilih dokumen lama) dan
+ *  menghasilkan URI yang tak selalu bisa dibuka. Lihat catatan lengkap di
+ *  `KuponGebyarScreen.kt`. */
 @Composable
 private fun BuktiAccField(
     buktiUrl: String,
     wajib: Boolean,
     onUploaded: (String) -> Unit,
-    uploadBukti: suspend (File) -> String?,
+    uploadBukti: suspend (File, Boolean) -> AuthResult<String>,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -597,27 +624,52 @@ private fun BuktiAccField(
     }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
 
-    fun unggah() {
+    // `dariGaleri` menentukan KALIMAT saat fotonya gagal didekode — bukan
+    // sekadar label. Foto galeri yang tak terdekode di HP Android 7/8 (HEIC
+    // yang masuk dari luar) akan gagal lagi setiap kali, jadi "jepret ulang"
+    // menyuruh mengulang hal yang mustahil; jalur kamera justru sebaliknya.
+    fun unggah(dariGaleri: Boolean) {
         uploading = true
         error = null
         scope.launch {
-            val url = uploadBukti(file)
-            uploading = false
-            if (url != null) onUploaded(url) else error = "Gagal unggah bukti acc"
+            when (val hasil = uploadBukti(file, dariGaleri)) {
+                is AuthResult.Success -> {
+                    uploading = false
+                    onUploaded(hasil.data)
+                }
+                is AuthResult.Failure -> {
+                    uploading = false
+                    error = hasil.message
+                }
+            }
         }
     }
 
     val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok) unggah()
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) unggah(dariGaleri = false)
+        else error = PESAN_KAMERA_TAK_TERSIMPAN
     }
-    val galeri = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { picked ->
+    val galeri = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { picked ->
         if (picked == null) return@rememberLauncherForActivityResult
-        val tersalin = runCatching {
-            context.contentResolver.openInputStream(picked)!!.use { input ->
+        // Sebab kegagalan dibawa sampai ke layar — `.isSuccess` dulu
+        // membuangnya, sehingga laporan lapangan tak bisa didiagnosa.
+        // `openInputStream` sendiri bisa melempar — WAJIB di dalam `runCatching`.
+        runCatching {
+            val masuk = context.contentResolver.openInputStream(picked)
+                ?: error("galeri tak memberi isi berkas")
+            masuk.use { input ->
                 file.outputStream().use { output -> input.copyTo(output) }
             }
-        }.isSuccess
-        if (tersalin) unggah() else error = "Gagal membaca foto dari galeri"
+        }.fold(
+            onSuccess = { unggah(dariGaleri = true) },
+            onFailure = { e ->
+                error = "Foto itu tidak bisa dibaca (${e.javaClass.simpleName}). " +
+                    "Kalau masih di cloud dan belum terunduh, buka dulu di galeri atau pakai Kamera."
+            },
+        )
     }
 
     Text(
@@ -642,7 +694,7 @@ private fun BuktiAccField(
             ExpressiveOutlinedButton(onClick = { if (!uploading) cam.launch(uri) }, enabled = !uploading, modifier = Modifier.weight(1f)) {
                 Text(if (uploading) "Mengunggah…" else "Kamera")
             }
-            ExpressiveOutlinedButton(onClick = { if (!uploading) galeri.launch("image/*") }, enabled = !uploading, modifier = Modifier.weight(1f)) {
+            ExpressiveOutlinedButton(onClick = { if (!uploading) galeri.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !uploading, modifier = Modifier.weight(1f)) {
                 Text("Galeri")
             }
         }

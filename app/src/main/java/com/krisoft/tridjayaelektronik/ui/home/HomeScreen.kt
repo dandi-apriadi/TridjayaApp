@@ -129,6 +129,7 @@ fun HomeScreen(
     onQuickAccessDeadstock: () -> Unit = {},
     onQuickAccessMutasiHistori: () -> Unit = {},
     onKomplainLapor: () -> Unit = {},
+    onKomplainSaya: () -> Unit = {},
     onKomplainTugas: () -> Unit = {},
     onPemasanganAcKontrol: () -> Unit = {},
     onVertel: () -> Unit = {},
@@ -229,7 +230,7 @@ fun HomeScreen(
                                     onQuickAccessOpname, onQuickAccessAbsen, onQuickAccessGaji, onQuickAccessKpi,
                                     onQuickAccessHargaGs,
                                     onQuickAccessSerialInput, onQuickAccessDeadstock, onQuickAccessMutasiHistori,
-                                    onKomplainLapor, onKomplainTugas,
+                                    onKomplainLapor, onKomplainSaya, onKomplainTugas,
                                     onPemasanganAcKontrol, onVertel,
                                     onSpkMenu
                                 )
@@ -264,6 +265,7 @@ private fun LazyListScope.homeSection(
     onQuickAccessDeadstock: () -> Unit,
     onQuickAccessMutasiHistori: () -> Unit,
     onKomplainLapor: () -> Unit,
+    onKomplainSaya: () -> Unit,
     onKomplainTugas: () -> Unit,
     onPemasanganAcKontrol: () -> Unit,
     onVertel: () -> Unit,
@@ -300,6 +302,7 @@ private fun LazyListScope.homeSection(
                     onDeadstock = onQuickAccessDeadstock,
                     onMutasiHistori = onQuickAccessMutasiHistori,
                     onKomplainLapor = onKomplainLapor,
+                    onKomplainSaya = onKomplainSaya,
                     onKomplainTugas = onKomplainTugas,
                     onPemasanganAcKontrol = onPemasanganAcKontrol,
                     onVertel = onVertel,
@@ -494,9 +497,18 @@ internal fun canAccessMutasiHistori(roles: Set<String>): Boolean =
 
 /** `STAFF_ROLES` di kinerja-service (`absensi.rs`) — dipakai absensi DAN slip
  *  gaji (`VIEW_OWN_ROLES = STAFF_ROLES`). `crm-manager`/`ai-engineer` TIDAK ada
- *  di sana, jadi dua menu itu 403 untuk mereka. */
+ *  di sana, jadi dua menu itu 403 untuk mereka.
+ *
+ *  Cerminan `STAFF_SELF_SERVICE_ROLES` (rust-shared `capabilities.rs`).
+ *  **`trainee` ditambahkan 2026-08-28** — ia sudah ada di sisi Rust sejak role
+ *  itu lahir (17 Agt, paket 3.18d) dengan alasan yang ditulis eksplisit di sana:
+ *  trainee WAJIB bisa absen di hari pertamanya, dan `attendance/report.rs`
+ *  menyaring `LOWER(u.role) IN (...)` dari daftar yang sama. Cerminan di sini
+ *  tertinggal, jadi trainee yang membuka app saat peta kemampuan belum termuat
+ *  (sinyal lemah, bukan cuma mode pesawat) kehilangan kartu Absen & Slip Gaji —
+ *  padahal server mengizinkannya. */
 internal val STAFF_MENU_ROLES = setOf(
-    "karyawan", "kepala-cabang", "admin-sales", "sales", "pdi", "driver", "kasir",
+    "karyawan", "trainee", "kepala-cabang", "admin-sales", "sales", "pdi", "driver", "kasir",
     "delivery-control", "admin-stok", "operator", "agent", "hrd", "manager", "admin",
     "superadmin", "owner",
 )
@@ -528,9 +540,16 @@ internal fun canAccessSpk(roles: Set<String>): Boolean =
  *  (laporan user: kepala cabang ber-`is_sales` punya target prospek harian tapi
  *  tak punya menu untuk mengisinya). Daftar ini cuma CADANGAN saat peta
  *  `/api/me/capabilities` belum termuat — lihat `gateAllows`; saat online
- *  server yang memutuskan, jadi perbaikan backend berlaku tanpa APK baru. */
+ *  server yang memutuskan, jadi perbaikan backend berlaku tanpa APK baru.
+ *
+ *  **`trainee` ditambahkan 2026-08-28**, menyusul `CRM_INPUT_ROLES` yang sudah
+ *  memuatnya sejak 17 Agt. Sisi Rust menyebut alasannya tajam: prospek harian
+ *  adalah SATU-SATUNYA pekerjaan trainee yang menghasilkan angka, dan scorecard
+ *  training menghitungnya dari `crm_leads.created_by` — jadi cadangan yang
+ *  tertinggal ini bukan sekadar menu hilang sesaat, melainkan menu hilang tepat
+ *  pada pekerjaan yang menilai orangnya. */
 internal val CRM_MENU_ROLES =
-    setOf("karyawan", "kepala-cabang", "crm-manager", "admin", "superadmin")
+    setOf("karyawan", "trainee", "kepala-cabang", "crm-manager", "admin", "superadmin")
 
 /** Role EFEKTIF: role utama + `roles` (multi-role) + `divisi` (folding
  *  divisi-driven access), semuanya lowercase. Backend menilai hak dari daftar
@@ -574,6 +593,7 @@ private fun QuickAccessRow(
     onDeadstock: () -> Unit,
     onMutasiHistori: () -> Unit,
     onKomplainLapor: () -> Unit,
+    onKomplainSaya: () -> Unit,
     onKomplainTugas: () -> Unit,
     onPemasanganAcKontrol: () -> Unit,
     onVertel: () -> Unit,
@@ -613,6 +633,7 @@ private fun QuickAccessRow(
                         "deadstock" -> onDeadstock()
                         "mutasi_histori" -> onMutasiHistori()
                         "komplain_lapor" -> onKomplainLapor()
+                        "komplain_saya" -> onKomplainSaya()
                         "komplain_tugas" -> onKomplainTugas()
                         "pemasangan_ac_kontrol" -> onPemasanganAcKontrol()
                         "vertel" -> onVertel()
@@ -647,6 +668,7 @@ private fun quickAccessVisual(id: String): Pair<androidx.compose.ui.graphics.vec
     // (`ActivityScreen.kt`), supaya modul yang sama tak berganti rupa
     // tergantung dari mana ia dibuka.
     "komplain_lapor" -> Pair(Icons.Rounded.Build, Color(0xFFD92D20))
+    "komplain_saya" -> Pair(Icons.Rounded.Build, Color(0xFFB5670C))
     "komplain_tugas" -> Pair(Icons.Rounded.HomeRepairService, Color(0xFFD92D20))
     // Ikon yang sama dengan kartu "Tugas Pemasangan AC" di layar Activity:
     // dua sisi modul yang sama tak boleh berganti rupa tergantung dari mana
