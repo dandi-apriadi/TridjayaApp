@@ -275,44 +275,24 @@ internal val SPK_CREATE_ROLES: Set<String> = KNOWN_ROLES - SPK_CREATE_BLOCKED_RO
  * OFFLINE saja; sumber utamanya kunci `kupon_gebyar.lihat` dari
  * `GET /api/me/capabilities`.
  *
- * **DISAMAKAN PERSIS dengan daftar server 2026-08-28.** Sebelumnya isinya
- * `kepala-cabang, admin-sales, karyawan, manager, admin, superadmin, owner` —
- * menyimpang di TIGA arah sekaligus dari `KUPON_GEBYAR_LIHAT_ROLES`, dan tiap
- * arah merugikan orang yang berbeda:
- *  - **kurang**: `kasir` tak pernah ada di sini padahal server memuatnya, jadi
- *    kasir offline kehilangan kartu yang jadi haknya;
- *  - **lebih (LIMA role)**: `admin-sales`, `manager`, `admin`, `superadmin`,
- *    `owner`. Doc server EKSPLISIT mengecualikan mereka ("pengawasan
- *    lintas-cabang mereka lewat Papan Gebyar, bukan daftar konsumen ini") —
- *    offline mereka melihat kartunya lalu dijawab 403 begitu online, persis pola
- *    "menu tampil, endpoint 403" yang CLAUDE.md repo ini justru ingin dicegah.
- *    **`admin-sales` termasuk di sini, BUKAN sebagai salah ketik**: ia slug
- *    efektif yang hidup (`Role::AdminSales`, dan `divisi_access_slugs` melipat
- *    `sales`/`sales-head` jadi `admin-sales` — `auth.rs`), jadi membuangnya
- *    adalah penyempitan yang DISENGAJA server, bukan pembetulan ejaan. Draf
- *    pertama komentar ini menyebutnya "baris mati"; kalau aturan itu diterapkan
- *    ke daftar lain — mis. mencabut `admin-sales` dari `STAFF_MENU_ROLES` yang
- *    `STAFF_SELF_SERVICE_ROLES` memang memuatnya — seluruh orang berdivisi sales
- *    kehilangan kartu Absen & Slip Gaji saat offline, tanpa error.
+ * **DIBUKA ke SEMUA role 2026-08-29** (permintaan user "buka menu konsumen
+ * gebyar untuk semua user") — `manager`/`owner`/`superadmin`/`cs`/
+ * `admin-sales` ditambahkan di sini bersamaan dengan `KUPON_GEBYAR_LIHAT_ROLES`
+ * server, supaya offline SETUJU dengan server: sebelum ini kelimanya
+ * SENGAJA dikecualikan (pengawasan mereka cuma lewat Papan Gebyar), sekarang
+ * mereka boleh keduanya — Papan Gebyar (lintas-cabang) DAN daftar konsumen
+ * per-cabang ini.
  *
- * SENGAJA tetap lebar sampai `karyawan`: programnya memang untuk "setiap
- * karyawan di cabang terkait" (arahan owner). Menyempitkannya akan mengunci
- * orang yang justru diminta mengerjakannya.
- *
- * **`cs` memang TIDAK ada di `KUPON_GEBYAR_LIHAT_ROLES`** — jangan
- * menambahkannya "biar selaras". Doc Rust menyebutnya eksplisit sebagai salah
- * satu role yang TETAP dikecualikan; pengawasan CS lewat
- * `KUPON_GEBYAR_MONITOR_ROLES` (Papan Gebyar), bukan daftar konsumen ini.
- * Menuliskannya di sini akan MEMERAHKAN `CadanganRoleCerminRustTest` dengan
- * `LEBIH: [cs]`. (Draf pertama komentar ini menyalin kalimat "cs ada di daftar
- * server tapi sengaja tak ditulis" dari [HS_LAPOR_ROLES] — di sana kalimat itu
- * benar, di sini premisnya salah sejak awal.)
+ * SENGAJA tetap memuat `karyawan`: programnya memang untuk "setiap karyawan
+ * di cabang terkait" (arahan owner). Menyempitkannya akan mengunci orang yang
+ * justru diminta mengerjakannya.
  *
  * **Daftar ini BUKAN gerbang yang sesungguhnya.** Yang menentukan siapa melihat
  * kartunya adalah vonis cabang dari server — lihat [kuponGebyarCardVisible].
  */
 internal val KUPON_GEBYAR_MENU_ROLES = setOf(
     "kepala-cabang", "admin-penjualan", "kasir", "karyawan",
+    "manager", "owner", "superadmin", "cs", "admin-sales",
 )
 
 /**
