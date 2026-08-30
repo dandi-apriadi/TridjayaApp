@@ -1228,6 +1228,15 @@ fun DeliveryJobDetailScreen(id: String, onBack: () -> Unit, viewModel: DeliveryF
                         Spacer(Modifier.height(14.dp))
                         EditSpkAction(job, viewModel, state.submitting)
                     }
+                    // Lokasi maps punya aksinya SENDIRI (2026-08-30): jendelanya
+                    // sampai unit terkirim, jauh lebih lebar dari "Ubah Isi SPK"
+                    // yang berhenti sebelum PDI. Driver tak bisa dijadwalkan
+                    // tanpa lokasi, jadi menutupnya bersama jendela sunting
+                    // berarti unitnya diam sampai ada yang membuka dashboard web.
+                    if (bolehIsiMapsSpk(job, viewModel.isAdminViewer, viewModel.currentUserId)) {
+                        Spacer(Modifier.height(14.dp))
+                        IsiMapsAction(job, viewModel, state.submitting)
+                    }
                     Spacer(Modifier.height(14.dp))
                     val shareContext = LocalContext.current
                     ExpressiveOutlinedButton(onClick = {
@@ -3332,7 +3341,12 @@ fun CreateSpkScreen(
     )
     val itemsValid = items.isNotEmpty() && items.all { it.issues().isEmpty() }
     val mapUrlWajib = deliveryMethodSel == "sales_delivery"
-    val mapUrlKurang = mapUrlWajib && mapUrl.isBlank()
+    // Isi yang SUDAH diketik tapi tak bisa dibuka driver = salah, apa pun
+    // metode kirimnya. Sengaja TIDAK ikut `mapUrlWajib`: server menolaknya
+    // untuk semua metode (`create_delivery`, 2026-08-30), dan menandainya hanya
+    // pada satu metode berarti sales metode lain baru tahu setelah 400.
+    val mapUrlSalahBentuk = mapUrl.isNotBlank() && !mapsTerpakai(mapUrl)
+    val mapUrlKurang = (mapUrlWajib && mapUrl.isBlank()) || mapUrlSalahBentuk
     val blocker = spkSubmitBlocker(
         pelanggan = pelanggan, telepon = telepon, nik = nik, mapUrl = mapUrl,
         deliveryMethod = deliveryMethodSel, spkCabang = spkCabang,
@@ -3391,10 +3405,20 @@ fun CreateSpkScreen(
                         label = if (mapUrlWajib) "Link Lokasi Maps *" else "Link Lokasi Maps",
                         keyboardType = KeyboardType.Uri,
                         modifier = Modifier.fillMaxWidth(),
-                        isError = attemptedSubmit && mapUrlKurang,
-                        supportingText = if (mapUrlWajib)
-                            "Wajib untuk Sales Antar Sendiri — tanpa ini job masuk antrian Delivery Control, bukan ke kamu."
-                        else null
+                        // Bentuk salah menyala SEKETIKA (tanpa menunggu
+                        // `attemptedSubmit`): sales sedang menatap field yang
+                        // baru ia isi, dan itu momen termurah untuk memperbaiki.
+                        // Yang KOSONG tetap menunggu percobaan kirim — menyalakan
+                        // merah pada field yang belum sempat diisi cuma derau.
+                        isError = mapUrlSalahBentuk || (attemptedSubmit && mapUrlKurang),
+                        supportingText = when {
+                            mapUrlSalahBentuk ->
+                                "Belum berupa link atau koordinat — tempel link dari Google Maps, atau kosongkan dulu."
+                            mapUrlWajib ->
+                                "Wajib untuk Sales Antar Sendiri — tanpa ini job masuk antrian Delivery Control, bukan ke kamu."
+                            else ->
+                                "Boleh dikosongkan — kamu akan diingatkan lagi setelah PDI selesai."
+                        }
                     )
 
                     SpkGrupLabel("Data tambahan (boleh dilewati)")
@@ -4660,6 +4684,105 @@ fun SpkDiskonDetailScreen(
     }
 }
 
+
+/**
+ * Isi/perbaiki **lokasi maps** unit ini.
+ *
+ * Aksi TERPISAH dari [EditSpkAction] karena jendelanya berbeda: sunting SPK
+ * berhenti sebelum PDI, lokasi maps boleh sampai unit terkirim. Endpointnya pun
+ * berbeda (`.../map-url`), dan menumpangkannya ke dialog sunting berarti
+ * menawarkan puluhan field lain di saat server hanya mengizinkan satu.
+ *
+ * Isi lama DITAMPILKAN apa adanya saat tak bisa dipakai. Sales yang menulis
+ * "hgl" merasa sudah mengisi — tanpa melihatnya ia akan mengira layar ini
+ * keliru. (1.008 dari 2.224 unit produksi berisi teks semacam itu, lebih banyak
+ * daripada yang kosong.)
+ */
+@Composable
+private fun IsiMapsAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, submitting: Boolean) {
+    var show by remember { mutableStateOf(false) }
+    // `job.id` sebagai kunci — berpindah unit harus mengosongkan isian, kalau
+    // tidak lokasi unit A tersimpan ke unit B.
+    var nilai by remember(job.id) { mutableStateOf("") }
+    var pesan by remember(job.id) { mutableStateOf<String?>(null) }
+    val isiLama = job.customerMapUrl.orEmpty().trim()
+    val sudahBaik = mapsTerpakai(isiLama)
+
+    OutlinedButton(
+        onClick = { nilai = if (sudahBaik) isiLama else ""; show = true },
+        enabled = !submitting,
+        modifier = Modifier.fillMaxWidth()
+    ) { Text(if (sudahBaik) "Ubah Lokasi Maps" else "Isi Lokasi Maps") }
+    if (!sudahBaik) {
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (isiLama.isEmpty()) {
+                "Belum ada lokasi — driver tidak bisa dijadwalkan."
+            } else {
+                "Lokasi \"$isiLama\" tidak bisa dibuka driver."
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.error
+        )
+    }
+    pesan?.let {
+        Spacer(Modifier.height(6.dp))
+        Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+    }
+
+    if (show) {
+        val sah = mapsTerpakai(nilai)
+        AlertDialog(
+            onDismissRequest = { if (!submitting) show = false },
+            title = { Text("Lokasi Maps Konsumen") },
+            text = {
+                Column {
+                    Text(
+                        "Driver memakai ini untuk menemukan alamat. Buka Google Maps -> cari " +
+                            "lokasi -> Bagikan -> Salin tautan.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    if (isiLama.isNotEmpty() && !sudahBaik) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Sekarang terisi \"$isiLama\" — tidak bisa dibuka.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    ExpressiveTextField(
+                        value = nilai,
+                        onValueChange = { nilai = it },
+                        label = "Link atau koordinat",
+                        placeholder = "https://maps.app.goo.gl/...",
+                        isError = nilai.isNotEmpty() && !sah,
+                        supportingText = if (nilai.isNotEmpty() && !sah) {
+                            "Belum berupa link atau koordinat."
+                        } else {
+                            "Boleh juga koordinat: -6.123456, 106.789012"
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !submitting && sah,
+                    onClick = {
+                        vm.setMapUrl(job.id, nilai.trim()) {
+                            show = false
+                            pesan = "Lokasi maps tersimpan"
+                        }
+                    }
+                ) { Text(if (submitting) "Menyimpan..." else "Simpan") }
+            },
+            dismissButton = {
+                TextButton(onClick = { show = false }, enabled = !submitting) { Text("Batal") }
+            }
+        )
+    }
+}
 
 /**
  * Koreksi salah input SPK oleh administrator (2026-08-01). Dialognya

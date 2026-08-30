@@ -25,6 +25,9 @@ import com.krisoft.tridjayaelektronik.data.local.DashboardCacheEntity
 import com.krisoft.tridjayaelektronik.data.remote.DeliveryFlowApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -188,6 +191,16 @@ class DeliveryFlowRepository @Inject constructor(
      *  jumlah unit yang ikut menerima perubahan data konsumen. */
     suspend fun editJob(id: String, patch: JsonObject): AuthResult<SpkEditResultDto> =
         call("Gagal menyimpan perubahan SPK") { api.editJob(id, patch) }
+
+    /** Isi/perbaiki lokasi maps — rute sendiri, jendelanya sampai unit
+     *  terkirim (lihat doc [DeliveryFlowApi.setMapUrl]). */
+    suspend fun setMapUrl(id: String, mapUrl: String): AuthResult<SpkEditResultDto> =
+        call("Gagal menyimpan lokasi maps") {
+            api.setMapUrl(
+                id,
+                buildJsonObject { put("customerMapUrl", JsonPrimitive(mapUrl)) },
+            )
+        }
 
     /** 111: ambil klaim PDI. Pesan 409 dari server memuat nama pemegangnya —
      *  [parseError] meneruskannya apa adanya, jangan dikarang ulang di UI. */

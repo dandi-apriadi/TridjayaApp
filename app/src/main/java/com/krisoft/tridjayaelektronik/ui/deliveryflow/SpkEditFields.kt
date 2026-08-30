@@ -200,6 +200,24 @@ fun bolehSuntingSpk(job: DeliveryJobDto, isAdmin: Boolean, currentUserId: String
     return pemilik && job.status in STATUS_SALES_BOLEH_REVISI
 }
 
+/**
+ * Boleh mengisi/memperbaiki LOKASI MAPS unit ini?
+ *
+ * Jendelanya JAUH lebih lebar dari [bolehSuntingSpk], dan memang harus begitu:
+ * tanpa lokasi, unitnya TIDAK BISA dijadwalkan ke driver sama sekali. Cerminan
+ * endpoint `PATCH /inventory/delivery/{id}/map-url` (server 2026-08-30) yang
+ * sengaja melewati syarat status DAN syarat `noTransaksi` — keduanya karena itu
+ * TIDAK diperiksa di sini; memeriksanya justru menyembunyikan tombol yang akan
+ * berhasil.
+ *
+ * Yang ditolak hanya unit yang sudah selesai perjalanannya.
+ */
+fun bolehIsiMapsSpk(job: DeliveryJobDto, isAdmin: Boolean, currentUserId: String): Boolean {
+    if (job.status == "delivered" || job.status == "cancelled") return false
+    if (isAdmin) return true
+    return !job.salesUserId.isNullOrBlank() && job.salesUserId == currentUserId
+}
+
 /** Alasan koreksi wajib — jejaknya hidup di `activity_log` gateway, dan jejak
  *  tanpa alasan cuma memberi tahu bahwa sesuatu berubah. Ambangnya SAMA dengan
  *  server (5 karakter) supaya tombol tak hidup untuk permintaan yang pasti 400. */

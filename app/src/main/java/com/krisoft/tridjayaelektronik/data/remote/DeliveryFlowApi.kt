@@ -155,6 +155,26 @@ interface DeliveryFlowApi {
         @Body body: JsonObject
     ): Response<ApiResponse<SpkEditResultDto>>
 
+    /**
+     * Isi/perbaiki LOKASI MAPS satu unit (2026-08-30).
+     *
+     * Rute SENDIRI, bukan [editJob]. Jendela sunting sales pada `editJob`
+     * tertutup DUA KALI sesudah PDI — status bergeser ke `pending_spk` (403
+     * telanjang di gerbang wewenang) dan `confirm_spk` mengisi `no_transaksi`
+     * + `finalized_at` sehingga klausa WHERE di server ikut menolak. Endpoint
+     * ini melewati ketiganya untuk SATU kolom saja.
+     *
+     * Boleh dipanggil sales PEMILIK SPK kapan pun sampai unit terkirim.
+     * 400 = isinya tak bisa dibuka driver / unit sudah `delivered`/`cancelled`;
+     * 403 = bukan pemilik. Pesannya ada di `message` server — TAMPILKAN apa
+     * adanya, itu yang mengajari bentuk yang benar.
+     */
+    @PATCH("api/inventory/delivery/{id}/map-url")
+    suspend fun setMapUrl(
+        @Path("id") id: String,
+        @Body body: JsonObject
+    ): Response<ApiResponse<SpkEditResultDto>>
+
     @POST("api/inventory/delivery")
     suspend fun create(@Body body: CreateDeliveryBody): Response<ApiResponse<DeliveryCreateResult>>
 

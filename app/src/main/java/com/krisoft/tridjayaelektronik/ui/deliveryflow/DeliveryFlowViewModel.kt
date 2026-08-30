@@ -1389,6 +1389,32 @@ class DeliveryFlowViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Simpan lokasi maps satu unit.
+     *
+     * Pola sama [editJob] dan bukan [jobUpdate]: `onDone` hanya dipanggil saat
+     * SUKSES supaya dialog yang gagal tetap terbuka dengan isian utuh — link
+     * maps panjang dan mengetik ulangnya adalah hukuman untuk kesalahan server.
+     *
+     * Galat server DITERUSKAN apa adanya ke `actionError`; pesannya yang
+     * mengajari bentuk yang benar ("Isi tautan lokasi ... atau koordinat"),
+     * dan menggantinya dengan teks generik membuang satu-satunya petunjuk.
+     */
+    fun setMapUrl(id: String, mapUrl: String, onDone: () -> Unit) {
+        if (_state.value.submitting) return
+        _state.update { it.copy(submitting = true, actionError = null) }
+        viewModelScope.launch {
+            when (val res = repository.setMapUrl(id, mapUrl)) {
+                is AuthResult.Success -> {
+                    _state.update { it.copy(submitting = false, detail = res.data.job) }
+                    onDone()
+                }
+                is AuthResult.Failure ->
+                    _state.update { it.copy(submitting = false, actionError = res.message) }
+            }
+        }
+    }
+
     fun claimPdi(id: String) = jobUpdate { repository.claimPdi(id) }
 
     fun releasePdiClaim(id: String) = jobUpdate { repository.releasePdiClaim(id) }
