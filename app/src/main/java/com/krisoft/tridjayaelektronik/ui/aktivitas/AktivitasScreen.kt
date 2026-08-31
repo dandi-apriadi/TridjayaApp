@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -301,6 +302,17 @@ fun AktivitasScreen(
                             pilihan = state.pilihan[index],
                             progres = state.kirim?.takeIf { it.index == index },
                             enabled = state.busyIndex == null,
+                            // DUA predikat berbeda, sengaja — lihat KDoc
+                            // `tampilkanJumlahChat` & `gerbangChatBerlaku`:
+                            // yang MENAMPILKAN kotak angka permisif (kotak
+                            // berlebih tak merugikan siapa pun), yang MENAHAN
+                            // pengiriman sempit (menahan baris yang server
+                            // terima = mengunci orangnya).
+                            ambangChat = state.chatTrainee
+                                ?.takeIf { tampilkanJumlahChat(it, index, aktivitas) }
+                                ?.ambang,
+                            gerbangChat = gerbangChatBerlaku(state.chatTrainee, aktivitas),
+                            onJumlahChange = { teks -> viewModel.setJumlah(index, teks) },
                             onKamera = {
                                 // Nama ber-slot: satu baris kini boleh punya beberapa
                                 // jepretan, dan nama tetap membuat jepretan kedua
@@ -412,6 +424,17 @@ private fun AktivitasRow(
     pilihan: PilihanBukti?,
     progres: KirimProgres?,
     enabled: Boolean,
+    /**
+     * Ambang chat untuk baris ini, atau `null` = kotak angka TIDAK dirender.
+     * Sudah disaring pemanggil lewat `tampilkanJumlahChat`.
+     */
+    ambangChat: Int? = null,
+    /**
+     * Gerbang chat benar-benar MENAHAN baris ini. Lebih sempit dari
+     * [ambangChat] yang bukan-null — lihat `gerbangChatBerlaku`.
+     */
+    gerbangChat: Boolean = false,
+    onJumlahChange: (String) -> Unit = {},
     onKamera: () -> Unit,
     onGaleri: () -> Unit,
     onVideo: () -> Unit,
@@ -423,8 +446,19 @@ private fun AktivitasRow(
     val status = rowStatus(terkirim)
     val gambar = pilihan?.gambar.orEmpty()
     val video = pilihan?.video
+    // Angka yang SUDAH tersimpan di server dipakai sebagai nilai awal kalau
+    // staging baris ini belum disentuh — tanpa itu kotaknya terlihat kosong
+    // padahal angkanya sudah tercatat, dan orangnya mengetik ulang.
+    val jumlah = pilihan?.jumlah ?: terkirim?.jumlah
     val adaStaging = gambar.isNotEmpty() || video != null
     val gate = gateKirimBukti(gambar.size, video != null, video?.ukuranBytes ?: 0L)
+    // Gerbang chat dinilai TERPISAH dari [gate] supaya pesannya tak saling
+    // menimpa: yang satu bicara soal berkas, yang satu soal angka.
+    val gateChat = if (gerbangChat && ambangChat != null) {
+        gateJumlahChat(jumlah, ambangChat, video != null)
+    } else {
+        BuktiGate(true)
+    }
     // Sudah dinilai PIC = server menolak penimpaan. Seluruh tombol sumber bukti
     // ikut mati lewat `bolehIsi`, dan alasannya ditulis — tombol mati tanpa
     // keterangan terbaca sebagai aplikasi rusak, dan yang dibutuhkan orangnya
@@ -464,6 +498,32 @@ private fun AktivitasRow(
                     PESAN_TERKUNCI_PIC,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.size(10.dp))
+            }
+
+            // Kotak angka butir CHAT trainee (vc123). Dirender di ATAS tombol
+            // sumber bukti dengan sengaja: angkanya syarat pertama, dan orang
+            // yang sudah terlanjur merekam video lalu baru tahu ada angka yang
+            // harus diisi membaca layar ini sebagai penolakan mendadak.
+            if (ambangChat != null) {
+                ExpressiveTextField(
+                    value = jumlah?.toString().orEmpty(),
+                    onValueChange = onJumlahChange,
+                    enabled = bolehIsi,
+                    label = "Jumlah chat hari ini",
+                    placeholder = "target minimal $ambangChat",
+                    keyboardType = KeyboardType.Number,
+                    // Angka yang MASIH kurang bukan kesalahan ketik — orangnya
+                    // memang belum selesai bekerja. Menandainya merah sejak
+                    // ketukan pertama membuat kotaknya menyala merah sepanjang
+                    // hari; yang merah cukup baris keterangan di bawah.
+                    supportingText = if (jumlah != null && jumlah < ambangChat) {
+                        "Kurang ${ambangChat - jumlah} lagi dari target $ambangChat."
+                    } else {
+                        "Bukti butir ini WAJIB video."
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.size(10.dp))
             }
@@ -518,12 +578,21 @@ private fun AktivitasRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ExpressiveTextButton(onClick = onTanpaBukti, enabled = bolehIsi) { Text("Tanpa bukti") }
+                // "Tanpa bukti" DIMATIKAN untuk butir chat trainee: justru
+                // `mode="none"` + alasan 10 karakter itulah celah yang gerbang
+                // ini tutup — barisnya lahir, hitungan `terisi` naik, dan absen
+                // pulang terbuka tanpa satu pun chat terjadi. Tombolnya
+                // dibiarkan TAMPAK (bukan disembunyikan) mengikuti pola tombol
+                // lawan di baris sumber bukti; alasannya ditulis di bawah.
+                ExpressiveTextButton(
+                    onClick = onTanpaBukti,
+                    enabled = bolehIsi && !gerbangChat,
+                ) { Text("Tanpa bukti") }
                 Spacer(Modifier.weight(1f))
                 if (adaStaging) {
                     ExpressiveFilledButton(
                         onClick = onKirim,
-                        enabled = bolehIsi && gate.ok,
+                        enabled = bolehIsi && gate.ok && gateChat.ok,
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                     ) {
                         Text(if (video != null) "Kirim video" else "Kirim bukti (${gambar.size})")
@@ -533,6 +602,25 @@ private fun AktivitasRow(
             if (adaStaging && !gate.ok) {
                 Text(
                     gate.alasan.orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            // Keterangan gerbang chat dipisah dari [gate] di atas: keduanya bisa
+            // menyala bersamaan (mis. foto terpilih untuk butir yang menuntut
+            // video) dan menumpuknya jadi satu kalimat menghapus salah satu
+            // langkah yang harus dikerjakan orangnya.
+            //
+            // Digerbang `adaStaging`, SAMA seperti baris di atasnya, dan itu
+            // bukan sekadar kerapian: baris yang videonya SUDAH terkirim hari
+            // ini punya staging kosong, jadi tanpa syarat ini ia akan berteriak
+            // "bukti harus video" atas pekerjaan yang justru sudah selesai.
+            // Keterangan yang berdiri sendiri (target & sisa) hidup di
+            // `supportingText` kotak angka, bukan sebagai galat merah.
+            if (adaStaging && !gateChat.ok) {
+                Text(
+                    gateChat.alasan.orEmpty(),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 4.dp),

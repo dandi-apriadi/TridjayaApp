@@ -313,10 +313,14 @@ class ActivityViewModel @Inject constructor(
                     // sesudahnya: kartu ini dirender di layar Home yang dibuka
                     // paling sering, dan satu round-trip tambahan di sini
                     // terasa di tiap pembukaan.
+                    // `.penempatan` — respons endpoint itu sejak vc123 juga
+                    // membawa blok `chatTrainee`, tapi kartu ini cuma butuh
+                    // penyebutnya. Gerbang chat dirender di layar Input
+                    // Aktivitas, bukan di kartu ringkas ini.
                     val (r, penempatan) = coroutineScope {
                         val pos = async { raportRepository.aktivitasPositions() }
                         val tempat = async { raportRepository.penempatanSaya() }
-                        pos.await() to tempat.await()
+                        pos.await() to tempat.await().penempatan
                     }
                     if (r is AuthResult.Success) {
                         // `.jobdesks` = nama field DI KABEL, ejaan lama.

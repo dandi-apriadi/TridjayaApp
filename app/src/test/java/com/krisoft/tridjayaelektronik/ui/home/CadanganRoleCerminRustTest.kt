@@ -31,6 +31,15 @@ import java.io.File
  *    kurang `kasir`, DAN kelebihan empat role yang doc server eksplisit
  *    mengecualikannya.
  *
+ * **Butir pertama di atas adalah CATATAN SEJARAH, bukan keadaan sekarang.** Pada
+ * 2026-08-31 `trainee` DICABUT dari `CRM_INPUT_ROLES` (rust-shared) dan dari
+ * `CRM_MENU_ROLES` (di sini) atas keputusan user — masa training dipersempit ke
+ * Data Inventory + Aktivitas Harian + Pengaturan Akun. `STAFF_MENU_ROLES` TIDAK
+ * ikut: `STAFF_SELF_SERVICE_ROLES` memikul absen hari pertama trainee dan
+ * `attendance/report.rs` menyaring roster dari daftar yang sama. Jadi kalau
+ * test `CRM_MENU_ROLES` merah dengan `trainee` di sisi mana pun, yang benar
+ * bukan "kembalikan trainee" melainkan periksa apakah KEDUA sisi sudah dicabut.
+ *
  * **Kenapa membaca sumber Rust, bukan menyalin daftarnya ke test.** Salinan
  * kedua membusuk dengan cara yang sama persis dengan salinan pertama — test-nya
  * akan tetap hijau sambil ikut salah. Pola ini dipinjam dari

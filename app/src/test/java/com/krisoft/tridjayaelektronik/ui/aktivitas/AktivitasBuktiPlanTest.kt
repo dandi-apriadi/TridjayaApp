@@ -405,4 +405,163 @@ class AktivitasBuktiPlanTest {
         assertTrue(PESAN_TERKUNCI_PIC.contains("PIC Aktivitas"))
         assertTrue(PESAN_TERKUNCI_PIC.contains("Menunggu"))
     }
+
+    // ── Butir CHAT trainee (vc123) ───────────────────────────────────────────
+    //
+    // Yang diuji di sini SATU-SATUNYA yang bisa diuji tanpa perangkat, dan
+    // kebetulan yang paling gampang salah: PREDIKAT butirnya dan ARAH
+    // fail-open-nya. Penegakan sesungguhnya di `service::upsert` sisi server;
+    // fungsi-fungsi ini cuma mendahulukan kabarnya.
+
+    @Test
+    fun `butir chat dikenali dari PREFIKS, bukan dari kata yang kebetulan ada`() {
+        assertTrue(butirChat("CHAT 200 WA"))
+        assertTrue(butirChat("CHAT 100 WA"))
+        assertTrue("trim + case-insensitive, sama seperti Rust", butirChat("  chat 100 wa  "))
+        assertTrue(butirChat("Chat 50 Konsumen"))
+
+        // `contains("chat")` akan menyambar keempatnya, lalu menuntut video
+        // atas pekerjaan yang tak pernah dimaksudkan. Konvensi PREFIKS-nya
+        // sudah dilembagakan migrasi 231 (`JSON_SEARCH(@v,'one','CHAT %')`).
+        assertFalse("kata di belakang bukan butir chat", butirChat("WA CHAT"))
+        assertFalse(butirChat("Kirim Prospek"))
+        assertFalse(butirChat("FOLLOW UP CHAT KONSUMEN"))
+        assertFalse("prefiks tanpa spasi bukan butir chat", butirChat("CHATTING HARIAN"))
+        assertFalse(butirChat(""))
+        assertFalse(butirChat("   "))
+    }
+
+    /**
+     * Kotak angka SENGAJA muncul lebih longgar daripada gerbangnya. Kotak yang
+     * berlebih tak menahan siapa pun (server mengabaikan `jumlah` untuk butir
+     * non-chat); kotak yang HILANG dari butir yang benar-benar ditagih membuat
+     * orangnya mustahil memenuhi gerbang absen pulang dari HP.
+     */
+    @Test
+    fun `kotak angka muncul dari teks master ATAU nomor butir dari server`() {
+        // `ambang = 150` sengaja BEDA dari angka di label ("CHAT 100 WA") —
+        // keadaan produksi sejak 2026-08-31. Predikat ini mencocokkan PREFIKS
+        // dan nomor butir, tak pernah angka di dalam labelnya.
+        val chat = AmbangChatTrainee(aktivitasIndex = 3, ambang = 150)
+
+        assertTrue("teks masternya sendiri", tampilkanJumlahChat(chat, index = 0, teks = "CHAT 100 WA"))
+        assertTrue("nomor butir dari server", tampilkanJumlahChat(chat, index = 3, teks = "Kirim Prospek"))
+        assertFalse("tak ada satu pun sumber", tampilkanJumlahChat(chat, index = 1, teks = "Kirim Prospek"))
+    }
+
+    /**
+     * INTI arah fail-open: `chatTrainee` null (bukan trainee, saklar mati,
+     * setelan rusak, server lama, permintaan gagal) = NOL perubahan perilaku
+     * bagi 154 karyawan lain.
+     */
+    @Test
+    fun `tanpa blok chatTrainee tak ada kotak dan tak ada gerbang`() {
+        assertFalse(tampilkanJumlahChat(null, index = 0, teks = "CHAT 200 WA"))
+        assertFalse(gerbangChatBerlaku(null, "CHAT 200 WA"))
+    }
+
+    /**
+     * Gerbang yang MENAHAN sengaja lebih sempit dari yang menampilkan: nomor
+     * butir dari server bisa basi (master berubah sesudah blok itu dihitung),
+     * dan menahan baris yang server sendiri akan terima = mengunci orangnya
+     * atas aturan yang tak pernah berlaku untuk baris itu.
+     */
+    @Test
+    fun `gerbang hanya percaya teks master, tidak nomor butir dari server`() {
+        val chat = AmbangChatTrainee(aktivitasIndex = 3, ambang = 200)
+        assertTrue(gerbangChatBerlaku(chat, "CHAT 200 WA"))
+        assertFalse(
+            "baris non-chat tak boleh tertahan hanya karena nomornya kebetulan cocok",
+            gerbangChatBerlaku(chat, "Kirim Prospek"),
+        )
+    }
+
+    @Test
+    fun `ambang nol atau negatif meloloskan semuanya`() {
+        // Ambang yang tak bisa dihitung TIDAK BOLEH mengunci siapa pun —
+        // doktrin fail-open modul ini, lahir dari insiden 31 Juli 2026 (39
+        // karyawan) dan 17 Agustus (285 dari 291 hari).
+        assertTrue(gateJumlahChat(jumlah = null, ambang = 0, adaVideo = false).ok)
+        assertTrue(gateJumlahChat(jumlah = null, ambang = -1, adaVideo = false).ok)
+    }
+
+    @Test
+    fun `angka kosong ditolak dan pesannya menyebut ambangnya`() {
+        val gate = gateJumlahChat(jumlah = null, ambang = 200, adaVideo = true)
+        assertFalse(gate.ok)
+        assertTrue(gate.alasan!!, gate.alasan!!.contains("200"))
+    }
+
+    @Test
+    fun `angka kurang ditolak dan pesannya menyebut DUA angka plus sisanya`() {
+        // "142 dari 200" cuma bisa dibaca di layar ini. Kalimat gerbang absen
+        // pulang berbunyi "kurang N butir" — orang yang cuma membaca itu tak
+        // pernah tahu berapa chat lagi yang kurang.
+        val gate = gateJumlahChat(jumlah = 142, ambang = 200, adaVideo = true)
+        assertFalse(gate.ok)
+        assertTrue(gate.alasan!!, gate.alasan!!.contains("142"))
+        assertTrue(gate.alasan!!, gate.alasan!!.contains("200"))
+        assertTrue("sisa yang kurang disebut", gate.alasan!!.contains("58"))
+    }
+
+    @Test
+    fun `tepat di ambang lolos, bukan ditolak`() {
+        // Penjaga off-by-one: `<` vs `<=` di sini adalah selisih antara "200
+        // cukup" dan "200 kurang", dan keduanya hijau di test yang cuma
+        // menguji angka jauh di bawah target.
+        assertTrue(gateJumlahChat(jumlah = 200, ambang = 200, adaVideo = true).ok)
+        assertTrue(gateJumlahChat(jumlah = 201, ambang = 200, adaVideo = true).ok)
+    }
+
+    @Test
+    fun `rentang angka sama dengan validator server`() {
+        assertEquals(1, MIN_JUMLAH_CHAT)
+        assertEquals(100_000, MAX_JUMLAH_CHAT)
+
+        // 0 adalah KLAIM ("saya chat nol orang"), bukan "belum diisi" — dan
+        // klaim itu tak pernah mencapai ambang mana pun.
+        assertFalse(gateJumlahChat(jumlah = 0, ambang = 100, adaVideo = true).ok)
+        assertFalse(gateJumlahChat(jumlah = -5, ambang = 100, adaVideo = true).ok)
+        assertFalse(gateJumlahChat(jumlah = MAX_JUMLAH_CHAT + 1, ambang = 100, adaVideo = true).ok)
+        assertTrue(gateJumlahChat(jumlah = MAX_JUMLAH_CHAT, ambang = 100, adaVideo = true).ok)
+    }
+
+    /**
+     * CELAH UTAMA yang ditutup rilis ini. Hari ini butir apa pun bisa
+     * dipuaskan dengan `mode="none"` + alasan 10 karakter, dan baris itu
+     * LANGSUNG menaikkan hitungan `terisi` di gerbang absen pulang — tanpa satu
+     * pun chat benar-benar terjadi.
+     */
+    @Test
+    fun `angka cukup tapi tanpa video tetap ditolak`() {
+        val gate = gateJumlahChat(jumlah = 250, ambang = 200, adaVideo = false)
+        assertFalse("angka saja tidak cukup — itu justru celahnya", gate.ok)
+        assertTrue(gate.alasan!!, gate.alasan!!.contains("VIDEO"))
+    }
+
+    @Test
+    fun `angka cukup dan ada video baru lolos`() {
+        val gate = gateJumlahChat(jumlah = 100, ambang = 100, adaVideo = true)
+        assertTrue(gate.alasan ?: "", gate.ok)
+        assertNull(gate.alasan)
+    }
+
+    @Test
+    fun `trainee sales ditagih 200 dan non-sales 150 dari angka SERVER, bukan label`() {
+        // Ambang datang dari `app_settings.aktivitas_chat_trainee` lewat blok
+        // `chatTrainee`, BUKAN dari teks butir.
+        //
+        // Sejak 2026-08-31 keduanya memang berselisih dan LABELNYA yang salah:
+        // ambang non-sales naik 100 -> 150 sementara 15 dari 18 divisi masih
+        // berlabel "CHAT 100 WA" (migrasi 231, data master). Jadi label kini
+        // lebih LONGGAR dari gerbang — klien yang mem-parse label memajang 100,
+        // pengirimnya kena 400, lalu ikut tertahan absen pulang karena butirnya
+        // tak jadi lahir. Baris pertama di bawah adalah persis kasus itu.
+        assertFalse(
+            "100 (angka di label) TIDAK cukup untuk ambang non-sales 150",
+            gateJumlahChat(jumlah = 100, ambang = 150, adaVideo = true).ok,
+        )
+        assertTrue(gateJumlahChat(jumlah = 150, ambang = 150, adaVideo = true).ok)
+        assertFalse(gateJumlahChat(jumlah = 150, ambang = 200, adaVideo = true).ok)
+    }
 }

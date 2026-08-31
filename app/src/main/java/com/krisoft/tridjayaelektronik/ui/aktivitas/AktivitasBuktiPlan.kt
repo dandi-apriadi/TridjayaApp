@@ -415,3 +415,131 @@ internal fun terkunciPic(reviewStatus: String?): Boolean =
  * atas kegagalan yang sebenarnya sembuh sendiri.
  */
 internal fun gagalPermanen(httpStatus: Int?): Boolean = httpStatus == 400 || httpStatus == 422
+
+// ── Butir CHAT trainee (gelombang 2, vc123) ──────────────────────────────────
+//
+// Masa training dipersempit 2026-08-31: trainee kehilangan Input Prospek dan
+// pekerjaan hariannya yang menghasilkan angka pindah ke butir "CHAT n WA" di
+// Aktivitas Harian. Angkanya dikirim di field `jumlah`, dan buktinya WAJIB
+// video — bukan karena video lebih sulit dipalsukan (`dhash` anti-duplikat
+// bernilai `None` untuk video, jadi ia TIDAK menangkap kiriman ulang; jangan
+// menjanjikan sebaliknya di layar), melainkan karena `mode="none"` + alasan 10
+// karakter sudah cukup MELAHIRKAN baris hari ini, dan baris itulah yang
+// menaikkan hitungan `terisi` di gerbang absen pulang.
+//
+// **Yang menegakkan tetap server** (`aktivitas_harian::service::upsert`).
+// Fungsi di bawah cuma MENDAHULUKAN kabarnya, pola sama `gerbangHariIni` dan
+// `terkunciPic`: tanpa ini orang mengunggah video puluhan MB di sinyal lapangan
+// lalu ditolak 400 karena angka yang bisa diperiksa sebelum satu byte bergerak.
+
+/**
+ * Batas bawah & atas `jumlah` — cerminan rentang `1..=100_000` di validator
+ * server. Bawah 1 (bukan 0) karena 0 adalah KLAIM "saya chat nol orang", bukan
+ * "belum diisi"; atas 100.000 menahan salah ketik yang tak akan pernah nyata.
+ */
+internal const val MIN_JUMLAH_CHAT = 1
+internal const val MAX_JUMLAH_CHAT = 100_000
+
+/**
+ * Blok `chatTrainee` dari `GET /aktivitas-harian/penempatan-saya`, sudah
+ * disaring: `null` = TIDAK BERLAKU (bukan trainee, saklar mati, setelan rusak,
+ * divisi tak ketemu, master tanpa butir CHAT, atau server lama).
+ *
+ * `null` sengaja tak dibedakan dari "gagal memuat". Arahnya fail-open dan itu
+ * keputusan: gerbang chat yang menyala karena ambang yang TIDAK terbaca akan
+ * mengunci orang di toko atas angka yang tak pernah bisa dilihatnya — bentuk
+ * insiden 31 Juli 2026 (39 karyawan) dan 17 Agustus (285 dari 291 hari).
+ *
+ * PUBLIK, bukan `internal` seperti [BuktiGate] di atas: ia dipegang
+ * `AktivitasUiState` yang publik, dan Kotlin menolak properti publik yang
+ * membocorkan tipe internal (`copy()` data class ikut terkena). Menyembunyikan
+ * tipenya akan memaksa UiState menyimpan angkanya sebagai dua field lepas —
+ * dan dua field lepas adalah cara termudah membuat "ambang ada" dan "gerbang
+ * berlaku" berselisih diam-diam.
+ */
+data class AmbangChatTrainee(val aktivitasIndex: Int, val ambang: Int)
+
+/**
+ * Butir CHAT menurut TEKS masternya: prefiks `"CHAT "` sesudah trim,
+ * case-insensitive.
+ *
+ * PREFIKS, bukan `contains("chat")`. Konvensi ini sudah dilembagakan migrasi
+ * 231 (`JSON_SEARCH(@v,'one','CHAT %')`) dan dipakai fungsi yang sama namanya
+ * di Rust (`aktivitas_harian::domain::butir_chat`) serta web
+ * (`isChatTargetAktivitas`). `contains` akan menyambar butir seperti
+ * "WA CHAT" maupun kalimat yang kebetulan memuat kata itu, lalu menuntut video
+ * atas pekerjaan yang tak pernah dimaksudkan.
+ */
+internal fun butirChat(teks: String): Boolean =
+    teks.trim().lowercase().startsWith("chat ")
+
+/**
+ * Kotak angka DIRENDER untuk baris ini?
+ *
+ * Sengaja PERMISIF (`||`): kotak yang muncul di baris yang ternyata bukan butir
+ * chat tak merugikan siapa pun — server mengabaikan `jumlah` untuk butir
+ * non-chat dan untuk pengirim non-trainee. Kotak yang HILANG dari butir yang
+ * benar-benar ditagih justru membuat orangnya mustahil memenuhi gerbang absen
+ * pulang dari HP; itu asimetri yang menentukan arah fungsi ini.
+ *
+ * Karena itu ia menerima DUA sumber: teks masternya sendiri ([butirChat]) ATAU
+ * nomor butir yang disebut server. Keduanya membaca master yang sama lewat
+ * endpoint berbeda, jadi selisih hanya mungkin saat master berubah di antara
+ * dua panggilan — dan saat itu terjadi, yang benar adalah menampilkan keduanya.
+ */
+internal fun tampilkanJumlahChat(chat: AmbangChatTrainee?, index: Int, teks: String): Boolean =
+    chat != null && (butirChat(teks) || index == chat.aktivitasIndex)
+
+/**
+ * Gerbang klien MENAHAN pengiriman baris ini?
+ *
+ * Sengaja LEBIH SEMPIT dari [tampilkanJumlahChat] — hanya teks masternya
+ * sendiri yang dipercaya, TIDAK nomor butir dari server. Alasannya arah
+ * kerugian, bukan kerapian: `aktivitasIndex` yang basi (master berubah setelah
+ * blok itu dihitung) akan menunjuk baris LAIN, dan menahan baris yang server
+ * sendiri akan terima berarti mengunci orangnya atas aturan yang tak pernah
+ * berlaku untuknya. Menampilkan kotak angka berlebih tidak menahan apa pun;
+ * menahan tombol Kirim menahan pekerjaan.
+ */
+internal fun gerbangChatBerlaku(chat: AmbangChatTrainee?, teks: String): Boolean =
+    chat != null && butirChat(teks)
+
+/**
+ * Aturan butir CHAT trainee, cerminan validator `service::upsert` sisi server:
+ * angka WAJIB ada & masuk akal, angka WAJIB mencapai [ambang], dan buktinya
+ * WAJIB video.
+ *
+ * [ambang] `<= 0` = FAIL-OPEN (lolos tanpa syarat). Itu bukan cabang mati:
+ * ambang nol/negatif berarti setelannya tak terbaca dengan benar, dan doktrin
+ * modul ini melarang cabang yang tak bisa dihitung mengunci orang.
+ *
+ * Pesan penolakannya menyebut ANGKA — yang dikirim dan yang ditagih. Kalimat
+ * "kurang N butir" yang dipakai gerbang absen pulang sengaja tidak diulang di
+ * sini: di layar inilah satu-satunya tempat orangnya bisa melihat "142 dari
+ * 200", dan tanpa angka itu ia tak tahu berapa lagi yang kurang.
+ */
+internal fun gateJumlahChat(jumlah: Int?, ambang: Int, adaVideo: Boolean): BuktiGate = when {
+    ambang <= 0 -> BuktiGate(true)
+
+    jumlah == null -> BuktiGate(
+        false,
+        "Isi dulu jumlah chat hari ini (minimal $ambang) di kotak angka di atas.",
+    )
+
+    jumlah < MIN_JUMLAH_CHAT || jumlah > MAX_JUMLAH_CHAT -> BuktiGate(
+        false,
+        "Jumlah chat harus antara $MIN_JUMLAH_CHAT dan $MAX_JUMLAH_CHAT.",
+    )
+
+    jumlah < ambang -> BuktiGate(
+        false,
+        "Jumlah chat baru $jumlah, target hari ini $ambang. Kurang ${ambang - jumlah} lagi.",
+    )
+
+    !adaVideo -> BuktiGate(
+        false,
+        "Bukti butir chat harus VIDEO. Foto dan \"tanpa bukti\" ditolak server untuk butir ini.",
+    )
+
+    else -> BuktiGate(true)
+}

@@ -243,6 +243,22 @@ internal val QUICK_ACCESS_MENUS: List<QuickAccessMenu> = listOf(
         ),
         backendGuard = "kinerja-service klasemen.rs LIHAT_ROLES (= KLASEMEN_OPERASIONAL_ROLES)",
     ),
+    // `capability` dan `allowedRoles` di ubin ini SENGAJA tidak lagi sepadan
+    // sejak 2026-08-31, dan itu bukan cermin yang tertinggal:
+    //  * kunci `payroll.self` kini memakai `PAYROLL_SELF_ROLES` di rust-shared
+    //    (= `STAFF_SELF_SERVICE_ROLES` minus `trainee`) — keputusan user
+    //    membuang slip gaji dari masa training. Saat peta kemampuan TERBACA,
+    //    `gateAllows` memakai kunci ini, jadi ubin ini hilang untuk trainee;
+    //  * cadangan offline TETAP `STAFF_MENU_ROLES` (memuat `trainee`) karena
+    //    daftar itu juga memikul kartu Absen masuk & Absen pulang di
+    //    `ActivityRegistry.kt`. Membuat salinan minus-trainee khusus ubin ini
+    //    hanya berguna kalau server juga menolak trainee — dan ia TIDAK:
+    //    `VIEW_OWN_ROLES` sengaja dibiarkan luas, jadi trainee yang bersinyal
+    //    lemah melihat ubin ini beberapa detik lalu benar-benar bisa membukanya,
+    //    bukan dijawab 403.
+    // Kalau `VIEW_OWN_ROLES` kelak ikut dipersempit, ubin inilah yang wajib
+    // dapat daftar cadangannya sendiri — jangan mencabut `trainee` dari
+    // `STAFF_MENU_ROLES`, itu ikut mematikan kartu Absen.
     QuickAccessMenu(
         id = "gaji",
         capability = "payroll.self",

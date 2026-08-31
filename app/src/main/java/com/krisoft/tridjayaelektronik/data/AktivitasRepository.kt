@@ -4,7 +4,10 @@ import android.content.ContentResolver
 import android.net.Uri
 import com.krisoft.tridjayaelektronik.data.model.ApiErrorResponse
 import com.krisoft.tridjayaelektronik.data.model.AktivitasPositionDto
+import com.krisoft.tridjayaelektronik.data.model.ChatTraineeDto
+import com.krisoft.tridjayaelektronik.ui.aktivitas.AmbangChatTrainee
 import com.krisoft.tridjayaelektronik.ui.aktivitas.PenempatanSaya
+import com.krisoft.tridjayaelektronik.ui.aktivitas.PenempatanSayaHasil
 import com.krisoft.tridjayaelektronik.data.model.AktivitasItemDto
 import com.krisoft.tridjayaelektronik.data.model.AktivitasListData
 import com.krisoft.tridjayaelektronik.data.model.ReviewAktivitasBody
@@ -65,18 +68,37 @@ class AktivitasRepository @Inject constructor(
     // internal. Menaikkan TIPE-nya jadi publik demi fungsi ini akan membocorkan
     // model tri-state ke luar modul tanpa ada yang membutuhkannya — pemanggilnya
     // cuma ViewModel di modul `app`.
-    internal suspend fun penempatanSaya(): PenempatanSaya = try {
+    //
+    // Sejak vc123 ia juga membawa blok `chatTrainee` (gerbang jumlah chat
+    // trainee). Menumpang respons yang SUDAH diambil, bukan panggilan kedua —
+    // itu memang alasan blok itu ditaruh di endpoint ini oleh server.
+    internal suspend fun penempatanSaya(): PenempatanSayaHasil = try {
         val response = api.penempatanSaya()
         val data = response.body()?.data
         if (response.isSuccessful && data != null) {
-            data.penempatanId?.takeIf { it.isNotBlank() }
+            val penempatan = data.penempatanId?.takeIf { it.isNotBlank() }
                 ?.let { PenempatanSaya.Ada(it) }
                 ?: PenempatanSaya.TidakAda
+            PenempatanSayaHasil(penempatan, ambangChatTrainee(data.chatTrainee))
         } else {
-            PenempatanSaya.TidakAda
+            PenempatanSayaHasil(PenempatanSaya.TidakAda)
         }
     } catch (e: Exception) {
-        PenempatanSaya.TidakAda
+        PenempatanSayaHasil(PenempatanSaya.TidakAda)
+    }
+
+    /**
+     * DTO → model gerbang. `null` untuk `berlaku=false`, ambang tak masuk akal,
+     * dan server lama — ketiganya berarti hal yang sama bagi layar: gerbang
+     * chat TIDAK berlaku, jangan menahan siapa pun.
+     *
+     * `ambang <= 0` disaring di sini supaya `AmbangChatTrainee` yang beredar di
+     * dalam modul selalu berisi angka yang bisa dipakai; `gateJumlahChat` tetap
+     * punya cabang fail-open-nya sendiri sebagai jaring kedua.
+     */
+    private fun ambangChatTrainee(dto: ChatTraineeDto?): AmbangChatTrainee? {
+        if (dto == null || !dto.berlaku || dto.ambang <= 0) return null
+        return AmbangChatTrainee(aktivitasIndex = dto.aktivitasIndex, ambang = dto.ambang)
     }
 
     /**
@@ -266,7 +288,12 @@ class AktivitasRepository @Inject constructor(
      * dan mengembalikan statusnya ke `pending` (persis perilaku web).
      *
      * Nama field kiriman tetap `jobdeskIndex`/`jobdeskText`: itu nama DI KABEL
-     * (repo ini nol `@SerialName`), bukan istilah layar.
+     * (repo ini nol `@SerialName`), bukan istilah layar. [jumlah] mengikuti
+     * aturan yang sama dan ejaannya memang `jumlah` di kedua sisi.
+     *
+     * [jumlah] `null` untuk SEMUA butir selain CHAT trainee — server
+     * mengabaikannya di sana, dan kolomnya tetap NULL selamanya bagi 154
+     * karyawan lain.
      */
     suspend fun submitItem(
         aktivitasIndex: Int,
@@ -274,6 +301,7 @@ class AktivitasRepository @Inject constructor(
         mode: String,
         evidenceUrl: String? = null,
         employeeNote: String? = null,
+        jumlah: Int? = null,
     ): AuthResult<SubmitAktivitasResult> = try {
         val response = api.submit(
             SubmitAktivitasBody(
@@ -284,6 +312,7 @@ class AktivitasRepository @Inject constructor(
                         mode = mode,
                         evidenceUrl = evidenceUrl,
                         employeeNote = employeeNote,
+                        jumlah = jumlah,
                     )
                 )
             )
@@ -318,7 +347,26 @@ class AktivitasRepository @Inject constructor(
         val detail = parsed?.errors?.firstOrNull()?.takeIf { it.isNotBlank() }
         return AuthResult.Failure(
             parsed?.code ?: "http_${response.code()}",
-            detail ?: parsed?.message ?: "$fallback (${response.code()})"
+            detail ?: parsed?.message ?: "$fallback (${response.code()})",
+            // ARGUMEN KETIGA INI WAJIB, dan hilangnya tidak menimbulkan error apa
+            // pun: `httpStatus` punya default `null`, jadi versi dua-argumen
+            // kompilasi hijau sambil membuat `gagalPermanen(null)` SELALU false
+            // (`ui/aktivitas/AktivitasBuktiPlan.kt`). Akibatnya KETIGA cabang
+            // `blokir(...)` di `AktivitasViewModel` — gambar, video, dan submit —
+            // mati diam-diam, dan 400 permanen kembali ditempeli ekor
+            // "Tekan \"Kirim bukti\" lagi untuk melanjutkan dari gambar ini."
+            // Itu PERSIS regresi vc97 yang KDoc `gagalPermanen` klaim sudah
+            // ditutup: perbaikannya mendarat di sisi ViewModel, tapi sumber
+            // datanya di sini tak pernah mengisi angkanya, jadi ia tak pernah
+            // hidup sekali pun. Terukur 2026-08-21 — tiga orang (Tresandila 13,
+            // Dita 12, Mamun 10) menekan ulang atas foto yang sama, tiap kali
+            // dijawab 400 identik oleh gerbang bukti-lintas-hari.
+            //
+            // Delapan `catch` di berkas ini SENGAJA tetap dua argumen: kegagalan
+            // jaringan (DNS, koneksi putus, TLS) memang tak punya status HTTP,
+            // dan `null` di sana berarti "boleh dicoba lagi" — arah yang benar.
+            // Yang diisi HANYA jalur ini, yaitu respons HTTP nyata dari server.
+            response.code(),
         )
     }
 }

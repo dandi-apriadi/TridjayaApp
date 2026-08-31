@@ -545,14 +545,26 @@ internal fun canAccessSpk(roles: Set<String>): Boolean =
  *  `/api/me/capabilities` belum termuat — lihat `gateAllows`; saat online
  *  server yang memutuskan, jadi perbaikan backend berlaku tanpa APK baru.
  *
- *  **`trainee` ditambahkan 2026-08-28**, menyusul `CRM_INPUT_ROLES` yang sudah
- *  memuatnya sejak 17 Agt. Sisi Rust menyebut alasannya tajam: prospek harian
- *  adalah SATU-SATUNYA pekerjaan trainee yang menghasilkan angka, dan scorecard
- *  training menghitungnya dari `crm_leads.created_by` — jadi cadangan yang
- *  tertinggal ini bukan sekadar menu hilang sesaat, melainkan menu hilang tepat
- *  pada pekerjaan yang menilai orangnya. */
+ *  **`trainee` DICABUT 2026-08-31 (keputusan user), setelah sempat ditambahkan
+ *  2026-08-28.** Alasan penambahan dulu — "prospek harian adalah SATU-SATUNYA
+ *  pekerjaan trainee yang menghasilkan angka" — sudah tidak berlaku: masa
+ *  training dipersempit ke Data Inventory + Aktivitas Harian + Pengaturan Akun,
+ *  dan `CRM_INPUT_ROLES` di rust-shared ikut mencabutnya di paket yang sama.
+ *  Konsekuensi yang diukur, bukan diasumsikan: scorecard training kehilangan
+ *  sumber `prospek_rata_rata`/`closing_terverifikasi`, jadi keduanya dilaporkan
+ *  "tidak diukur" — BUKAN angka 0 — supaya vonis kelulusan tidak melawan sinyal
+ *  yang memang tak punya sumber lagi.
+ *
+ *  **Kenapa cadangan offline ini WAJIB ikut dicabut, bukan cukup sisi server.**
+ *  Kartu "Input prospek" (`ActivityRegistry.kt`) ber-`capability = "crm.input"`,
+ *  jadi saat ONLINE ia hilang sendiri begitu peta kemampuan datang. Yang tersisa
+ *  adalah jendela sebelum peta itu termuat (sinyal lemah, bukan cuma mode
+ *  pesawat): trainee melihat kartunya beberapa detik, mengetuknya, lalu dijawab
+ *  403 — bentuk "menu mati" yang justru ingin dicegah CLAUDE.md repo ini.
+ *  `CadanganRoleCerminRustTest` membaca `capabilities.rs` LANGSUNG, jadi
+ *  pencabutan di satu sisi saja langsung merah. */
 internal val CRM_MENU_ROLES =
-    setOf("karyawan", "trainee", "kepala-cabang", "crm-manager", "admin", "superadmin")
+    setOf("karyawan", "kepala-cabang", "crm-manager", "admin", "superadmin")
 
 /** Role EFEKTIF: role utama + `roles` (multi-role) + `divisi` (folding
  *  divisi-driven access), semuanya lowercase. Backend menilai hak dari daftar

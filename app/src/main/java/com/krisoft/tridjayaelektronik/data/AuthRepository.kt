@@ -34,8 +34,18 @@ sealed class AuthResult<out T> {
      * `GatewayError::{new,not_found,service_unavailable}` di
      * `gateway/src/lib.rs`. Menebak dari kode saja berarti memilih antara
      * membuang data saat server sekarat atau menyimpan selamanya data yang
-     * ditolak — dua-duanya salah. Yang mengisinya baru `OpnameRepository`;
-     * pemanggil lain membiarkannya `null` (= sementara, arah aman).
+     * ditolak — dua-duanya salah.
+     *
+     * **Yang mengisinya (per 2026-08-31): `OpnameRepository`, `SalesRepository`,
+     * `CrmRepository.kegagalanProspek`, dan `AktivitasRepository.parseError`.**
+     * Kalimat lama di sini berbunyi "baru `OpnameRepository`" dan sudah basi.
+     * Sisanya membiarkan `null` (= sementara, arah aman) — tapi **cek dulu
+     * apakah itu memang disengaja** sebelum mewarisi kesimpulannya: karena
+     * parameter ini punya default, melewatkannya kompilasi hijau dan
+     * mematikan seluruh cabang "permanen" di sisi pemanggil TANPA satu pun
+     * gejala. `AktivitasRepository` hidup begitu sejak vc97 — perbaikan
+     * ViewModel-nya ada, penjaganya ada, tapi angkanya tak pernah sampai
+     * (lihat komentar di `AktivitasRepository.parseError`).
      */
     data class Failure(
         val code: String,

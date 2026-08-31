@@ -78,6 +78,44 @@ internal fun jumlahButirAktif(posisi: AktivitasPositionDto?): Int =
 @Serializable
 data class PenempatanSayaData(
     val penempatanId: String? = null,
+    /**
+     * Gerbang chat trainee — `null` pada server lama, dan itu ARTI PENTING:
+     * "fitur ini tidak berlaku", bukan "belum termuat". Lihat [ChatTraineeDto].
+     */
+    val chatTrainee: ChatTraineeDto? = null,
+)
+
+/**
+ * Ambang jumlah chat harian untuk role `trainee` (gelombang 2, vc123).
+ *
+ * **Server yang memutuskan, klien cuma merender.** Angka di label butir master
+ * ("CHAT 200 WA" / "CHAT 100 WA", migrasi 231) SENGAJA tidak boleh di-parse:
+ * otoritas ambangnya `app_settings.aktivitas_chat_trainee`.
+ *
+ * **Sejak 2026-08-31 label dan ambang MEMANG berselisih, dan labelnya sisi yang
+ * SALAH.** Ambang non-sales naik 100 -> 150 (sales tetap 200) sementara teks
+ * butir sengaja dibiarkan apa adanya — 15 dari 18 divisi masih "CHAT 100 WA".
+ * Jadi label kini LEBIH LONGGAR daripada gerbang, kebalikan dari rancangan
+ * awal: layar yang memajang angka dari label menjanjikan 100, kirimannya kena
+ * 400, dan karena butirnya tak jadi lahir orangnya ikut tertahan absen pulang.
+ * Render [ambang] apa adanya.
+ *
+ * [berlaku] `false` untuk SEMUA orang selain trainee, dan untuk setiap keadaan
+ * fail-open di server (saklar mati, setelan rusak, divisi tak ketemu, master
+ * tanpa butir ber-prefiks "CHAT "). Klien memperlakukan `berlaku=false` sama
+ * dengan blok yang tak ada sama sekali.
+ *
+ * [aktivitasIndex] = posisi butir CHAT di master divisi orang itu. Dipakai
+ * sebagai penambah, bukan penentu: lihat `tampilkanJumlahChat` di
+ * `AktivitasBuktiPlan.kt` untuk kenapa arahnya sengaja permisif.
+ */
+@Serializable
+data class ChatTraineeDto(
+    val berlaku: Boolean = false,
+    val aktivitasIndex: Int = -1,
+    val ambang: Int = 0,
+    /** `"video"` — satu-satunya nilai hari ini; disimpan apa adanya untuk teks layar. */
+    val buktiWajib: String = "video",
 )
 
 @Serializable
@@ -108,6 +146,20 @@ data class AktivitasItemDto(
     val mode: String = "none",
     val evidenceUrl: String? = null,
     val employeeNote: String? = null,
+    /**
+     * Angka yang diklaim baris ini — hari ini hanya butir CHAT trainee yang
+     * mengisinya (`aktivitas_harian.jumlah`, migrasi 314). `null` untuk 154
+     * karyawan lain dan untuk server lama, SELAMANYA.
+     *
+     * NAMA KABEL persis `jumlah`, sama dengan `AktivitasItemPayload` sisi
+     * server — repo ini nol `@SerialName`, jadi ejaan lain = field hilang
+     * senyap (kotlinx mengisi default, tak melempar).
+     *
+     * `null` BUKAN `0`: `null` berarti "butir ini tak punya angka", sedangkan
+     * `0` adalah KLAIM yang bisa dibaca gerbang. Jangan "merapikannya" jadi
+     * `Int = 0` — layar akan menulis "0 chat terkirim" untuk semua orang.
+     */
+    val jumlah: Int? = null,
     /**
      * Bukti pada baris ini yang ISINYA sama dengan unggahan terdahulu (sidik
      * jari piksel server, migrasi 240).
@@ -210,6 +262,21 @@ data class SubmitAktivitasItem(
     val mode: String,
     val evidenceUrl: String? = null,
     val employeeNote: String? = null,
+    /**
+     * Jumlah chat untuk butir CHAT trainee. NAMA KABEL persis `jumlah` — sama
+     * dengan field `jumlah` pada `AktivitasItemPayload` (kinerja-service).
+     *
+     * **SATU ejaan, tanpa alias, dan opsional dengan sengaja.** Struct server
+     * tak memakai `deny_unknown_fields` dan `Option` yang hilang jadi `None`,
+     * jadi seluruh APK lapangan vc69-vc122 yang tak pernah mengirim field ini
+     * tetap dijawab 200 untuk butir NON-chat. Yang berubah hanya butir CHAT
+     * milik trainee, dan itu memang sasaran rilis ini.
+     *
+     * JANGAN menyelipkan angkanya ke [employeeNote]: server menerima catatan di
+     * SEMUA mode, jadi angka yang dititipkan di sana KELIHATAN berhasil dan
+     * bisa dibohongi dengan mengetik "200" di kalimat apa pun.
+     */
+    val jumlah: Int? = null,
 )
 
 /**

@@ -71,6 +71,22 @@ internal sealed interface PenempatanSaya {
 }
 
 /**
+ * Seluruh isi `GET /aktivitas-harian/penempatan-saya` yang dipakai layar ini.
+ *
+ * **Dibungkus jadi satu, BUKAN dua panggilan.** Blok `chatTrainee` menumpang
+ * endpoint yang sudah ada justru supaya tak ada rute baru dan tak ada
+ * round-trip kedua di jalur yang dibuka orang tiap pagi. Memisahnya jadi
+ * `chatTraineeSetting()` sendiri akan membatalkan alasan itu.
+ *
+ * [chatTrainee] `null` = gerbang chat tidak berlaku ATAU permintaannya gagal —
+ * satu arti, dan itu disengaja (fail-open). Lihat KDoc [AmbangChatTrainee].
+ */
+internal data class PenempatanSayaHasil(
+    val penempatan: PenempatanSaya,
+    val chatTrainee: AmbangChatTrainee? = null,
+)
+
+/**
  * Normalisasi kunci pencocokan — cerminan `normalizeAktivitasMatchKey` di
  * `frontend/src/utils/aktivitasDivisiMatch.ts`. Underscore & spasi jadi `-`.
  */

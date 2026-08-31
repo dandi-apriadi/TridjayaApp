@@ -50,6 +50,16 @@ data class VideoBukti(val uri: Uri, val nama: String, val ukuranBytes: Long)
 data class PilihanBukti(
     val gambar: List<GambarBukti> = emptyList(),
     val video: VideoBukti? = null,
+    /**
+     * Jumlah chat yang diketik untuk butir CHAT trainee — `null` = kotaknya
+     * masih kosong, BUKAN nol. Dua keadaan itu tak boleh disamakan: `0` adalah
+     * klaim "saya chat nol orang" dan server memang menolaknya sebagai angka
+     * kurang, sedangkan kosong berarti orangnya belum mengisi.
+     *
+     * Baris non-chat tak pernah mengisinya, dan `submitItem` mengirim `null`
+     * apa adanya untuk mereka.
+     */
+    val jumlah: Int? = null,
 )
 
 /** Progres pengiriman satu baris — menggantikan `busyIndex` telanjang. */
@@ -107,6 +117,15 @@ data class AktivitasUiState(
      * 0 = belum termuat; [butirDitagih] yang memberi lantainya.
      */
     val butirAktif: Int = 0,
+    /**
+     * Gerbang chat trainee dari server — `null` = TIDAK BERLAKU untuk orang
+     * ini (bukan trainee, saklar mati, setelan rusak, atau server lama).
+     *
+     * Default `null` = fail-open, dan itu keputusan, bukan kelalaian: layar
+     * yang mengunci karena ambang belum/gagal termuat akan menahan orangnya
+     * dari pekerjaan yang justru dinilai. Lihat KDoc [AmbangChatTrainee].
+     */
+    val chatTrainee: AmbangChatTrainee? = null,
     val submitted: Map<Int, AktivitasItemDto> = emptyMap(),
     /** Berkas terpilih per index aktivitas, belum dikirim. */
     val pilihan: Map<Int, PilihanBukti> = emptyMap(),
@@ -188,20 +207,23 @@ class AktivitasViewModel @Inject constructor(
             // TIGA panggilan tak saling bergantung — jalankan bareng.
             //
             // `penempatanSaya()` ikut fan-out ini, BUKAN berurutan sesudahnya:
-            // ia menentukan daftar aktivitas yang dirender, jadi memanggilnya
-            // belakangan menambah satu round-trip tepat di jalur yang paling
-            // sering dibuka orang tiap pagi.
+            // ia menentukan daftar aktivitas yang dirender (DAN, sejak vc123,
+            // ambang chat trainee), jadi memanggilnya belakangan menambah satu
+            // round-trip tepat di jalur yang paling sering dibuka orang tiap
+            // pagi. Ambang chat menumpang respons yang sama — nol panggilan
+            // tambahan, dan gagal mengambilnya FAIL-OPEN (lihat `chatTrainee`).
             val positionsResult: AuthResult<List<AktivitasPositionDto>>
             val todayResult: AuthResult<List<AktivitasItemDto>>
-            val penempatan: PenempatanSaya
+            val hasilPenempatan: PenempatanSayaHasil
             coroutineScope {
                 val positions = async { repository.aktivitasPositions() }
                 val terkirim = async { repository.raportOfDay(today, user?.id) }
                 val tempat = async { repository.penempatanSaya() }
                 positionsResult = positions.await()
                 todayResult = terkirim.await()
-                penempatan = tempat.await()
+                hasilPenempatan = tempat.await()
             }
+            val penempatan = hasilPenempatan.penempatan
 
             when (positionsResult) {
                 is AuthResult.Failure -> {
@@ -234,6 +256,7 @@ class AktivitasViewModel @Inject constructor(
                             // PENYEBUT lewat `butirAktif`.
                             aktivitas = posisi?.jobdesks.orEmpty(),
                             butirAktif = jumlahButirAktif(posisi),
+                            chatTrainee = hasilPenempatan.chatTrainee,
                             // Gagal memuat yang sudah terkirim TIDAK mengunci layar:
                             // user tetap boleh mengirim (server upsert, aman diulang).
                             submitted = (todayResult as? AuthResult.Success)
@@ -261,7 +284,16 @@ class AktivitasViewModel @Inject constructor(
         } else {
             emptyList()
         }
-        return PilihanBukti(gambar = urlLama.map { GambarBukti(file = null, url = it) })
+        // `jumlah` lama ikut di-seed dengan alasan yang SAMA seperti bukti
+        // gambar: server upsert dan menimpa kolomnya seluruhnya, jadi mengirim
+        // ulang baris tanpa angka akan menghapus angka yang sudah tercatat.
+        // Untuk butir CHAT trainee server memang akan menolaknya, tapi
+        // penolakan itu datang SETELAH videonya terunggah penuh — dan yang
+        // hilang bukan cuma waktu, melainkan angka yang tadinya benar.
+        return PilihanBukti(
+            gambar = urlLama.map { GambarBukti(file = null, url = it) },
+            jumlah = lama?.jumlah,
+        )
     }
 
     private fun setPilihan(index: Int, ubah: (PilihanBukti) -> PilihanBukti) {
@@ -323,8 +355,31 @@ class AktivitasViewModel @Inject constructor(
             return
         }
         setPilihan(index) {
-            PilihanBukti(gambar = emptyList(), video = VideoBukti(uri, nama, ukuranBytes))
+            // `jumlah` DIBAWA ikut, bukan direset. Konstruktor telanjang di sini
+            // (bukan `copy`) sengaja membuang gambar — server cuma punya satu
+            // `mode` per baris — tapi angka chat bukan bukti: membuangnya berarti
+            // trainee yang mengetik 200 lalu memilih videonya kehilangan angkanya
+            // tanpa satu pun tanda di layar, lalu ditolak server setelah video
+            // puluhan MB terunggah penuh.
+            PilihanBukti(
+                gambar = emptyList(),
+                video = VideoBukti(uri, nama, ukuranBytes),
+                jumlah = it.jumlah,
+            )
         }
+    }
+
+    /**
+     * Angka chat untuk butir CHAT trainee. Menerima TEKS mentah dari kotak
+     * isian dan menormalkannya di sini, bukan di layar: aturannya (hanya digit,
+     * dipotong 6 digit) adalah bagian dari kontrak field `jumlah`, dan aturan
+     * yang hidup di Composable tak bisa diuji tanpa perangkat.
+     *
+     * Kosong → `null`, BUKAN 0. Lihat KDoc [PilihanBukti.jumlah].
+     */
+    fun setJumlah(index: Int, teks: String) {
+        val angka = teks.filter { it.isDigit() }.take(6).toIntOrNull()
+        setPilihan(index) { it.copy(jumlah = angka) }
     }
 
     fun hapusGambar(index: Int, posisi: Int) {
@@ -380,15 +435,39 @@ class AktivitasViewModel @Inject constructor(
             _state.update { it.copy(message = gate.alasan) }
             return
         }
+        // Gerbang butir CHAT trainee, DIDAHULUKAN sebelum satu byte pun naik —
+        // alasan yang sama persis dengan gerbang Minggu di atas: server sudah
+        // pasti menolak angka yang kurang atau bukti yang bukan video, dan
+        // videonya bisa puluhan MB di sinyal lapangan.
+        //
+        // Dinilai `gerbangChatBerlaku` (TEKS master), bukan nomor butir dari
+        // server — lihat KDoc-nya untuk kenapa arahnya sengaja lebih sempit di
+        // sisi yang MENAHAN.
+        if (gerbangChatBerlaku(_state.value.chatTrainee, aktivitas)) {
+            val chat = gateJumlahChat(
+                jumlah = pilihan.jumlah,
+                ambang = _state.value.chatTrainee?.ambang ?: 0,
+                adaVideo = pilihan.video != null,
+            )
+            if (!chat.ok) {
+                _state.update { it.copy(message = chat.alasan) }
+                return
+            }
+        }
 
         viewModelScope.launch {
             val video = pilihan.video
-            if (video != null) kirimVideo(index, aktivitas, video, resolver)
-            else kirimGambar(index, aktivitas, pilihan.gambar)
+            if (video != null) kirimVideo(index, aktivitas, video, pilihan.jumlah, resolver)
+            else kirimGambar(index, aktivitas, pilihan.gambar, pilihan.jumlah)
         }
     }
 
-    private suspend fun kirimGambar(index: Int, aktivitas: String, awal: List<GambarBukti>) {
+    private suspend fun kirimGambar(
+        index: Int,
+        aktivitas: String,
+        awal: List<GambarBukti>,
+        jumlah: Int?,
+    ) {
         val user = authRepository.cachedUser
         val subtitle = listOfNotNull(user?.name, user?.cabangName)
             .filter { it.isNotBlank() }.joinToString(" · ")
@@ -408,14 +487,14 @@ class AktivitasViewModel @Inject constructor(
                 )
             }?.first
             if (bytes == null) {
-                simpanParsial(index, daftar)
+                simpanParsial(index, daftar, jumlah)
                 finish(index, pesanGagalDekode(item.dariGaleri))
                 return
             }
 
             when (val up = repository.uploadEvidence(bytes, namaBerkasGambar(i, stempel))) {
                 is AuthResult.Failure -> {
-                    simpanParsial(index, daftar)
+                    simpanParsial(index, daftar, jumlah)
                     // Ekor "Tekan Kirim bukti lagi" HANYA untuk kegagalan yang
                     // memang bisa sembuh (jaringan putus, 5xx). Sampai vc97 ia
                     // ditempelkan TANPA SYARAT — termasuk pada 400 permanen —
@@ -443,7 +522,7 @@ class AktivitasViewModel @Inject constructor(
             }
         }
 
-        simpanParsial(index, daftar)
+        simpanParsial(index, daftar, jumlah)
         val urls = daftar.mapNotNull { it.url }
         val evidenceUrl = buildEvidenceUrl("image", urls)
         if (evidenceUrl == null) {
@@ -451,7 +530,7 @@ class AktivitasViewModel @Inject constructor(
             return
         }
         setProgres(index, "Menyimpan laporan…")
-        send(index, aktivitas, mode = "image", evidenceUrl = evidenceUrl)
+        send(index, aktivitas, mode = "image", evidenceUrl = evidenceUrl, jumlah = jumlah)
     }
 
     /**
@@ -474,6 +553,7 @@ class AktivitasViewModel @Inject constructor(
         index: Int,
         aktivitas: String,
         video: VideoBukti,
+        jumlah: Int?,
         resolver: ContentResolver,
     ) {
         val ext = ekstensiVideo(video.nama, resolver.getType(video.uri))
@@ -537,7 +617,7 @@ class AktivitasViewModel @Inject constructor(
             is AuthResult.Success -> {
                 setProgres(index, "Menyimpan laporan…")
                 // POLOS, bukan array — sama seperti web (`KaryawanAktivitasPage.tsx`).
-                send(index, aktivitas, mode = "video", evidenceUrl = hasil.data)
+                send(index, aktivitas, mode = "video", evidenceUrl = hasil.data, jumlah = jumlah)
             }
         }
     }
@@ -636,6 +716,26 @@ class AktivitasViewModel @Inject constructor(
             _state.update { it.copy(message = PESAN_TERKUNCI_PIC) }
             return
         }
+        // Butir CHAT trainee tak punya jalur "tanpa bukti" sama sekali —
+        // justru `mode="none"` + alasan 10 karakter itulah celah yang gerbang
+        // ini tutup: baris yang lahir dari situ langsung menaikkan hitungan
+        // `terisi` di gerbang absen pulang tanpa satu pun chat benar-benar
+        // terjadi. Server menolaknya; ini cuma mendahulukan kabarnya, dan
+        // ongkos tak-digerbang di sini bukan unggahan melainkan satu tombol
+        // yang tak pernah bisa berhasil.
+        if (gerbangChatBerlaku(_state.value.chatTrainee, aktivitas)) {
+            // `?:` bukan hiasan: `alasan` null berarti gerbangnya meloloskan,
+            // dan meloloskan di sini akan meninggalkan tombol yang tak
+            // menghasilkan apa-apa TANPA pesan — kegagalan senyap yang justru
+            // paling mahal di layar ini.
+            val pesan = gateJumlahChat(
+                jumlah = _state.value.pilihan[index]?.jumlah,
+                ambang = _state.value.chatTrainee?.ambang ?: 0,
+                adaVideo = false,
+            ).alasan ?: "Bukti butir chat harus VIDEO."
+            _state.update { it.copy(message = pesan) }
+            return
+        }
         viewModelScope.launch {
             // Staging WAJIB dibuang dulu: server menolak `none` yang membawa
             // evidenceUrl, dan sisa pilihan di layar akan terbaca seolah masih
@@ -659,9 +759,19 @@ class AktivitasViewModel @Inject constructor(
     private fun setProgres(index: Int, label: String) =
         _state.update { it.copy(kirim = KirimProgres(index, label)) }
 
-    /** Simpan URL yang SUDAH didapat supaya percobaan ulang melanjutkan, bukan mengulang. */
-    private fun simpanParsial(index: Int, daftar: List<GambarBukti>) =
-        _state.update { it.copy(pilihan = it.pilihan + (index to PilihanBukti(gambar = daftar))) }
+    /**
+     * Simpan URL yang SUDAH didapat supaya percobaan ulang melanjutkan, bukan
+     * mengulang.
+     *
+     * [jumlah] ikut dibawa karena fungsi ini MENIMPA seluruh `PilihanBukti`
+     * baris itu; menghilangkannya akan mengosongkan kotak angka tepat setelah
+     * unggahan gagal di tengah — persis saat orangnya akan menekan "Kirim
+     * bukti" lagi.
+     */
+    private fun simpanParsial(index: Int, daftar: List<GambarBukti>, jumlah: Int? = null) =
+        _state.update {
+            it.copy(pilihan = it.pilihan + (index to PilihanBukti(gambar = daftar, jumlah = jumlah)))
+        }
 
     private suspend fun send(
         index: Int,
@@ -669,8 +779,16 @@ class AktivitasViewModel @Inject constructor(
         mode: String,
         evidenceUrl: String? = null,
         employeeNote: String? = null,
+        /**
+         * Angka chat butir CHAT trainee. `null` untuk semua jalur lain —
+         * termasuk `mode = "none"`, yang memang tak pernah punya angka.
+         */
+        jumlah: Int? = null,
     ) {
-        when (val result = repository.submitItem(index, aktivitas, mode, evidenceUrl, employeeNote)) {
+        when (
+            val result =
+                repository.submitItem(index, aktivitas, mode, evidenceUrl, employeeNote, jumlah)
+        ) {
             // Penolakan gerbang batas-atas `jobdeskIndex` (server sejak
             // 2026-08-21) mendarat DI SINI, dan ia permanen: indeksnya tak akan
             // berubah dengan mencoba lagi. Dialog, bukan baris di tengah daftar.
