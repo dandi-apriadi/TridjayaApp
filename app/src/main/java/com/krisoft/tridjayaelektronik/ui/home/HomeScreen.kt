@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.PointOfSale
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.Chat
 import androidx.compose.material.icons.rounded.FactCheck
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Flag
@@ -128,6 +129,7 @@ fun HomeScreen(
     onQuickAccessMutasiHistori: () -> Unit = {},
     onKomplainLapor: () -> Unit = {},
     onKomplainTugas: () -> Unit = {},
+    onChatDeteksi: () -> Unit = {},
     /** Buka satu menu alur SPK berdasarkan key: input/diskon/kasir/pdi/kontrol/driver. */
     onSpkMenu: (String) -> Unit = {},
     /** Buka layar isi prospek untuk satu event (id-nya). */
@@ -225,7 +227,7 @@ fun HomeScreen(
                                     onQuickAccessOpname, onQuickAccessAbsen, onQuickAccessGaji, onQuickAccessKpi,
                                     onQuickAccessHargaGs,
                                     onQuickAccessSerialInput, onQuickAccessDeadstock, onQuickAccessMutasiHistori,
-                                    onKomplainLapor, onKomplainTugas,
+                                    onKomplainLapor, onKomplainTugas, onChatDeteksi,
                                     onSpkMenu
                                 )
                             }
@@ -260,6 +262,7 @@ private fun LazyListScope.homeSection(
     onQuickAccessMutasiHistori: () -> Unit,
     onKomplainLapor: () -> Unit,
     onKomplainTugas: () -> Unit,
+    onChatDeteksi: () -> Unit,
     onSpkMenu: (String) -> Unit
 ) {
     when (section) {
@@ -294,6 +297,7 @@ private fun LazyListScope.homeSection(
                     onMutasiHistori = onQuickAccessMutasiHistori,
                     onKomplainLapor = onKomplainLapor,
                     onKomplainTugas = onKomplainTugas,
+                    onChatDeteksi = onChatDeteksi,
                     onSpkMenu = onSpkMenu,
                 )
             }
@@ -561,6 +565,7 @@ private fun QuickAccessRow(
     onMutasiHistori: () -> Unit,
     onKomplainLapor: () -> Unit,
     onKomplainTugas: () -> Unit,
+    onChatDeteksi: () -> Unit,
     onSpkMenu: (String) -> Unit,
 ) {
     // Tile dirender dari REGISTRI (`QuickAccessMenus.kt`) — hak akses tiap menu
@@ -598,6 +603,7 @@ private fun QuickAccessRow(
                         "mutasi_histori" -> onMutasiHistori()
                         "komplain_lapor" -> onKomplainLapor()
                         "komplain_tugas" -> onKomplainTugas()
+                        "chat_deteksi" -> onChatDeteksi()
                     }
                 },
                 modifier = Modifier.width(86.dp)
@@ -630,6 +636,7 @@ private fun quickAccessVisual(id: String): Pair<androidx.compose.ui.graphics.vec
     // tergantung dari mana ia dibuka.
     "komplain_lapor" -> Pair(Icons.Rounded.Build, Color(0xFFD92D20))
     "komplain_tugas" -> Pair(Icons.Rounded.HomeRepairService, Color(0xFFD92D20))
+    "chat_deteksi" -> Pair(Icons.Rounded.Chat, Color(0xFF12B76A))
     else -> Pair(Icons.Rounded.Bolt, MaterialTheme.colorScheme.primary)
 }
 

@@ -170,6 +170,13 @@ internal val HS_LAPOR_ROLES = ALL_LOGGED_IN
 internal val HS_TASK_ROLES = setOf("pdi", "admin", "superadmin")
 
 /**
+ * `chat_deteksi` (kinerja-service, 2026-08-31) — login-only, self-scoped:
+ * `identity_from_headers` + `info_untuk_submisi`, tanpa peran istimewa,
+ * setiap karyawan submit datanya sendiri. Pola sama [HS_LAPOR_ROLES].
+ */
+internal val CHAT_DETEKSI_ROLES = ALL_LOGGED_IN
+
+/**
  * Daftar menu + haknya. Urutan di sini = urutan tampil di grid.
  *
  * Saat menambah menu: cari guard backend-nya DULU (gateway `require_*` /
@@ -304,6 +311,15 @@ internal val QUICK_ACCESS_MENUS: List<QuickAccessMenu> = listOf(
         label = "Tugas Home Service",
         allowedRoles = HS_TASK_ROLES,
         backendGuard = "rust-shared capabilities.rs HOMESERVICE_TASK_ROLES (= PDI_ROLES)",
+    ),
+    QuickAccessMenu(
+        id = "chat_deteksi",
+        // `null` DISENGAJA, pola sama `komplain_lapor`: servernya login-only
+        // self-scoped, kunci apa pun di sini menyempitkan.
+        capability = null,
+        label = "Deteksi Chat",
+        allowedRoles = CHAT_DETEKSI_ROLES,
+        backendGuard = "tanpa guard: kinerja-service chat_deteksi/handlers.rs submit login-only (self-scoped)",
     ),
 )
 

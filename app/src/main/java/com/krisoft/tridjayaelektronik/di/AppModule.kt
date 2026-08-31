@@ -27,6 +27,8 @@ import com.krisoft.tridjayaelektronik.data.remote.HomeServiceApi
 import com.krisoft.tridjayaelektronik.data.remote.VertelApi
 import com.krisoft.tridjayaelektronik.data.remote.AktivitasApi
 import com.krisoft.tridjayaelektronik.data.remote.AktivitasUploadApi
+import com.krisoft.tridjayaelektronik.data.remote.ChatDeteksiApi
+import com.krisoft.tridjayaelektronik.data.remote.ChatDeteksiUploadApi
 import com.krisoft.tridjayaelektronik.data.remote.ProspekUploadApi
 import com.krisoft.tridjayaelektronik.data.remote.InventoryApi
 import com.krisoft.tridjayaelektronik.data.remote.NetworkModule
@@ -106,6 +108,16 @@ object AppModule {
     @Singleton
     fun provideAktivitasUploadApi(tokenStore: TokenStore): AktivitasUploadApi =
         NetworkModule.createAktivitasUploadApi(tokenStore)
+
+    @Provides
+    @Singleton
+    fun provideChatDeteksiApi(tokenStore: TokenStore): ChatDeteksiApi =
+        NetworkModule.createChatDeteksiApi(tokenStore)
+
+    @Provides
+    @Singleton
+    fun provideChatDeteksiUploadApi(tokenStore: TokenStore): ChatDeteksiUploadApi =
+        NetworkModule.createChatDeteksiUploadApi(tokenStore)
 
     @Provides
     @Singleton

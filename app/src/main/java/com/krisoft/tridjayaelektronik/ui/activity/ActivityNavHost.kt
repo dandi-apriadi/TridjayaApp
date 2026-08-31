@@ -43,6 +43,7 @@ import com.krisoft.tridjayaelektronik.ui.mutasi.MutasiHistoriScreen
 import com.krisoft.tridjayaelektronik.ui.notifications.NotificationCenterScreen
 import com.krisoft.tridjayaelektronik.ui.payroll.PayrollScreen
 import com.krisoft.tridjayaelektronik.ui.priceerp.ErpPriceChangesScreen
+import com.krisoft.tridjayaelektronik.ui.chatdeteksi.ChatDeteksiScreen
 import com.krisoft.tridjayaelektronik.ui.homeservice.HomeServiceDetailScreen
 import com.krisoft.tridjayaelektronik.ui.homeservice.HomeServiceLaporScreen
 import com.krisoft.tridjayaelektronik.ui.homeservice.HomeServiceListScreen
@@ -79,6 +80,7 @@ private const val ROUTE_AKTIVITAS_REVIEW = "home_aktivitas_review"
 // route-nya tetap terpisah supaya deep-link notif bisa menunjuk antrian yang
 // tepat dan tombol back tiap peran tak saling menimpa.
 private const val ROUTE_HS_LAPOR = "home_hs_lapor"
+private const val ROUTE_CHAT_DETEKSI = "home_chat_deteksi"
 private const val ROUTE_HS_TRIASE = "home_hs_triase"
 private const val ROUTE_HS_TEKNISI = "home_hs_teknisi"
 private const val ROUTE_HS_TARIK = "home_hs_tarik"
@@ -322,6 +324,7 @@ fun ActivityNavHost(
                 // lama ada di tabel ini — yang selama ini hilang cuma pintunya.
                 onKomplainLapor = { navController.navigate(ROUTE_HS_LAPOR) { launchSingleTop = true } },
                 onKomplainTugas = { navController.navigate(ROUTE_HS_TEKNISI) { launchSingleTop = true } },
+                onChatDeteksi = { navController.navigate(ROUTE_CHAT_DETEKSI) { launchSingleTop = true } },
                 onSpkMenu = { key ->
                     val route = when (key) {
                         "hub" -> ROUTE_SPK_HUB
@@ -396,6 +399,9 @@ fun ActivityNavHost(
         }
         composable(ROUTE_AKTIVITAS_REVIEW) {
             AktivitasReviewScreen(onBack = { navController.popBackStack() })
+        }
+        composable(ROUTE_CHAT_DETEKSI) {
+            ChatDeteksiScreen(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_HS_LAPOR) {
             HomeServiceLaporScreen(
