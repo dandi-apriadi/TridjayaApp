@@ -125,7 +125,6 @@ class ChatDeteksiViewModel @Inject constructor(
                 is AuthResult.Success -> {
                     val data = res.data
                     _uiState.update { it.copy(status = data) }
-                    if (data == null) return
                     if (data.status != "pending_review" || gagalPerluKirimUlang(data.status, data.llmError)) {
                         return
                     }

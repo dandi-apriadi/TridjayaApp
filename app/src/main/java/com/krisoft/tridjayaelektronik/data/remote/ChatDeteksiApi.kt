@@ -13,9 +13,19 @@ import retrofit2.http.Part
 /** Deteksi otomatis jumlah chat via LLM — kinerja-service `/api/chat-deteksi`. */
 interface ChatDeteksiApi {
 
-    /** `data: null` kalau belum pernah submit hari ini — BUKAN error. */
+    /**
+     * `data` TIDAK PERNAH `null` — server sengaja mengembalikan objek
+     * sentinel `status="belum_pernah"` kalau belum ada submisi hari ini,
+     * BUKAN `data: null`. Retrofit + kotlinx.serialization membangun
+     * deserializer generik bersarang dari `java.lang.reflect.Type`, yang
+     * MEMBUANG info nullability Kotlin — `ApiResponse<StatusChatDeteksiDto?>`
+     * gagal parse `data: null` SENYAP (terukur di emulator 2026-09-01:
+     * "Expected start of the object '{', but had 'n' instead at path:
+     * $.data"). Jangan ubah jadi nullable lagi tanpa memperbaiki masalah
+     * itu duluan.
+     */
     @GET("api/chat-deteksi/status")
-    suspend fun status(): Response<ApiResponse<StatusChatDeteksiDto?>>
+    suspend fun status(): Response<ApiResponse<StatusChatDeteksiDto>>
 }
 
 /**

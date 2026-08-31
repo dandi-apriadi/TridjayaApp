@@ -117,7 +117,10 @@ fun ChatDeteksiScreen(
                     KartuPanduan()
                     Spacer(Modifier.height(12.dp))
 
-                    val status = state.status
+                    // "belum_pernah" adalah sentinel server (BUKAN belum termuat) untuk
+                    // "belum ada submisi hari ini" — lihat KDoc STATUS_BELUM_PERNAH di
+                    // backend. Diperlakukan sama seperti dulu `status == null`.
+                    val status = state.status?.takeIf { it.status != "belum_pernah" }
                     if (status != null) {
                         KartuStatus(status)
                         Spacer(Modifier.height(12.dp))

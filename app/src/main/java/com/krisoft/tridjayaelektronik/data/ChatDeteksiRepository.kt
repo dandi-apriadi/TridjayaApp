@@ -32,9 +32,10 @@ class ChatDeteksiRepository @Inject constructor(
 ) {
     private val errorJson = Json { ignoreUnknownKeys = true }
 
-    suspend fun status(): AuthResult<StatusChatDeteksiDto?> = try {
+    suspend fun status(): AuthResult<StatusChatDeteksiDto> = try {
         val response = api.status()
-        if (response.isSuccessful) AuthResult.Success(response.body()?.data)
+        val data = response.body()?.data
+        if (response.isSuccessful && data != null) AuthResult.Success(data)
         else parseError(response, "Gagal memuat status deteksi chat")
     } catch (e: Exception) {
         AuthResult.Failure("network_error", e.message ?: "Tidak bisa terhubung ke server")
