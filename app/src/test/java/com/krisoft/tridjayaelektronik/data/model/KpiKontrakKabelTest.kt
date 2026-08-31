@@ -327,6 +327,51 @@ class KpiKontrakKabelTest {
         assertNull("jangan mencetak 0 poin", dampakAlasanKpi(baru, false, fRupiah, fAngka))
     }
 
+    /**
+     * Vonis punishment yang DIBATALKAN owner (migrasi 311, lima driver Agustus
+     * 2026). Dua field baru — `amountAsli` & `dibatalkanSebab` — harus
+     * benar-benar sampai ke DTO.
+     *
+     * Kalau salah satu tak terdeklarasi, `ignoreUnknownKeys` membuangnya TANPA
+     * ERROR dan layar mencetak "Punishment Rp 0 — dibatalkan" tanpa nominal
+     * maupun sebab. Itu persis kelas kegagalan senyap yang melahirkan berkas
+     * test ini.
+     */
+    @Test
+    fun `vonis dibatalkan membawa nominal asli dan sebabnya`() {
+        val d = json.decodeFromString<KpiDetailData>(
+            """{"periode":"2026-08","filled":true,"bracket":{"kind":"dibatalkan","amount":0,
+               "amountAsli":500000,"dibatalkanSebab":"Aturan punishment dicabut 2026-08-19.",
+               "alasan":[{"indikator":"SETORAN COD TEPAT WAKTU","dampakPct":-45.45,"dinilai":true}]},
+               "insentif":null}"""
+        )
+        val b = d.bracket!!
+        assertEquals("dibatalkan", b.kind)
+        assertEquals(0L, b.amount)
+        assertEquals(500_000L, b.amountAsli)
+        assertEquals("Aturan punishment dicabut 2026-08-19.", b.dibatalkanSebab)
+        // Snapshot lama: tanpa `bonusMaksRp`, jadi rincian alasannya WAJIB
+        // dibaca sebagai model LAMA (satuan poin), bukan rupiah.
+        assertFalse("vonis batal berasal dari snapshot aturan lama", b.modelBonus)
+        assertEquals(1, b.alasan.size)
+    }
+
+    /**
+     * ARAH BALIK: vonis yang BUKAN `dibatalkan` tak boleh mendadak membawa
+     * `amountAsli`. Kalau ia terisi di luar konteks itu, layar akan mencetak
+     * nominal denda untuk orang yang tak pernah didenda.
+     */
+    @Test
+    fun `vonis biasa tidak membawa nominal batal`() {
+        val d = json.decodeFromString<KpiDetailData>(
+            """{"periode":"2026-09","filled":true,"bracket":{"kind":"reward","amount":662500,"bonusMaksRp":1500000},"insentif":null}"""
+        )
+        val b = d.bracket!!
+        assertNull(b.amountAsli)
+        assertNull(b.dibatalkanSebab)
+        assertTrue(b.modelBonus)
+    }
+
     @Test
     fun `vonis ditahan server terdekode sebagai null, bukan nol`() {
         val d = json.decodeFromString<KpiDetailData>(

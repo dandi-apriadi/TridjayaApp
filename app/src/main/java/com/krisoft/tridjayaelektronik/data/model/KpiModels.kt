@@ -115,9 +115,39 @@ data class KpiBracketDto(
      * MUNCUL karena `kpi_snapshot` periode terkunci (Juli & Agustus 2026)
      * menyimpan vonis aturan lama apa adanya; layar wajib bisa merendernya,
      * bukan menganggapnya data rusak.
+     *
+     * `"dibatalkan"` (migrasi 311) = vonis punishment yang nominalnya
+     * DINOLKAN keputusan owner, sebabnya tetap tersimpan. **Sengaja bukan
+     * `"netral"`**: teks netral untuk snapshot lama berbunyi "Capaian
+     * 91-100%", dan kelima orang yang terkena capaiannya jauh di bawah itu.
+     *
+     * **APK LAMA di lapangan tidak mengenal nilai ini** dan jatuh ke cabang
+     * `else` → "Punishment Rp 0" merah: label basi, ANGKA benar. NOL risiko
+     * crash — converter Retrofit bersama ber-`ignoreUnknownKeys = true`
+     * ([NetworkModule] `json`), jadi `amountAsli`/`dibatalkanSebab` yang tak
+     * dikenal diabaikan, bukan fatal.
+     *
+     * **Untuk migrasi 311 paparannya NOL, bukan sekadar "kecil".** Kelima
+     * orang yang vonisnya dibatalkan tak punya satu pun pintu ke layar KPI:
+     * `KpiViewModel.KPI_KARYAWAN_READY = false` mematikan daftar KPI karyawan,
+     * tile `kpi` hanya manager/superadmin/admin, dan kelimanya role `karyawan`
+     * divisi `driver`. Jangan menghitung ongkos rilis APK dari kalimat ini —
+     * degradasinya baru terjadi kalau yang vonisnya dibatalkan adalah pemegang
+     * tile itu sendiri.
+     *
+     * Alternatifnya tetap ditolak dengan alasan yang sama: mengirim
+     * `"netral"` demi klien lama membuat SETIAP klien — lama maupun baru —
+     * membacakan capaian 91-100% yang tidak pernah terjadi.
      */
     val kind: String = "",
     val amount: Long = 0,
+    /**
+     * Nominal denda yang DIBATALKAN. Hanya terisi saat [kind] = `"dibatalkan"`
+     * (migrasi 311, lima driver Agustus 2026).
+     */
+    val amountAsli: Long? = null,
+    /** Kalimat siap tampil: kenapa vonisnya dibatalkan. */
+    val dibatalkanSebab: String? = null,
     /** Kategori dari SKOR TOTAL — label saja, TIDAK menggerakkan uang. */
     val kategoriTotal: String? = null,
     /** Bonus kalau SEMUA indikator BAGUS SEKALI. Pembanding untuk [amount]. */

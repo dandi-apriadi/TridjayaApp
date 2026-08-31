@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.krisoft.tridjayaelektronik.data.model.KpiDetailData
@@ -322,6 +323,27 @@ private fun VerdictText(detail: KpiDetailData) {
         // tak dapat bonus terbaca seperti sedang dihukum, dan itu memicu
         // keberatan yang tak seharusnya ada.
         when {
+            // Vonis punishment yang DIBATALKAN owner (migrasi 311). Cabangnya
+            // sendiri, DI ATAS `netral`: keduanya sama-sama Rp 0 tapi artinya
+            // berlawanan — `netral` = capaian pas target, `dibatalkan` =
+            // capaian rendah yang hukumannya ditiadakan. Menyatukannya akan
+            // membacakan "Capaian 91-100%" kepada orang yang capaiannya 55%.
+            bracket.kind == "dibatalkan" -> {
+                Text(
+                    text = "Punishment ${formatRupiah((bracket.amountAsli ?: 0L).toDouble())} — dibatalkan",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textDecoration = TextDecoration.LineThrough
+                )
+                Text(
+                    text = bracket.dibatalkanSebab
+                        ?: "Vonis ini dibatalkan; aturan yang melahirkannya sudah dicabut.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             bracket.kind == "netral" -> {
                 Text(
                     text = "Netral · ${formatRupiah(bracket.amount.toDouble())}",
