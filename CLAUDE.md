@@ -895,6 +895,28 @@ Force-update / optional-update / "Cek Pembaruan" (Settings) driven by **Firebase
   tiap unit saat opname dan server menolak serial yang sama dua kali dalam satu sesi
   (`duplikat_dalam_sesi`), jadi produk yang SN-nya belum ditetapkan di sini **tak bisa
   diverifikasi sama sekali** di sana.
+- **SN Goda (`ui/goda/`) — tile `goda_serial`, kunci `goda.serial.edit`.** Sisi lapangan
+  menu web List Goda: pilih cabang → cari unit sepeda listrik GODA → scan barcode rangka
+  (`BarcodeScanButton`, ML Kit, dipakai ULANG dari `ui/deliveryflow/`) → `POST
+  /api/goda/serial`. Backend `kinerja-service/src/goda.rs`, kontrak di
+  `docs/api/android-api.md` §30.
+  **Kuncinya `goda.serial.edit`, BUKAN `goda.view`** — layar ini cuma bisa MENULIS,
+  sedangkan gateway `require_goda_access` meloloskan seluruh PEMBACA
+  (manager/owner/kepala-cabang) ke rute yang sama. Tile yang meniru gerbang gateway akan
+  terbuka untuk mereka lalu tombol simpannya ditolak service, persis "menu mati" yang
+  registri ini dibuat untuk mencegah.
+  **Cabang dipilih EKSPLISIT dan menggantinya MEMBUANG daftar lama**: `POST` menulis ke
+  `kodeDealer` yang dikirim app, jadi kartu cabang lama yang masih terpampang di layar
+  cabang baru mendaftarkan unit ke gudang yang tak memegangnya — tanpa satu pun galat,
+  karena kedua cabang sama-sama sah di server. Profil hanya mengisi nilai AWAL yang
+  terlihat (`DealerAlias.resolveFromBranchName`), bukan menjawab diam-diam.
+  **Hanya MENAMBAH.** `PUT /goda/serial/{id}` (ganti SN) sengaja tak diekspos: registry-nya
+  tak punya tabel riwayat, jadi penggantian menghapus nilai lama permanen — pekerjaan meja
+  lewat web, bukan sambil berjalan di gudang.
+  Normalisasi & saringannya fungsi murni yang diuji (`GodaSerialLogic.kt`): cerminan
+  `bersihkan_sn` Rust — `trim` + `uppercase()` **locale-invariant** (perangkat Turki
+  mengubah "i" jadi "İ" dengan `toUpperCase()`), maks 64 KARAKTER lewat `codePointCount`,
+  format bebas.
 - **Panduan Alur + Direktori Petugas** (`ui/activity/PanduanAlurScreen.kt`) dari tombol PINTASAN.
 - Settings: profile display, nomor WA bisa diubah, semua role terlihat, logout dikonfirmasi,
   cabang, cek pembaruan (`ui/settings/SettingsFormat.kt` memformat nilai tampilan)

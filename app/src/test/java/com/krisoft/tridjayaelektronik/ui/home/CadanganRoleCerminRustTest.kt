@@ -181,6 +181,22 @@ class CadanganRoleCerminRustTest {
         )
     }
 
+    /**
+     * Ubin **SN Goda** mencerminkan PENULIS registry (`GODA_SERIAL_EDIT_ROLES`),
+     * bukan pembacanya (`GODA_VIEW_ROLES`) — layarnya cuma bisa menambah SN.
+     * Kalau kelak server melebarkan penulisnya, cadangan offline di sini harus
+     * ikut; kalau ia menyempit, ubin yang tertinggal berarti tombol simpan yang
+     * dijawab 403 di depan orang yang sedang memegang unitnya.
+     */
+    @Test
+    fun `GODA_SERIAL_MENU_ROLES mencerminkan GODA_SERIAL_EDIT_ROLES`() = jalankan { sumber ->
+        bandingkan(
+            label = "GODA_SERIAL_MENU_ROLES",
+            rust = slugRust(sumber, "GODA_SERIAL_EDIT_ROLES"),
+            kotlin = GODA_SERIAL_MENU_ROLES,
+        )
+    }
+
     // ── DENYLIST SPK ─────────────────────────────────────────────────────────
     //
     // Dua daftar di bawah dibandingkan sebagai DENYLIST, bukan allowlist, karena

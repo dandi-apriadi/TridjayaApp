@@ -319,6 +319,17 @@ internal val QUICK_ACCESS_MENUS: List<QuickAccessMenu> = listOf(
         allowedRoles = SERIAL_INPUT_MENU_ROLES,
         backendGuard = "inventory-service serials.rs is_admin_stok_role",
     ),
+    // SN Goda — menambah serial number unit sepeda listrik GODA sambil memegang
+    // unitnya (scan barcode rangka). Kunci kemampuannya `goda.serial.edit`, BUKAN
+    // `goda.view`: layar ini cuma bisa menulis, jadi memberi pembaca pintunya
+    // berarti tombol simpan yang dijawab 403 di depan orang yang sedang di gudang.
+    QuickAccessMenu(
+        id = "goda_serial",
+        capability = "goda.serial.edit",
+        label = "SN Goda",
+        allowedRoles = GODA_SERIAL_MENU_ROLES,
+        backendGuard = "kinerja-service goda.rs tambah_sn + rust-shared capabilities.rs GODA_SERIAL_EDIT_ROLES",
+    ),
     QuickAccessMenu(
         id = "deadstock",
         capability = "deadstock.cabang",
