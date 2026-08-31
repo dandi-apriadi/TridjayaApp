@@ -197,6 +197,32 @@ class QuickAccessRegistryTest {
     }
 
     /**
+     * Ubin **SN Goda** memakai kunci PENULIS (`goda.serial.edit`), bukan kunci
+     * pembaca (`goda.view`) yang jauh lebih luas.
+     *
+     * Bedanya bukan soal kerapian: gateway `require_goda_access` MELOLOSKAN
+     * manager/owner/kepala-cabang ke seluruh rute `/api/goda/…`, dan yang
+     * menolak penulisan adalah service-nya. Ubin yang meniru gerbang gateway
+     * karena itu akan terbuka untuk mereka, lalu tombol simpannya dijawab 400
+     * saat orangnya sudah berdiri di depan unit — layar ini tak punya isi lain
+     * selain menulis.
+     */
+    @Test
+    fun `SN Goda hanya untuk penulis registry, bukan pembaca List Goda`() {
+        assertFalse("goda_serial" in visibleQuickAccessMenus(setOf("manager")).map { it.id })
+        assertFalse("goda_serial" in visibleQuickAccessMenus(setOf("kepala-cabang")).map { it.id })
+        assertFalse("goda_serial" in visibleQuickAccessMenus(setOf("owner")).map { it.id })
+        assertTrue("goda_serial" in visibleQuickAccessMenus(setOf("karyawan", "admin-stok")).map { it.id })
+        assertTrue("goda_serial" in visibleQuickAccessMenus(setOf("superadmin")).map { it.id })
+
+        // Peta kemampuan server tetap yang memutuskan saat ia ada.
+        val ditolak = visibleQuickAccessMenus(setOf("admin-stok"), mapOf("goda.serial.edit" to false))
+        assertFalse(ditolak.any { it.id == "goda_serial" })
+        val diizinkan = visibleQuickAccessMenus(setOf("karyawan"), mapOf("goda.serial.edit" to true))
+        assertTrue(diizinkan.any { it.id == "goda_serial" })
+    }
+
+    /**
      * Laporan user 2026-08-15: sales & PDI tak menemukan menu Home Service di app.
      *
      * Sebabnya modul komplain NOL pintu masuk di beranda — registri ini tak punya

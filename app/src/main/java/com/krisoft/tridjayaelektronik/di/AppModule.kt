@@ -22,6 +22,7 @@ import com.krisoft.tridjayaelektronik.data.remote.CrmApi
 import com.krisoft.tridjayaelektronik.data.remote.BirthdayApi
 import com.krisoft.tridjayaelektronik.data.remote.DeviceApi
 import com.krisoft.tridjayaelektronik.data.remote.ErpPriceChangesApi
+import com.krisoft.tridjayaelektronik.data.remote.GodaApi
 import com.krisoft.tridjayaelektronik.data.remote.EventApi
 import com.krisoft.tridjayaelektronik.data.remote.OffApi
 import com.krisoft.tridjayaelektronik.data.remote.AcInstallApi
@@ -173,6 +174,11 @@ object AppModule {
     @Singleton
     fun provideDeadstockApi(tokenStore: TokenStore): DeadstockApi =
         NetworkModule.createDeadstockApi(tokenStore)
+
+    @Provides
+    @Singleton
+    fun provideGodaApi(tokenStore: TokenStore): GodaApi =
+        NetworkModule.createGodaApi(tokenStore)
 
     @Provides
     @Singleton

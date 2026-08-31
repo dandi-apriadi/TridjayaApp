@@ -263,6 +263,9 @@ object NetworkModule {
     fun createDeadstockApi(tokenStore: TokenStore): DeadstockApi =
         authenticatedRetrofit(tokenStore).create(DeadstockApi::class.java)
 
+    fun createGodaApi(tokenStore: TokenStore): GodaApi =
+        authenticatedRetrofit(tokenStore).create(GodaApi::class.java)
+
     /**
      * Kupon Gebyar. Client BERSAMA, bukan client-unggah terpisah seperti
      * `createAktivitasUploadApi`: batas server 5 MB dan keluaran

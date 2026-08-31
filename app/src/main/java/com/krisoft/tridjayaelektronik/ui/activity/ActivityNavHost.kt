@@ -21,6 +21,7 @@ import com.krisoft.tridjayaelektronik.ui.acinstall.AcInstallScreen
 import com.krisoft.tridjayaelektronik.ui.vertel.VertelScreen
 import com.krisoft.tridjayaelektronik.ui.attendance.AttendanceScreen
 import com.krisoft.tridjayaelektronik.ui.deadstock.DeadstockScreen
+import com.krisoft.tridjayaelektronik.ui.goda.GodaSerialScreen
 import com.krisoft.tridjayaelektronik.ui.event.EventLeadScreen
 import com.krisoft.tridjayaelektronik.ui.indent.IndentListScreen
 import com.krisoft.tridjayaelektronik.ui.kupongebyar.KuponGebyarScreen
@@ -115,6 +116,8 @@ private const val ROUTE_GAJI = "home_gaji"
 private const val ROUTE_KPI = "home_kpi"
 private const val ROUTE_HARGA_GS = "home_harga_gs"
 private const val ROUTE_SERIAL_INPUT = "home_serial_input"
+/** SN Goda — daftarkan serial number unit sepeda listrik GODA (scan barcode). */
+private const val ROUTE_GODA_SERIAL = "home_goda_serial"
 private const val ROUTE_DEADSTOCK = "home_deadstock"
 /** Konsumen Gebyar — daftar konsumen berhak kupon doorprize di cabang sendiri.
  *  Prefiks `home_` mengikuti seluruh route anak tabel ini. */
@@ -339,6 +342,7 @@ fun ActivityNavHost(
                 onQuickAccessKpi = { navController.navigate(ROUTE_KPI) { launchSingleTop = true } },
                 onQuickAccessHargaGs = { navController.navigate(ROUTE_HARGA_GS) { launchSingleTop = true } },
                 onQuickAccessSerialInput = { navController.navigate(ROUTE_SERIAL_INPUT) { launchSingleTop = true } },
+                onQuickAccessGodaSerial = { navController.navigate(ROUTE_GODA_SERIAL) { launchSingleTop = true } },
                 onQuickAccessDeadstock = { navController.navigate(ROUTE_DEADSTOCK) { launchSingleTop = true } },
                 onQuickAccessMutasiHistori = { navController.navigate(ROUTE_MUTASI_HISTORI) { launchSingleTop = true } },
                 // Home Service: dua ubin Akses Cepat (2026-08-15). Route-nya sudah
@@ -487,6 +491,9 @@ fun ActivityNavHost(
         }
         composable(ROUTE_SERIAL_INPUT) {
             SerialInputScreen(onBack = { navController.popBackStack() })
+        }
+        composable(ROUTE_GODA_SERIAL) {
+            GodaSerialScreen(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_DEADSTOCK) {
             DeadstockScreen(onBack = { navController.popBackStack() })

@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.PhoneInTalk
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Discount
 import androidx.compose.material.icons.rounded.PointOfSale
+import androidx.compose.material.icons.rounded.ElectricBike
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.CalendarToday
@@ -126,6 +127,7 @@ fun HomeScreen(
     onQuickAccessKpi: () -> Unit = {},
     onQuickAccessHargaGs: () -> Unit = {},
     onQuickAccessSerialInput: () -> Unit = {},
+    onQuickAccessGodaSerial: () -> Unit = {},
     onQuickAccessDeadstock: () -> Unit = {},
     onQuickAccessMutasiHistori: () -> Unit = {},
     onKomplainLapor: () -> Unit = {},
@@ -230,7 +232,8 @@ fun HomeScreen(
                                     onQuickAccessInventory, onQuickAccessSearch, onQuickAccessLeads, onQuickAccessIndent, onQuickAccessSales,
                                     onQuickAccessOpname, onQuickAccessAbsen, onQuickAccessGaji, onQuickAccessKpi,
                                     onQuickAccessHargaGs,
-                                    onQuickAccessSerialInput, onQuickAccessDeadstock, onQuickAccessMutasiHistori,
+                                    onQuickAccessSerialInput, onQuickAccessGodaSerial,
+                                    onQuickAccessDeadstock, onQuickAccessMutasiHistori,
                                     onKomplainLapor, onKomplainSaya, onKomplainTugas,
                                     onPemasanganAcKontrol, onVertel, onKlasemenLapangan,
                                     onSpkMenu
@@ -263,6 +266,7 @@ private fun LazyListScope.homeSection(
     onQuickAccessKpi: () -> Unit,
     onQuickAccessHargaGs: () -> Unit,
     onQuickAccessSerialInput: () -> Unit,
+    onQuickAccessGodaSerial: () -> Unit,
     onQuickAccessDeadstock: () -> Unit,
     onQuickAccessMutasiHistori: () -> Unit,
     onKomplainLapor: () -> Unit,
@@ -301,6 +305,7 @@ private fun LazyListScope.homeSection(
                     onKpi = onQuickAccessKpi,
                     onHargaGs = onQuickAccessHargaGs,
                     onSerialInput = onQuickAccessSerialInput,
+                    onGodaSerial = onQuickAccessGodaSerial,
                     onDeadstock = onQuickAccessDeadstock,
                     onMutasiHistori = onQuickAccessMutasiHistori,
                     onKomplainLapor = onKomplainLapor,
@@ -468,6 +473,20 @@ internal val HARGA_GS_MENU_ROLES = setOf("admin", "manager", "owner", "kepala-ca
 /** `is_admin_stok_role` di `serials.rs` — POST /inventory/serial-numbers hanya role ini. */
 internal val SERIAL_INPUT_MENU_ROLES = setOf("admin-stok")
 
+/**
+ * Cerminan `GODA_SERIAL_EDIT_ROLES` (rust-shared `capabilities.rs`) — PENULIS
+ * registry SN GODA, bukan pembacanya.
+ *
+ * Sengaja BUKAN `GODA_VIEW_ROLES` yang lebih luas (manager/owner/kepala-cabang
+ * ikut di sana). Menu mobile ini satu-satunya isinya adalah MENAMBAH SN, jadi
+ * daftar pembaca akan membuka layar yang tombol simpannya dijawab 403 — persis
+ * "menu mati" yang CLAUDE.md repo ini ingin cegah. Gateway sendiri tetap
+ * meloloskan pembaca (`require_goda_access` = `GODA_VIEW_ROLES`); penyempitan
+ * untuk penulisan terjadi di service, dan cadangan offline ini mencerminkan
+ * lapis yang menolak, bukan lapis yang meloloskan.
+ */
+internal val GODA_SERIAL_MENU_ROLES = setOf("admin-stok", "admin", "superadmin")
+
 /** `is_cabang_role` di `deadstock/mod.rs` (dealer dipaksa backend, anti-IDOR) — manager
  *  punya mode terpisah (monitoring+audit, web-only) jadi tidak termasuk di sini. */
 internal val DEADSTOCK_MENU_ROLES = setOf("karyawan", "kepala-cabang", "admin-stok")
@@ -605,6 +624,7 @@ private fun QuickAccessRow(
     onKpi: () -> Unit,
     onHargaGs: () -> Unit,
     onSerialInput: () -> Unit,
+    onGodaSerial: () -> Unit,
     onDeadstock: () -> Unit,
     onMutasiHistori: () -> Unit,
     onKomplainLapor: () -> Unit,
@@ -647,6 +667,7 @@ private fun QuickAccessRow(
                         "opname" -> onOpname()
                         "harga_gs" -> onHargaGs()
                         "serial_input" -> onSerialInput()
+                        "goda_serial" -> onGodaSerial()
                         "deadstock" -> onDeadstock()
                         "mutasi_histori" -> onMutasiHistori()
                         "komplain_lapor" -> onKomplainLapor()
@@ -680,6 +701,7 @@ private fun quickAccessVisual(id: String): Pair<androidx.compose.ui.graphics.vec
     "opname" -> Pair(Icons.Rounded.FactCheck, Color(0xFF0BA5EC))
     "harga_gs" -> Pair(Icons.Rounded.PriceChange, Color(0xFFF79009))
     "serial_input" -> Pair(Icons.Rounded.Numbers, Color(0xFF667085))
+    "goda_serial" -> Pair(Icons.Rounded.ElectricBike, Color(0xFF12B76A))
     "deadstock" -> Pair(Icons.Rounded.Inventory2, Color(0xFFB54708))
     "mutasi_histori" -> Pair(Icons.Rounded.SwapHoriz, Color(0xFF7A5AF8))
     // Warna merah yang sama dipakai kartu komplain di layar Activity
