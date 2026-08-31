@@ -37,7 +37,7 @@ data/
   CrmRepository.kt         leads sync/cache + pipeline/CRM actions
   DeliveryFlowRepository.kt  SPK → surat jalan → serah terima → PDI → kasir
   OpnameRepository.kt      stok opname per unit/serial + antrean offline
-  RaportRepository.kt      raport harian / Input Aktivitas (BETA) — parseError utamakan `errors[0]`
+  RaportRepository.kt      raport harian / Input Aktivitas — parseError utamakan `errors[0]`
   NotificationsRepository.kt  Pusat Notifikasi (+ FCM deep-link)
   Indent/Mutasi/Deadstock/Payroll/ErpPriceChanges/SerialInput/Off/Device Repository.kt
   SpkTodayCounter.kt       hitungan SPK hari ini untuk kartu Activity
@@ -66,7 +66,7 @@ ui/
                 QuickAccessMenus.kt = grid Akses Cepat ber-gate (pola sama ActivityRegistry)
   deliveryflow/ SpkHub + layar lapangan (surat jalan, serah terima, PDI, kasir), BranchRegions
   opname/, serials/, indent/, mutasi/, deadstock/, priceerp/, payroll/, notifications/
-  raport/       Input Aktivitas (BETA) — lihat "What's implemented"
+  raport/       Input Aktivitas — lihat "What's implemented"
   inventory/    Product list (search/filter/sort/paging), ProductDetailScreen (flyer generator)
   leads/        CRM: list/search, add, detail (stage move, won/lost/reopen)
   attendance/, search/, sales/, security/, session/, splash/, login/, settings/, update/
@@ -898,7 +898,9 @@ Force-update / optional-update / "Cek Pembaruan" (Settings) driven by **Firebase
 - **Panduan Alur + Direktori Petugas** (`ui/activity/PanduanAlurScreen.kt`) dari tombol PINTASAN.
 - Settings: profile display, nomor WA bisa diubah, semua role terlihat, logout dikonfirmasi,
   cabang, cek pembaruan (`ui/settings/SettingsFormat.kt` memformat nilai tampilan)
-- Input Aktivitas / raport harian (`ui/raport/`, **BETA** — kartu di Activity berlabel BETA):
+- Input Aktivitas / raport harian (`ui/raport/`, **label "BETA" dicabut 2026-08-31** — `beta`
+  di `ActivityItem`/`ActivityRegistry.kt` tak lagi diisi untuk `"aktivitas"`, dan badge "BETA" di
+  header `AktivitasScreen.Ringkasan` dihapus; gate tampilan akun-uji di bawah TIDAK berubah):
   daftar aktivitas posisi karyawan dari `GET /api/jobdesk-divisions` (dicocokkan ke `divisi`
   profil lewat `matchAktivitasPosition` — **BUKAN port 1:1 `getPositionMatch` web**, klaim lama
   itu basi sejak web menambah tingkat ketiga ber-normalisasi; hasilnya sama untuk 164 dari 164

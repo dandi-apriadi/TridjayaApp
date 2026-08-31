@@ -390,16 +390,6 @@ private fun Ringkasan(state: AktivitasUiState) {
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f, fill = false)
             )
-            Spacer(Modifier.size(8.dp))
-            Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primaryContainer) {
-                Text(
-                    "BETA",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                )
-            }
         }
         Text(
             // `butirDitagih`, BUKAN `aktivitas.size`: butir bertanda `nonaktif`

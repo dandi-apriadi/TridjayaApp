@@ -343,7 +343,6 @@ internal val ACTIVITY_ITEMS: List<ActivityItem> = listOf(
         backendGuard = "kinerja-service raport.rs KARYAWAN_ROLES (upsert_raport)",
         source = ActivitySource.RAPORT_TODAY,
         navKey = "aktivitas",
-        beta = true,
     ),
     ActivityItem(
         id = "buat_spk",
