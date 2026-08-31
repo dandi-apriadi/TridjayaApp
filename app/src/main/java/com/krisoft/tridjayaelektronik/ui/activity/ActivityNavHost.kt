@@ -231,6 +231,7 @@ internal fun routeForNavKey(navKey: String): String? = when (navKey) {
     "opname" -> ROUTE_OPNAME
     // Antrian validasi unit opname ketik-manual (admin-stok).
     "opname_validasi" -> ROUTE_OPNAME_VALIDASI
+    "goda_serial" -> ROUTE_GODA_SERIAL
     "spk_input" -> ROUTE_DLV_CREATE
     "spk_history" -> ROUTE_DLV_HISTORY
     "spk_gantung" -> ROUTE_DLV_PENDING_PAYMENT

@@ -132,6 +132,12 @@ internal val KNOWN_ROLES: Set<String> = setOf(
     // divonis salah ketik oleh test — jadi dua menu verifikator di bawah tak
     // akan bisa punya cadangan offline sama sekali.
     "cs",
+    // `staf-gudang` = slug divisi, dinaikkan dari label-only 2026-09-01
+    // (`auth.rs::divisi_access_slugs`). Enam akun aktif memegang divisi itu;
+    // empat di antaranya tak punya `admin-stok`, jadi sebelum kenaikan itu
+    // mereka tak melihat satu pun menu dari pos kerjanya. Tanpa baris di
+    // sini, `allowedRoles` yang menyebutnya divonis salah ketik oleh test.
+    "staf-gudang",
 )
 
 /**

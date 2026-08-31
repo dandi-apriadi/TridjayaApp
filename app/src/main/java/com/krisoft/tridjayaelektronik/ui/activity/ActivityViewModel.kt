@@ -9,6 +9,7 @@ import com.krisoft.tridjayaelektronik.data.AuthRepository
 import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.CrmRepository
 import com.krisoft.tridjayaelektronik.data.DeliveryFlowRepository
+import com.krisoft.tridjayaelektronik.data.GodaRepository
 import com.krisoft.tridjayaelektronik.data.HomeServiceRepository
 import com.krisoft.tridjayaelektronik.data.KuponGebyarRepository
 import com.krisoft.tridjayaelektronik.data.OpnameRepository
@@ -18,12 +19,14 @@ import com.krisoft.tridjayaelektronik.data.model.DeliveryStatusKey
 import com.krisoft.tridjayaelektronik.data.model.jumlahButirAktif
 import com.krisoft.tridjayaelektronik.data.model.ProspekTargetDto
 import com.krisoft.tridjayaelektronik.data.model.UserDto
+import com.krisoft.tridjayaelektronik.data.local.DealerAlias
 import com.krisoft.tridjayaelektronik.domain.indent.ListIndentUseCase
 import com.krisoft.tridjayaelektronik.domain.sales.KlasemenStandings
 import com.krisoft.tridjayaelektronik.ui.home.PenyegarKemampuan
 import com.krisoft.tridjayaelektronik.ui.acinstall.butuhJawabanSaya
 import com.krisoft.tridjayaelektronik.ui.home.effectiveRoles
 import com.krisoft.tridjayaelektronik.ui.home.sidikAkses
+import com.krisoft.tridjayaelektronik.ui.goda.belumLengkap
 import com.krisoft.tridjayaelektronik.ui.homeservice.HsMode
 import com.krisoft.tridjayaelektronik.ui.homeservice.saringStatus
 import com.krisoft.tridjayaelektronik.ui.aktivitas.pilihAktivitasUntukInput
@@ -71,6 +74,7 @@ class ActivityViewModel @Inject constructor(
     private val listIndentUseCase: ListIndentUseCase,
     private val opnameRepository: OpnameRepository,
     private val kuponGebyarRepository: KuponGebyarRepository,
+    private val godaRepository: GodaRepository,
     private val spkTodayCounter: SpkTodayCounter,
 ) : ViewModel() {
 
@@ -384,6 +388,29 @@ class ActivityViewModel @Inject constructor(
                         }
                     }
                     is AuthResult.Failure -> failed += ActivitySource.KUPON_GEBYAR_SISA
+                }
+            }
+
+            // SN Goda: unit GODA yang belum punya serial number di gudang
+            // petugas. Angkanya dihitung KLIEN dari daftar stok — `goda.rs`
+            // belum punya endpoint ringkasan, dan menambahnya adalah perubahan
+            // server tersendiri.
+            //
+            // Tanpa cabang di profil (akun pusat), panggilan ini TIDAK
+            // dilakukan sama sekali: `kodeDealer` kosong membuat server
+            // menjawab 13 cabang berikut seluruh serialnya — beban yang tak
+            // sebanding untuk satu lencana, dan angka "seluruh perusahaan" pun
+            // bukan antrian milik siapa pun. Kartunya tetap tampil dengan
+            // angka `null` (= belum diketahui), bukan 0 yang berbohong.
+            if (ActivitySource.GODA_SN_BELUM_LENGKAP in sources) jobs += async {
+                val dealer = DealerAlias.resolveFromBranchName(user?.cabangName)
+                if (dealer != null) {
+                    when (val r = godaRepository.stok(dealer)) {
+                        is AuthResult.Success ->
+                            counts[ActivitySource.GODA_SN_BELUM_LENGKAP] =
+                                r.data.baris.count { belumLengkap(it) }
+                        is AuthResult.Failure -> failed += ActivitySource.GODA_SN_BELUM_LENGKAP
+                    }
                 }
             }
 

@@ -485,7 +485,7 @@ internal val SERIAL_INPUT_MENU_ROLES = setOf("admin-stok")
  * untuk penulisan terjadi di service, dan cadangan offline ini mencerminkan
  * lapis yang menolak, bukan lapis yang meloloskan.
  */
-internal val GODA_SERIAL_MENU_ROLES = setOf("admin-stok", "admin", "superadmin")
+internal val GODA_SERIAL_MENU_ROLES = setOf("admin-stok", "admin", "superadmin", "staf-gudang")
 
 /** `is_cabang_role` di `deadstock/mod.rs` (dealer dipaksa backend, anti-IDOR) — manager
  *  punya mode terpisah (monitoring+audit, web-only) jadi tidak termasuk di sini. */

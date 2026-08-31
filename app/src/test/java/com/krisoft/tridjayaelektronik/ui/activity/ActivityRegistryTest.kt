@@ -240,6 +240,51 @@ class ActivityRegistryTest {
         assertFalse("aktivitas_review" in visibleActivityItems(setOf("owner"), null).map { it.id })
     }
 
+    // ── SN Goda ──────────────────────────────────────────────────────────────
+
+    /**
+     * Kartu "SN Goda" mengikuti PENULIS registry (`goda.serial.edit`), bukan
+     * pembacanya (`goda.view`).
+     *
+     * Bedanya bukan kerapian: gateway `require_goda_access` meloloskan seluruh
+     * pembaca (manager/owner/kepala-cabang) ke rute `/api/goda/...`, dan yang
+     * menolak penulisan adalah service. Kartu yang meniru gerbang gateway
+     * karena itu akan memberi mereka ANTRIAN yang tak bisa mereka kerjakan —
+     * pekerjaan orang lain yang menumpuk di layar sendiri.
+     */
+    @Test
+    fun `kartu SN Goda hanya untuk penulis registry`() {
+        val stok = visibleActivityItems(setOf("karyawan", "admin-stok"), null).map { it.id }
+        assertTrue("goda_serial" in stok)
+
+        // Staf gudang: divisi `staf-gudang` naik jadi slug ber-akses 2026-09-01.
+        // Role PRIMARY-nya tetap `karyawan`, jadi kalau cadangan offline ini
+        // tertinggal, merekalah yang kehilangan kartunya — bukan admin-stok.
+        val stafGudang = visibleActivityItems(setOf("karyawan", "staf-gudang"), null).map { it.id }
+        assertTrue("goda_serial" in stafGudang)
+
+        for (pembaca in listOf("manager", "owner", "kepala-cabang")) {
+            assertFalse(
+                "`$pembaca` cuma boleh MEMBACA List Goda — kartu antrian ini menulis",
+                "goda_serial" in visibleActivityItems(setOf(pembaca), null).map { it.id },
+            )
+        }
+
+        // Peta kemampuan server tetap yang memutuskan saat ia ada, dua arah.
+        assertFalse(
+            "goda_serial" in visibleActivityItems(
+                setOf("admin-stok"),
+                mapOf("goda.serial.edit" to false),
+            ).map { it.id },
+        )
+        assertTrue(
+            "goda_serial" in visibleActivityItems(
+                setOf("karyawan"),
+                mapOf("goda.serial.edit" to true),
+            ).map { it.id },
+        )
+    }
+
     // ── Komplain / Home Service ──────────────────────────────────────────────
 
     @Test

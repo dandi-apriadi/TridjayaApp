@@ -917,6 +917,17 @@ Force-update / optional-update / "Cek Pembaruan" (Settings) driven by **Firebase
   `bersihkan_sn` Rust — `trim` + `uppercase()` **locale-invariant** (perangkat Turki
   mengubah "i" jadi "İ" dengan `toUpperCase()`), maks 64 KARAKTER lewat `codePointCount`,
   format bebas.
+  **DUA pintu sejak 2026-09-01**: ubin Akses Cepat (Operasional) DAN kartu antrian di
+  seksi **PERLU TINDAKAN** layar Activity (`ActivityRegistry.kt` id `goda_serial`,
+  `kind = ANTRIAN`, `ActivitySource.GODA_SN_BELUM_LENGKAP`). Angka kartunya = unit yang
+  `jumlahSn < stok` di cabang petugas, dihitung KLIEN dari daftar stok — `goda.rs` belum
+  punya endpoint ringkasan. **Akun tanpa cabang di profil tidak memicu panggilan sama
+  sekali**: `kodeDealer` kosong membuat server menjawab 13 cabang berikut seluruh
+  serialnya, dan angka "seluruh perusahaan" bukan antrian milik siapa pun — kartunya tetap
+  tampil dengan angka `null` (= belum diketahui), bukan 0 yang berbohong.
+  **Pemegangnya bertambah `staf-gudang`** (divisi naik dari label-only, migrasi 316):
+  role PRIMARY mereka `karyawan`, jadi yang menentukan tampil-tidaknya adalah
+  `GODA_SERIAL_MENU_ROLES` + kunci `goda.serial.edit`, bukan role utama.
 - **Panduan Alur + Direktori Petugas** (`ui/activity/PanduanAlurScreen.kt`) dari tombol PINTASAN.
 - Settings: profile display, nomor WA bisa diubah, semua role terlihat, logout dikonfirmasi,
   cabang, cek pembaruan (`ui/settings/SettingsFormat.kt` memformat nilai tampilan)

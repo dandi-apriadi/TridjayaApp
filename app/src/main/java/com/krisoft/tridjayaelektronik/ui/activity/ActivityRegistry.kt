@@ -6,6 +6,7 @@ import com.krisoft.tridjayaelektronik.ui.home.ALL_LOGGED_IN
 import com.krisoft.tridjayaelektronik.ui.home.CRM_MENU_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.KNOWN_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.SPK_BLOCKED_ROLES
+import com.krisoft.tridjayaelektronik.ui.home.GODA_SERIAL_MENU_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.SERIAL_INPUT_MENU_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.STAFF_MENU_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.SPK_MENU_ROLES
@@ -80,6 +81,25 @@ enum class ActivitySource {
      *  di CABANG petugas. Server-lah yang men-scope-nya ke cabang akun
      *  (`list_opname`), bukan parameter dari app. */
     OPNAME_SESI_DRAFT,
+
+    /**
+     * `GET /goda/stok?kodeDealer=<cabang akun>` — unit sepeda listrik GODA yang
+     * SN-nya belum lengkap (`jumlahSn < stok`) di gudang petugas.
+     *
+     * **Angkanya dihitung KLIEN, bukan server**, karena modul `goda.rs` belum
+     * punya endpoint ringkasan. Konsekuensinya jujur: satu respons berisi
+     * seluruh baris stok GODA cabang itu berikut serial-nya. Itu sebabnya
+     * kartunya ber-gate `goda.serial.edit` (segelintir orang), dan
+     * `kodeDealer` WAJIB — tanpa parameter itu server menjawab 13 cabang
+     * sekaligus.
+     *
+     * Cabang diambil dari profil (`DealerAlias.resolveFromBranchName`). Akun
+     * PUSAT yang tak punya cabang tidak menghasilkan panggilan sama sekali:
+     * angkanya tetap `null` (= "belum diketahui") dan kartunya tetap bisa
+     * dibuka. Menembak tanpa cabang akan menarik seluruh gudang perusahaan ke
+     * HP hanya untuk memasang satu lencana.
+     */
+    GODA_SN_BELUM_LENGKAP,
 
     /**
      * `GET /kupon-gebyar/meta` — konsumen cabang yang berhak kupon doorprize
@@ -669,6 +689,37 @@ internal val ACTIVITY_ITEMS: List<ActivityItem> = listOf(
         backendGuard = "inventory-service opname.rs has_admin_stok (capabilities::SERIAL_INPUT_ROLES)",
         source = ActivitySource.OPNAME_MANUAL_PENDING,
         navKey = "opname_validasi",
+    ),
+    /**
+     * SN Goda — unit sepeda listrik GODA yang belum punya serial number di
+     * gudang petugas (kinerja-service `goda.rs`).
+     *
+     * **Kenapa ANTRIAN, bukan AKSI.** Selisih `stok` vs `jumlahSn` adalah
+     * pekerjaan yang menumpuk dan bisa habis: ia turun tiap kali satu unit
+     * di-scan, dan nol berarti gudangnya beres. Ubin PINTASAN tak pernah
+     * menyatakan itu — dan tanpa angkanya, "daftarkan SN" cuma menu yang harus
+     * diingat sendiri oleh orangnya.
+     *
+     * Kunci `goda.serial.edit` — PENULIS, bukan pembaca `goda.view`. Layar
+     * tujuannya cuma bisa menambah SN, jadi menunjukkan kartunya ke
+     * manager/owner/kepala-cabang (yang diloloskan gateway) berarti antrian
+     * yang tak bisa mereka kerjakan.
+     *
+     * Ubin "SN Goda" di Akses Cepat (`QuickAccessMenus.kt`) SENGAJA tetap ada:
+     * dua pintu ke layar yang sama, pola yang sama dengan Opname
+     * (`opname_cabang` + tile "Opname"). Yang di sini menyebut BERAPA, yang di
+     * sana selalu bisa dibuka walau angkanya nol.
+     */
+    ActivityItem(
+        id = "goda_serial",
+        label = "SN Goda",
+        subtitle = "Unit GODA belum punya serial number",
+        kind = ActivityKind.ANTRIAN,
+        capability = "goda.serial.edit",
+        allowedRoles = GODA_SERIAL_MENU_ROLES,
+        backendGuard = "kinerja-service goda.rs tambah_sn + rust-shared capabilities.rs GODA_SERIAL_EDIT_ROLES",
+        source = ActivitySource.GODA_SN_BELUM_LENGKAP,
+        navKey = "goda_serial",
     ),
     /**
      * Konsumen Gebyar — undangan kupon doorprize yang belum dikirim di cabang
