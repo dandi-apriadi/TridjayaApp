@@ -569,6 +569,12 @@ class ActivityRegistryTest {
         assertTrue("admin-sales" in KUPON_GEBYAR_MENU_ROLES)
         assertTrue("karyawan" in KUPON_GEBYAR_MENU_ROLES)
         assertTrue("kepala-cabang" in KUPON_GEBYAR_MENU_ROLES)
+        // Alias wire `superadmin` (2026-08-31). Diuji BERPASANGAN dengan
+        // `superadmin` di atas karena yang salah bukan "kurang satu slug"
+        // melainkan daftar yang menyebut sebuah peran lalu melewatkan cara
+        // peran itu benar-benar tiba — di sisi server bentuknya 403 untuk akun
+        // `Administrator`, di sini menu yang hilang saat peta belum termuat.
+        assertTrue("admin" in KUPON_GEBYAR_MENU_ROLES)
     }
 
     /**

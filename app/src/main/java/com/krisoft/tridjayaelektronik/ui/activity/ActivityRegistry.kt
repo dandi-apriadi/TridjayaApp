@@ -292,7 +292,12 @@ internal val SPK_CREATE_ROLES: Set<String> = KNOWN_ROLES - SPK_CREATE_BLOCKED_RO
  */
 internal val KUPON_GEBYAR_MENU_ROLES = setOf(
     "kepala-cabang", "admin-penjualan", "kasir", "karyawan",
-    "manager", "owner", "superadmin", "cs", "admin-sales",
+    // `admin` = alias wire `superadmin` (gateway `legacy_wire_role`), jadi ia
+    // WAJIB berpasangan seperti di 27 daftar lain berkas ini. Ketiadaannya di
+    // sisi Rust membuat super admin 403 di produksi (172 permintaan, nol
+    // berhasil) — di sini akibatnya lebih ringan tapi sekelas: menunya hilang
+    // selama peta kemampuan belum termuat.
+    "manager", "owner", "superadmin", "admin", "cs", "admin-sales",
 )
 
 /**
