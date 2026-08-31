@@ -804,10 +804,14 @@ Force-update / optional-update / "Cek Pembaruan" (Settings) driven by **Firebase
   **Sebabnya konkret:** admin-stok sudah memakai opname di produksi pada hari
   yang sama (sesi `OPN-20260814-0001`, scan SN 17:46), dan hanya merekalah yang
   boleh mendaftarkan SN (`SERIAL_INPUT_ROLES = ["admin-stok"]`) — gate versi pagi
-  mencabut alat kerja yang sedang dipakai. `raport` SENGAJA tidak diberi jalan
-  tembus. Dijaga `ActivityRegistryTest` (tiga tes: karyawan biasa tertutup,
-  pelaksana nyata tembus termasuk kasus role utama `karyawan` + `extra_roles`
-  `admin-stok`, dan raport tak ikut bocor).
+  mencabut alat kerja yang sedang dipakai. Dijaga `ActivityRegistryTest` (tiga
+  tes: karyawan biasa tertutup, pelaksana nyata tembus termasuk kasus role utama
+  `karyawan` + `extra_roles` `admin-stok`, dan set akun-uji tak menyeret kartu
+  lain ikut hilang). **Kalimat lama "`raport` SENGAJA tidak diberi jalan tembus"
+  DICABUT 2026-09-01 dan bukan sekadar usang — ia menyesatkan:** `raport` sudah
+  DIKELUARKAN dari `ITEM_KHUSUS_AKUN_UJI` sejak 2026-08-15 (kartunya terlihat
+  semua karyawan, lihat butir "Raport harian" di bawah), jadi ia tak butuh jalan
+  tembus sama sekali. Isi set itu hari ini HANYA kedua kartu opname.
   Latar aslinya tetap berlaku: sebabnya
   `opname.hitung` memuat role `karyawan` (sengaja, lihat paragraf berikut), dan
   sejak migrasi 144 itu berarti hampir seluruh pegawai; kartunya mendarat di HP
@@ -1004,14 +1008,25 @@ Force-update / optional-update / "Cek Pembaruan" (Settings) driven by **Firebase
   Jendela jam pelaporan (default 08:00–18:00) & larangan hari Minggu ditegakkan server;
   pesan detailnya ada di `errors[0]`, bukan `message` — `RaportRepository.parseError`
   sengaja mengutamakan `errors[0]` (repository lain di app ini belum).
-  **Gate tampilan: AKUN UJI SAJA** (`ITEM_KHUSUS_AKUN_UJI = setOf("raport")`). Riwayatnya
-  bolak-balik dan itu sengaja dicatat: ditutup 2026-07-31 → DIBUKA untuk semua 2026-08-12 →
-  DITUTUP LAGI 2026-08-14, semuanya atas permintaan user. Cerminan web-nya
-  `raportInputVisible` (`DashboardLayout.tsx`, `isAkunUji`) — keduanya harus sepakat.
-  **`RAPORT_INPUT_ROLES` TETAP `ALL_LOGGED_IN`, jangan dikunci ulang ke `setOf("karyawan")`:**
-  keluarga akun uji ber-role macam-macam (UJI Sales/PDI/Kasir/Driver), jadi mengunci role
-  justru menghilangkan kartu dari akun uji sendiri dan fiturnya tak bisa diuji sama sekali.
-  Yang menyembunyikan = set akun-uji, bukan gate role.
+  **Gate tampilan: TERBUKA untuk semua karyawan sejak 2026-08-15** — kartunya TIDAK lagi
+  khusus akun uji. Kalimat lama di sini (`ITEM_KHUSUS_AKUN_UJI = setOf("raport")`) sudah
+  salah sejak tanggal itu; nilai yang sebenarnya di `ActivityRegistry.kt` adalah
+  `setOf("opname_cabang", "opname_validasi")`, dan id kartunya sendiri kini `aktivitas`,
+  bukan `raport`. Riwayatnya bolak-balik dan itu sengaja dicatat: ditutup 2026-07-31 →
+  DIBUKA 2026-08-12 → DITUTUP LAGI 2026-08-14 → **DIBUKA LAGI 2026-08-15**, semuanya atas
+  permintaan user. Alasan pembukaan terakhir terukur, bukan preferensi: selama pintu masuk
+  ditutup, indikator KPI `LAPORAN AKTIVITAS` TETAP menilai orang atasnya — produksi
+  2026-08-15, 431 dari 493 baris Agustus ternyata tulisan worker auto-isi prospek dan 60
+  dari 61 orang divonis di bawah 40% pada laporan yang tak punya jalan untuk mereka isi
+  (uraian lengkap ada di komentar tepat di atas `ITEM_KHUSUS_AKUN_UJI`).
+  Menutupnya lagi = kembalikan `"aktivitas"` ke set itu DAN balikkan sisi web-nya.
+  Sisi web BUKAN lagi cerminan akun-uji: `aktivitasInputVisible` di
+  `hooks/useDashboardNav.ts` dihitung `menuAktivitasTampil(user?.divisi, aktivitasDivisions)`
+  — divisi orangnya dicocokkan ke Master Aktivitas, dan master kosong = tampil (fail-open).
+  **`AKTIVITAS_INPUT_ROLES` (nama lamanya `RAPORT_INPUT_ROLES`) TETAP `ALL_LOGGED_IN`,
+  jangan dikunci ulang ke `setOf("karyawan")`:** ia mencerminkan endpoint yang memang
+  login-only (baris di bawah), dan keluarga akun uji ber-role macam-macam (UJI
+  Sales/PDI/Kasir/Driver) sehingga mengunci role menghilangkan kartu dari akun uji sendiri.
   Sisi server: `POST /raport-harian` + `/raport-harian/upload` **LOGIN-ONLY sejak 2026-08-14**
   (`KARYAWAN_ROLES` dibuang; endpoint-nya self-scoped — payload tak membawa id karyawan).
   Mismatch lama "role lain dijawab 403" sudah TIDAK ada. Gate ini murni TAMPILAN: endpoint
