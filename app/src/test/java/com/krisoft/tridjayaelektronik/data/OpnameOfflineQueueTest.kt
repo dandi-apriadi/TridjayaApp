@@ -832,8 +832,9 @@ class OpnameOfflineQueueTest {
 internal open class StubInventoryApi : InventoryApi {
     private fun nope(): Nothing = error("endpoint ini tidak dipakai di tes")
 
-    override suspend fun stokCabang(page: Int?, limit: Int?, refresh: Boolean?, inStock: Boolean?):
-        Response<ApiResponse<StokCabangPageDto>> = nope()
+    override suspend fun stokCabang(
+        page: Int?, limit: Int?, refresh: Boolean?, inStock: Boolean?, search: String?, kodeDealer: String?,
+    ): Response<ApiResponse<StokCabangPageDto>> = nope()
 
     override suspend fun listIndent(status: String?): Response<ApiResponse<IndentListData>> = nope()
 
