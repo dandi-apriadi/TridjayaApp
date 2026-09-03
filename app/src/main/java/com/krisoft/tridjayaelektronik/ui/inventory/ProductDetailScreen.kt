@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Inventory2
 import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.Sell
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.CircularProgressIndicator
@@ -144,6 +145,7 @@ fun ProductDetailScreen(
                 else -> {
                     val product = state.product!!
                     var isGeneratingOnly by remember { mutableStateOf(false) }
+                    var isPrintingLabel by remember { mutableStateOf(false) }
                     // Mode FRESH SALE utk barang deadstock: harga flyer otomatis -10% (dibulatkan
                     // ke ribuan), cicilan/DP ikut dihitung ulang dari harga promo.
                     val isDeadstock = (product.maxUmurHari ?: 0L) >= DEADSTOCK_MIN_DAYS
@@ -334,6 +336,39 @@ fun ProductDetailScreen(
                                         Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text("Salin Struktur Kredit")
+                                    }
+                                }
+                                ExpressiveTextButton(
+                                    onClick = {
+                                        if (isPrintingLabel) return@ExpressiveTextButton
+                                        isPrintingLabel = true
+                                        scope.launch {
+                                            try {
+                                                exportAndSharePricetags(
+                                                    context,
+                                                    listOf(product),
+                                                    true,
+                                                    product.nama.ifBlank { product.kode }
+                                                )
+                                            } catch (t: Throwable) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Gagal membuat label harga: ${t.message ?: "kesalahan tak terduga"}",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            } finally {
+                                                isPrintingLabel = false
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    if (isPrintingLabel) {
+                                        CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                                    } else {
+                                        Icon(Icons.Rounded.Sell, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Cetak Label Harga")
                                     }
                                 }
                             }

@@ -386,7 +386,9 @@ fun InventoryScreen(
     }
 }
 
-private suspend fun exportAndSharePricetags(
+// Bukan `private` — dipakai ulang dari ProductDetailScreen.kt (cetak label satu barang saja,
+// tanpa lewat sheet berbasis filter) di package yang sama.
+suspend fun exportAndSharePricetags(
     context: Context,
     products: List<ProductAggregate>,
     markup: Boolean,
