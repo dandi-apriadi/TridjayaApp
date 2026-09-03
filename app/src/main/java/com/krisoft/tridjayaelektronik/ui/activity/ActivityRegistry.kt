@@ -89,9 +89,9 @@ enum class ActivitySource {
      * **Angkanya dihitung KLIEN, bukan server**, karena modul `goda.rs` belum
      * punya endpoint ringkasan. Konsekuensinya jujur: satu respons berisi
      * seluruh baris stok GODA cabang itu berikut serial-nya. Itu sebabnya
-     * kartunya ber-gate `goda.serial.edit` (segelintir orang), dan
-     * `kodeDealer` WAJIB — tanpa parameter itu server menjawab 13 cabang
-     * sekaligus.
+     * kartunya ber-gate `goda.serial.add` (segelintir orang — dipisah dari
+     * `goda.serial.edit` 2026-09-03), dan `kodeDealer` WAJIB — tanpa parameter
+     * itu server menjawab 13 cabang sekaligus.
      *
      * Cabang diambil dari profil (`DealerAlias.resolveFromBranchName`). Akun
      * PUSAT yang tak punya cabang tidak menghasilkan panggilan sama sekali:
@@ -700,8 +700,9 @@ internal val ACTIVITY_ITEMS: List<ActivityItem> = listOf(
      * menyatakan itu — dan tanpa angkanya, "daftarkan SN" cuma menu yang harus
      * diingat sendiri oleh orangnya.
      *
-     * Kunci `goda.serial.edit` — PENULIS, bukan pembaca `goda.view`. Layar
-     * tujuannya cuma bisa menambah SN, jadi menunjukkan kartunya ke
+     * Kunci `goda.serial.add` — PENAMBAH, bukan pembaca `goda.view` maupun
+     * penulis-ganti `goda.serial.edit` (dipisah 2026-09-03). Layar tujuannya
+     * cuma bisa menambah SN, jadi menunjukkan kartunya ke
      * manager/owner/kepala-cabang (yang diloloskan gateway) berarti antrian
      * yang tak bisa mereka kerjakan.
      *
@@ -715,9 +716,9 @@ internal val ACTIVITY_ITEMS: List<ActivityItem> = listOf(
         label = "SN Goda",
         subtitle = "Unit GODA belum punya serial number",
         kind = ActivityKind.ANTRIAN,
-        capability = "goda.serial.edit",
+        capability = "goda.serial.add",
         allowedRoles = GODA_SERIAL_MENU_ROLES,
-        backendGuard = "kinerja-service goda.rs tambah_sn + rust-shared capabilities.rs GODA_SERIAL_EDIT_ROLES",
+        backendGuard = "kinerja-service goda.rs tambah_sn + rust-shared capabilities.rs GODA_SERIAL_ADD_ROLES",
         source = ActivitySource.GODA_SN_BELUM_LENGKAP,
         navKey = "goda_serial",
     ),

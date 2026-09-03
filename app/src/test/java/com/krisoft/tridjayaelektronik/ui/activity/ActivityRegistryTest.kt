@@ -243,14 +243,17 @@ class ActivityRegistryTest {
     // ── SN Goda ──────────────────────────────────────────────────────────────
 
     /**
-     * Kartu "SN Goda" mengikuti PENULIS registry (`goda.serial.edit`), bukan
-     * pembacanya (`goda.view`).
+     * Kartu "SN Goda" mengikuti PENAMBAH registry (`goda.serial.add`, dipisah
+     * dari `goda.serial.edit` 2026-09-03), bukan pembacanya (`goda.view`).
      *
      * Bedanya bukan kerapian: gateway `require_goda_access` meloloskan seluruh
      * pembaca (manager/owner/kepala-cabang) ke rute `/api/goda/...`, dan yang
      * menolak penulisan adalah service. Kartu yang meniru gerbang gateway
      * karena itu akan memberi mereka ANTRIAN yang tak bisa mereka kerjakan —
-     * pekerjaan orang lain yang menumpuk di layar sendiri.
+     * pekerjaan orang lain yang menumpuk di layar sendiri. **`kepala-cabang`
+     * PINDAH KUBU 2026-09-03**: bersama `admin-penjualan`/`kasir` ia kini juga
+     * penambah — tiga role itu diperiksa terpisah di bawah, bukan lagi masuk
+     * daftar pembaca murni.
      */
     @Test
     fun `kartu SN Goda hanya untuk penulis registry`() {
@@ -263,10 +266,19 @@ class ActivityRegistryTest {
         val stafGudang = visibleActivityItems(setOf("karyawan", "staf-gudang"), null).map { it.id }
         assertTrue("goda_serial" in stafGudang)
 
-        for (pembaca in listOf("manager", "owner", "kepala-cabang")) {
+        for (pembacaMurni in listOf("manager", "owner")) {
             assertFalse(
-                "`$pembaca` cuma boleh MEMBACA List Goda — kartu antrian ini menulis",
-                "goda_serial" in visibleActivityItems(setOf(pembaca), null).map { it.id },
+                "`$pembacaMurni` cuma boleh MEMBACA List Goda — kartu antrian ini menulis",
+                "goda_serial" in visibleActivityItems(setOf(pembacaMurni), null).map { it.id },
+            )
+        }
+
+        // 2026-09-03 (permintaan user): ketiga role ini kini boleh MENAMBAH,
+        // jadi kartunya tampil — walau tetap tak boleh MENGGANTI.
+        for (penambahBaru in listOf("kepala-cabang", "admin-penjualan", "kasir")) {
+            assertTrue(
+                "`$penambahBaru` harus punya kartu SN Goda sejak 2026-09-03",
+                "goda_serial" in visibleActivityItems(setOf(penambahBaru), null).map { it.id },
             )
         }
 
@@ -274,13 +286,13 @@ class ActivityRegistryTest {
         assertFalse(
             "goda_serial" in visibleActivityItems(
                 setOf("admin-stok"),
-                mapOf("goda.serial.edit" to false),
+                mapOf("goda.serial.add" to false),
             ).map { it.id },
         )
         assertTrue(
             "goda_serial" in visibleActivityItems(
                 setOf("karyawan"),
-                mapOf("goda.serial.edit" to true),
+                mapOf("goda.serial.add" to true),
             ).map { it.id },
         )
     }

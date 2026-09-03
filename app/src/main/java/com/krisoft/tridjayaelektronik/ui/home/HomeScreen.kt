@@ -474,18 +474,35 @@ internal val HARGA_GS_MENU_ROLES = setOf("admin", "manager", "owner", "kepala-ca
 internal val SERIAL_INPUT_MENU_ROLES = setOf("admin-stok")
 
 /**
- * Cerminan `GODA_SERIAL_EDIT_ROLES` (rust-shared `capabilities.rs`) — PENULIS
- * registry SN GODA, bukan pembacanya.
+ * Cerminan `GODA_SERIAL_ADD_ROLES` (rust-shared `capabilities.rs`, dipisah dari
+ * `GODA_SERIAL_EDIT_ROLES` 2026-09-03) — PENAMBAH registry SN GODA, bukan
+ * pembacanya maupun penulis-ganti.
  *
- * Sengaja BUKAN `GODA_VIEW_ROLES` yang lebih luas (manager/owner/kepala-cabang
- * ikut di sana). Menu mobile ini satu-satunya isinya adalah MENAMBAH SN, jadi
+ * Sengaja BUKAN `GODA_VIEW_ROLES` yang lebih luas (manager/owner ikut di
+ * sana, tapi TIDAK boleh menambah/mengganti). Menu mobile ini satu-satunya
+ * isinya adalah MENAMBAH SN (`POST`, bukan `PUT` — lihat `ui/goda/`), jadi
  * daftar pembaca akan membuka layar yang tombol simpannya dijawab 403 — persis
  * "menu mati" yang CLAUDE.md repo ini ingin cegah. Gateway sendiri tetap
  * meloloskan pembaca (`require_goda_access` = `GODA_VIEW_ROLES`); penyempitan
  * untuk penulisan terjadi di service, dan cadangan offline ini mencerminkan
  * lapis yang menolak, bukan lapis yang meloloskan.
+ *
+ * `kepala-cabang`/`admin-penjualan`/`kasir` ikut sejak 2026-09-03 (permintaan
+ * user membuka akses TAMBAH SN, web DAN mobile — dua sisi menu yang sama):
+ * ketiganya boleh menambah SN yang belum terdaftar dari HP saat unit diterima
+ * cabang, TAPI TIDAK ikut `GODA_SERIAL_EDIT_ROLES` (mengganti SN yang sudah
+ * ada tetap admin-stok/admin/superadmin/staf-gudang saja — registry tanpa
+ * tabel riwayat, keputusan eksplisit user saat ditanya).
  */
-internal val GODA_SERIAL_MENU_ROLES = setOf("admin-stok", "admin", "superadmin", "staf-gudang")
+internal val GODA_SERIAL_MENU_ROLES = setOf(
+    "admin-stok",
+    "admin",
+    "superadmin",
+    "staf-gudang",
+    "kepala-cabang",
+    "admin-penjualan",
+    "kasir",
+)
 
 /** `is_cabang_role` di `deadstock/mod.rs` (dealer dipaksa backend, anti-IDOR) — manager
  *  punya mode terpisah (monitoring+audit, web-only) jadi tidak termasuk di sini. */

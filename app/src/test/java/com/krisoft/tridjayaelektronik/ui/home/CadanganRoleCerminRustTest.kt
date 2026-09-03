@@ -191,17 +191,19 @@ class CadanganRoleCerminRustTest {
     }
 
     /**
-     * Ubin **SN Goda** mencerminkan PENULIS registry (`GODA_SERIAL_EDIT_ROLES`),
-     * bukan pembacanya (`GODA_VIEW_ROLES`) — layarnya cuma bisa menambah SN.
-     * Kalau kelak server melebarkan penulisnya, cadangan offline di sini harus
-     * ikut; kalau ia menyempit, ubin yang tertinggal berarti tombol simpan yang
-     * dijawab 403 di depan orang yang sedang memegang unitnya.
+     * Ubin **SN Goda** mencerminkan PENAMBAH registry (`GODA_SERIAL_ADD_ROLES`,
+     * dipisah dari `GODA_SERIAL_EDIT_ROLES` 2026-09-03), bukan pembacanya
+     * (`GODA_VIEW_ROLES`) maupun penulis-ganti — layarnya cuma bisa menambah SN
+     * (`POST`, tak pernah `PUT`). Kalau kelak server melebarkan penambahnya,
+     * cadangan offline di sini harus ikut; kalau ia menyempit, ubin yang
+     * tertinggal berarti tombol simpan yang dijawab 403 di depan orang yang
+     * sedang memegang unitnya.
      */
     @Test
-    fun `GODA_SERIAL_MENU_ROLES mencerminkan GODA_SERIAL_EDIT_ROLES`() = jalankan { sumber ->
+    fun `GODA_SERIAL_MENU_ROLES mencerminkan GODA_SERIAL_ADD_ROLES`() = jalankan { sumber ->
         bandingkan(
             label = "GODA_SERIAL_MENU_ROLES",
-            rust = slugRust(sumber, "GODA_SERIAL_EDIT_ROLES"),
+            rust = slugRust(sumber, "GODA_SERIAL_ADD_ROLES"),
             kotlin = GODA_SERIAL_MENU_ROLES,
         )
     }
