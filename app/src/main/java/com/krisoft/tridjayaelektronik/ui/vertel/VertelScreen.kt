@@ -367,6 +367,7 @@ private fun FormCatat(
     var hasil by rememberSaveable(awal?.hasil) { mutableStateOf(awal?.hasil ?: VertelHasil.TERHUBUNG) }
     var komplain by rememberSaveable(awal?.adaKomplain) { mutableStateOf(awal?.adaKomplain ?: false) }
     var catatan by rememberSaveable(awal?.catatan) { mutableStateOf(awal?.catatan.orEmpty()) }
+    val gate = VertelPlan.catatGate(kanal, hasil, komplain, catatan)
 
     Column {
         Text("Kanal", style = MaterialTheme.typography.labelMedium)
@@ -409,11 +410,17 @@ private fun FormCatat(
         Spacer(Modifier.height(8.dp))
         TextButton(
             onClick = { onSimpan(kanal, hasil, komplain, catatan) },
-            enabled = !submitting && VertelPlan.bolehSimpan(kanal, hasil),
+            enabled = !submitting && gate.bolehSimpan,
         ) {
             Text(if (awal == null) "Simpan hasil" else "Perbarui hasil")
         }
-        if (komplain) {
+        if (gate.alasan != null) {
+            Text(
+                gate.alasan,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        } else if (komplain) {
             Text(
                 "Komplain yang perlu ditindaklanjuti tetap dibuat lewat menu Komplain — " +
                     "centang ini hanya menandai hasil panggilan.",

@@ -26,6 +26,9 @@ class VertelPlanTest {
         ringkasan = RingkasanVertelDto(total = total, sudahDitelepon = sudah, tanpaNomor = tanpaNomor),
     )
 
+    private fun gate(kanal: String, hasil: String, adaKomplain: Boolean = false, catatan: String = "") =
+        VertelPlan.catatGate(kanal, hasil, adaKomplain, catatan)
+
     @Test
     fun `belum ditelepon adalah keadaan awal, bukan kegagalan`() {
         assertFalse(VertelPlan.sudahDitelepon(baris()))
@@ -55,19 +58,33 @@ class VertelPlanTest {
 
     @Test
     fun `kanal dan hasil divalidasi terhadap daftar tertutup server`() {
-        assertTrue(VertelPlan.bolehSimpan(VertelKanal.TELEPON, VertelHasil.TIDAK_DIANGKAT))
-        assertTrue(VertelPlan.bolehSimpan(VertelKanal.WA, VertelHasil.JADWAL_ULANG))
-        assertFalse(VertelPlan.bolehSimpan("sms", VertelHasil.TERHUBUNG))
-        assertFalse(VertelPlan.bolehSimpan(VertelKanal.TELEPON, "diangkat"))
+        assertTrue(gate(VertelKanal.TELEPON, VertelHasil.TIDAK_DIANGKAT).bolehSimpan)
+        assertTrue(gate(VertelKanal.WA, VertelHasil.JADWAL_ULANG).bolehSimpan)
+        assertFalse(gate("sms", VertelHasil.TERHUBUNG).bolehSimpan)
+        assertFalse(gate(VertelKanal.TELEPON, "diangkat").bolehSimpan)
     }
 
     @Test
-    fun `catatan tidak diwajibkan bahkan saat ada komplain`() {
-        // Sengaja tidak diperketat di klien: komplain yang tercatat tanpa
-        // keterangan tetap jauh lebih berguna daripada komplain yang TAK JADI
-        // dicatat karena verifikator sedang di telepon dan formnya menolak
-        // disimpan. Server pun tak mewajibkannya.
-        assertTrue(VertelPlan.bolehSimpan(VertelKanal.TELEPON, VertelHasil.TERHUBUNG))
+    fun `komplain hanya boleh pada panggilan yang terhubung`() {
+        // Cerminan `validasi_catat` server: menandai komplain pada panggilan
+        // yang tak pernah tersambung adalah kontradiksi — tak ada yang bicara,
+        // jadi tak ada yang komplain.
+        val g = gate(VertelKanal.TELEPON, VertelHasil.TIDAK_DIANGKAT, adaKomplain = true, catatan = "ada keluhan")
+        assertFalse(g.bolehSimpan)
+        assertTrue(gate(VertelKanal.TELEPON, VertelHasil.TERHUBUNG, adaKomplain = true, catatan = "ada keluhan").bolehSimpan)
+    }
+
+    @Test
+    fun `komplain wajib bercatatan`() {
+        // Tanpa keterangan tak bisa ditindaklanjuti siapa pun, padahal
+        // menindaklanjutinya bagian dari jobdesk verifikator.
+        val g = gate(VertelKanal.TELEPON, VertelHasil.TERHUBUNG, adaKomplain = true, catatan = "   ")
+        assertFalse(g.bolehSimpan)
+    }
+
+    @Test
+    fun `panggilan biasa tanpa komplain boleh disimpan tanpa catatan`() {
+        assertTrue(gate(VertelKanal.TELEPON, VertelHasil.TERHUBUNG, adaKomplain = false, catatan = "").bolehSimpan)
     }
 
     @Test

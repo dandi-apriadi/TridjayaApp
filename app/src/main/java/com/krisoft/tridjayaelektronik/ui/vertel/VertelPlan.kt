@@ -41,16 +41,45 @@ object VertelPlan {
 
     fun hasilSah(hasil: String): Boolean = hasil in VertelHasil.SEMUA
 
+    /** Apa yang menahan tombol Simpan + kalimat yang menjelaskannya. */
+    data class CatatGate(
+        val bolehSimpan: Boolean,
+        /** `null` saat boleh simpan. */
+        val alasan: String?,
+    )
+
     /**
-     * Boleh menekan "Simpan"? Catatan bebas TIDAK diwajibkan server untuk hasil
-     * mana pun — termasuk `ada_komplain`.
+     * Gerbang simpan — cerminan `validasi_catat` di server, urut sama supaya
+     * kalimat di app dan kalimat 400 dari server tak pernah berselisih.
      *
-     * Sengaja tidak diperketat di klien: komplain yang tercatat tanpa keterangan
-     * tetap jauh lebih berguna daripada komplain yang tak jadi dicatat karena
-     * verifikator sedang di telepon dan formnya menolak disimpan.
+     * Dua aturan yang paling mudah dikira berlebihan, dan keduanya milik server:
+     * - **Komplain hanya boleh pada panggilan `terhubung`.** Menandai komplain
+     *   pada panggilan yang tak pernah tersambung adalah kontradiksi — tak ada
+     *   yang bicara, jadi tak ada yang komplain.
+     * - **Komplain WAJIB bercatatan.** Tanpa keterangan tak bisa ditindaklanjuti
+     *   siapa pun, padahal menindaklanjutinya bagian dari jobdesk verifikator.
+     *
+     * Menegakkannya di klien bukan duplikasi sia-sia: tanpa ini verifikator
+     * menekan Simpan, menunggu round-trip, lalu menerima 400 — untuk isian yang
+     * sudah bisa dinilai salah sebelum dikirim.
      */
-    fun bolehSimpan(kanal: String, hasil: String): Boolean =
-        kanalSah(kanal) && hasilSah(hasil)
+    fun catatGate(
+        kanal: String,
+        hasil: String,
+        adaKomplain: Boolean,
+        catatan: String,
+    ): CatatGate {
+        val tolak = { alasan: String -> CatatGate(bolehSimpan = false, alasan = alasan) }
+        if (!kanalSah(kanal)) return tolak("Pilih kanal dulu: telepon atau WhatsApp.")
+        if (!hasilSah(hasil)) return tolak("Pilih hasil panggilannya.")
+        if (adaKomplain && hasil != VertelHasil.TERHUBUNG) {
+            return tolak("Komplain hanya bisa dicatat pada panggilan yang terhubung.")
+        }
+        if (adaKomplain && catatan.isBlank()) {
+            return tolak("Isi catatan komplainnya supaya bisa ditindaklanjuti.")
+        }
+        return CatatGate(bolehSimpan = true, alasan = null)
+    }
 
     /**
      * Persentase pekerjaan hari itu, 0..100.

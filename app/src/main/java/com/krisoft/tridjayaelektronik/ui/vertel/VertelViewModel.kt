@@ -111,8 +111,9 @@ class VertelViewModel @Inject constructor(
         catatan: String,
         onSukses: () -> Unit,
     ) {
-        if (!VertelPlan.bolehSimpan(kanal, hasil)) {
-            _state.update { it.copy(actionError = "Kanal dan hasil panggilan wajib dipilih") }
+        val gate = VertelPlan.catatGate(kanal, hasil, adaKomplain, catatan)
+        if (!gate.bolehSimpan) {
+            _state.update { it.copy(actionError = gate.alasan) }
             return
         }
         _state.update { it.copy(submitting = true, actionError = null) }
