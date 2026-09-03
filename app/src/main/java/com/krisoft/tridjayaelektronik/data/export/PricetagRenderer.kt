@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Typeface
 import com.krisoft.tridjayaelektronik.data.pricing.hitungHargaPricetag
 
 /**
@@ -14,6 +15,11 @@ import com.krisoft.tridjayaelektronik.data.pricing.hitungHargaPricetag
  * angka harga besar (menyambung tepat setelah "Rp." yang sudah ada di
  * gambar) dan harga coret (kalau ada), di posisi piksel yang diukur
  * langsung dari aset referensi — lihat konstanta `*_F` di bawah.
+ *
+ * [priceTypeface] WAJIB font Anton (`assets/fonts/anton_regular.ttf`,
+ * OFL — cocok dengan "Rp." tercetak di gambar, dibandingkan piksel-demi-
+ * piksel saat implementasi). Font sistem (bold sintetis) terlihat "aneh"
+ * bersebelahan dengan "Rp." bergaya Anton yang jauh lebih tebal & padat.
  *
  * SENGAJA TIDAK generik per produk (keputusan user 2026-09-04): merek/nama/
  * kode barang di gambar (mis. "AQUA", "MESIN CUCI 2 TABUNG 7 KG") ikut
@@ -47,14 +53,13 @@ internal object PricetagRenderer {
         return bulat.toString().reversed().chunked(3).joinToString(".").reversed()
     }
 
-    fun draw(canvas: Canvas, baseBitmap: Bitmap, hargaAsli: Double, markup: Boolean) {
+    fun draw(canvas: Canvas, baseBitmap: Bitmap, hargaAsli: Double, markup: Boolean, priceTypeface: Typeface) {
         canvas.drawBitmap(baseBitmap, 0f, 0f, null)
 
         val harga = hitungHargaPricetag(hargaAsli, markup)
         val w = baseBitmap.width.toFloat()
         val h = baseBitmap.height.toFloat()
 
-        val boxTop = BOX_TOP_F * h
         val boxHeight = BOX_HEIGHT_F * h
         val baselineY = BASELINE_F * h
         val rpRight = RP_RIGHT_F * w
@@ -63,7 +68,7 @@ internal object PricetagRenderer {
         if (harga.hargaCoret != null) {
             val coretText = rupiah(harga.hargaCoret)
             val coretPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = RED; isFakeBoldText = true; textSize = boxHeight * 0.16f; textAlign = Paint.Align.RIGHT
+                color = RED; typeface = priceTypeface; textSize = boxHeight * 0.16f; textAlign = Paint.Align.RIGHT
             }
             val coretY = CORET_BASELINE_F * h
             canvas.drawText(coretText, priceRightInset, coretY, coretPaint)
@@ -77,7 +82,7 @@ internal object PricetagRenderer {
 
         val angkaText = rupiahAngka(harga.hargaBesar)
         val angkaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = RED; isFakeBoldText = true; textAlign = Paint.Align.LEFT
+            color = RED; typeface = priceTypeface; textAlign = Paint.Align.LEFT
         }
         val angkaX = rpRight + w * 0.02f
         var angkaSize = boxHeight * 0.58f
