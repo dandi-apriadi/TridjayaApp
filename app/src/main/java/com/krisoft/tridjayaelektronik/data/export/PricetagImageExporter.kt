@@ -2,8 +2,8 @@ package com.krisoft.tridjayaelektronik.data.export
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
-import android.graphics.RectF
 import android.net.Uri
 import androidx.core.content.FileProvider
 import com.krisoft.tridjayaelektronik.data.local.ProductAggregate
@@ -22,12 +22,15 @@ import java.util.zip.ZipOutputStream
  * gambar labelnya). Satu barang → satu PNG dibagikan langsung; banyak barang
  * → dikemas satu ZIP supaya share-sheet Android tak diminta membuka ratusan
  * intent sekaligus.
+ *
+ * Latar labelnya SATU aset statis (`assets/pricetag/base_template.png`) yang
+ * dipakai ULANG untuk setiap barang — hanya harga & harga coret yang
+ * digambar dinamis di atasnya (lihat catatan di [PricetagRenderer] soal
+ * kenapa merek/nama/kode barang TIDAK ikut dinamis).
  */
 object PricetagImageExporter {
 
-    // Proporsi ~1.4545 mendekati template referensi (1600×1100).
-    private const val IMG_W = 1600
-    private const val IMG_H = 1100
+    private const val ASSET_PATH = "pricetag/base_template.png"
 
     suspend fun export(
         context: Context,
@@ -40,10 +43,13 @@ object PricetagImageExporter {
         val suffix = if (markup) "" else "_hargaAsli"
         val dir = File(context.cacheDir, "exports").apply { mkdirs() }
 
+        val baseBitmap = context.assets.open(ASSET_PATH).use { BitmapFactory.decodeStream(it) }
+            ?: error("Gagal memuat template label harga")
+
         val tmpDir = File(dir, "pricetags_tmp_$timestamp").apply { mkdirs() }
         val resultFile = try {
             products.forEachIndexed { index, product ->
-                val bitmap = renderBitmap(product, markup)
+                val bitmap = renderBitmap(baseBitmap, product.harga, markup)
                 val file = File(tmpDir, "${index}_${sanitize(product.kode)}_${sanitize(product.kodeCabang)}.png")
                 FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
                 bitmap.recycle()
@@ -67,6 +73,7 @@ object PricetagImageExporter {
             }
         } finally {
             tmpDir.deleteRecursively()
+            baseBitmap.recycle()
         }
 
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", resultFile)
@@ -78,11 +85,10 @@ object PricetagImageExporter {
     private fun sanitize(value: String): String =
         value.replace(Regex("[^A-Za-z0-9-]+"), "-").trim('-').ifBlank { "x" }
 
-    private fun renderBitmap(product: ProductAggregate, markup: Boolean): Bitmap {
-        val bitmap = Bitmap.createBitmap(IMG_W, IMG_H, Bitmap.Config.ARGB_8888)
+    private fun renderBitmap(baseBitmap: Bitmap, hargaAsli: Double, markup: Boolean): Bitmap {
+        val bitmap = Bitmap.createBitmap(baseBitmap.width, baseBitmap.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        canvas.drawColor(android.graphics.Color.WHITE)
-        PricetagRenderer.draw(canvas, RectF(0f, 0f, IMG_W.toFloat(), IMG_H.toFloat()), product, markup)
+        PricetagRenderer.draw(canvas, baseBitmap, hargaAsli, markup)
         return bitmap
     }
 }
