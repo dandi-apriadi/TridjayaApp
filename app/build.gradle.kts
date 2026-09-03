@@ -329,39 +329,57 @@ if (berkasGoogleServices.exists() && !firebaseSengajaDilewati) {
 // jalan, notifikasi diam — itulah kenapa penjaganya harus di sini, bukan di
 // runbook yang bergantung pada ingatan orang setelah instal ulang berikutnya.
 //
-// Debug dan `-PlocalApi` SENGAJA tidak ikut diwajibkan: mesin pengembangan
-// harus tetap bisa membangun tanpa Firebase, dan varian localApi memang tak
-// boleh menerima push yang ditujukan ke app produksi.
+// Debug SENGAJA tidak ikut diwajibkan: mesin pengembangan harus tetap bisa
+// membangun tanpa Firebase.
+//
+// **`-PlocalApi` TIDAK mengecualikan gerbang ini** (koreksi review PR — draf
+// pertama menyamakannya dengan pengecualian debug di atas, dan itu salah).
+// `-PlocalApi` hanya mengubah `applicationIdSuffix` di build type `debug`
+// (lihat blok `debug {}` di bawah); ia TIDAK PUNYA efek apa pun pada build
+// type `release`. Jadi `./gradlew assembleRelease -PlocalApi` sebelumnya
+// menghasilkan APK PRODUKSI asli (applicationId `com.krisoft.tridjayaelektronik`,
+// release-signed) tanpa Firebase — mereproduksi PERSIS insiden yang gerbang
+// ini dibuat untuk mencegah, lewat kombinasi flag yang tak ada yang menahannya.
 //
 // Daftar tugasnya EKSAK, bukan pola "berakhiran Release": `:app:generateBaselineProfile`
 // membangun varian `nonMinifiedRelease` yang tak pernah dibagikan ke siapa pun,
-// dan pola longgar akan ikut menghentikannya. Diperiksa saat KONFIGURASI (bukan
-// di dalam `doFirst`) supaya gagalnya dalam hitungan detik, bukan setelah R8
+// dan pola longgar akan ikut menghentikannya.
+//
+// **Diperiksa lewat `gradle.taskGraph.whenReady`, BUKAN daftar nama task CLI
+// literal (`startParameter.taskNames`)** — koreksi review PR kedua. Bentuk itu
+// cuma berisi nama task yang DIKETIK di CLI secara literal — `./gradlew build`
+// atau `./gradlew assemble` menjalankan
+// `assembleRelease` secara TRANSITIF (task itu mendepend padanya) tanpa string
+// "assembleRelease" pernah muncul di `taskNames`, jadi gerbang lama tak pernah
+// menyala untuk keduanya. Task graph yang SUDAH DIRESOLVE (`allTasks`) memuat
+// task transitif ini. `whenReady` tetap menyala SEBELUM eksekusi task mana pun
+// (bukan `doFirst`), jadi gagalnya tetap dalam hitungan detik, bukan setelah R8
 // selesai ~44 menit.
 val tugasWajibFirebase = setOf("assembleRelease", "bundleRelease", "installRelease")
-val mintaBuildRilis = gradle.startParameter.taskNames.any {
-    it.substringAfterLast(':') in tugasWajibFirebase
-}
-if (mintaBuildRilis && !firebaseSengajaDilewati && !berkasGoogleServices.exists()) {
-    throw GradleException(
-        "google-services.json TIDAK ADA — build RILIS dihentikan.\n" +
-            "\n" +
-            "Taruh berkasnya PERSIS di: ${berkasGoogleServices.path}\n" +
-            "\n" +
-            "Ambilnya: Firebase console → proyek `tridjayaelektronik-35068` → Project settings → " +
-            "Your apps → Android app `com.krisoft.tridjayaelektronik` → Download " +
-            "google-services.json. Hanya PEMILIK akun Firebase yang bisa mengunduhnya, jadi ini " +
-            "tak bisa diselesaikan sendiri oleh sesi mana pun tanpa dia.\n" +
-            "\n" +
-            "Berkas ini ter-gitignore (mobile/.gitignore `app/google-services.json`), jadi ia TIDAK " +
-            "ikut clone/checkout dan TIDAK ikut dipulihkan bersama keystore setelah instal ulang. " +
-            "Tanpa dia APK terbit tanpa konfigurasi Firebase dan pendaftaran token FCM mati total " +
-            "di semua HP: terukur 2026-09-01 → 41,8% pengguna APK aktif tanpa device token, nol " +
-            "pendaftaran baru selama 26 hari, ~52 versi rusak berturut-turut sejak vc72 (9 Agt 2026).\n" +
-            "\n" +
-            "Build DEBUG dan `-PlocalApi` tidak menuntut berkas ini — pakai itu untuk " +
-            "pengembangan lokal.",
-    )
+gradle.taskGraph.whenReady {
+    val mintaBuildRilis = allTasks.any { it.name in tugasWajibFirebase }
+    if (mintaBuildRilis && !berkasGoogleServices.exists()) {
+        throw GradleException(
+            "google-services.json TIDAK ADA — build RILIS dihentikan.\n" +
+                "\n" +
+                "Taruh berkasnya PERSIS di: ${berkasGoogleServices.path}\n" +
+                "\n" +
+                "Ambilnya: Firebase console → proyek `tridjayaelektronik-35068` → Project settings → " +
+                "Your apps → Android app `com.krisoft.tridjayaelektronik` → Download " +
+                "google-services.json. Hanya PEMILIK akun Firebase yang bisa mengunduhnya, jadi ini " +
+                "tak bisa diselesaikan sendiri oleh sesi mana pun tanpa dia.\n" +
+                "\n" +
+                "Berkas ini ter-gitignore (mobile/.gitignore `app/google-services.json`), jadi ia TIDAK " +
+                "ikut clone/checkout dan TIDAK ikut dipulihkan bersama keystore setelah instal ulang. " +
+                "Tanpa dia APK terbit tanpa konfigurasi Firebase dan pendaftaran token FCM mati total " +
+                "di semua HP: terukur 2026-09-01 → 41,8% pengguna APK aktif tanpa device token, nol " +
+                "pendaftaran baru selama 26 hari, ~52 versi rusak berturut-turut sejak vc72 (9 Agt 2026).\n" +
+                "\n" +
+                "Build variant DEBUG (dengan atau tanpa `-PlocalApi`) tidak menuntut berkas ini — " +
+                "pakai itu untuk pengembangan lokal. Build RILIS TIDAK PUNYA jalan keluar lewat " +
+                "flag apa pun, termasuk `-PlocalApi`.",
+        )
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
