@@ -21,6 +21,7 @@ import com.krisoft.tridjayaelektronik.ui.acinstall.AcInstallScreen
 import com.krisoft.tridjayaelektronik.ui.vertel.VertelScreen
 import com.krisoft.tridjayaelektronik.ui.attendance.AttendanceScreen
 import com.krisoft.tridjayaelektronik.ui.deadstock.DeadstockScreen
+import com.krisoft.tridjayaelektronik.ui.goda.GodaSerialScreen
 import com.krisoft.tridjayaelektronik.ui.event.EventLeadScreen
 import com.krisoft.tridjayaelektronik.ui.indent.IndentListScreen
 import com.krisoft.tridjayaelektronik.ui.kupongebyar.KuponGebyarScreen
@@ -56,6 +57,7 @@ import com.krisoft.tridjayaelektronik.ui.serials.SerialInputScreen
 // Berikut masih tinggal di package ui.home (hanya HomeNavHost yang pindah ke
 // ui.activity) — perlu diimpor eksplisit karena tak lagi satu paket.
 import com.krisoft.tridjayaelektronik.ui.home.HomeScreen
+import com.krisoft.tridjayaelektronik.ui.lapangan.KlasemenLapanganScreen
 import com.krisoft.tridjayaelektronik.ui.home.HomeViewModel
 import com.krisoft.tridjayaelektronik.ui.home.RankingKind
 import com.krisoft.tridjayaelektronik.ui.home.RankingListScreen
@@ -96,6 +98,7 @@ private const val ROUTE_HS_TRIASE = "home_hs_triase"
 private const val ROUTE_HS_TEKNISI = "home_hs_teknisi"
 private const val ROUTE_HS_TARIK = "home_hs_tarik"
 private const val ROUTE_HS_DRIVER = "home_hs_driver"
+private const val ROUTE_HS_SAYA = "home_hs_saya"
 private const val ROUTE_HS_DETAIL = "home_hs_detail/{id}"
 
 /** Tugas pemasangan AC (sisi petugas). Prefiks `home_` mengikuti seluruh route
@@ -106,12 +109,15 @@ private const val ROUTE_PEMASANGAN_AC = "home_pemasangan_ac"
 // meja yang dibuka saat dibutuhkan, bukan antrian harian yang menunggu jawaban.
 private const val ROUTE_PEMASANGAN_AC_KONTROL = "home_pemasangan_ac_kontrol"
 private const val ROUTE_VERTEL = "home_vertel"
+private const val ROUTE_KLASEMEN_LAPANGAN = "home_klasemen_lapangan"
 
 private fun hsDetailRoute(id: String) = "home_hs_detail/${Uri.encode(id)}"
 private const val ROUTE_GAJI = "home_gaji"
 private const val ROUTE_KPI = "home_kpi"
 private const val ROUTE_HARGA_GS = "home_harga_gs"
 private const val ROUTE_SERIAL_INPUT = "home_serial_input"
+/** SN Goda — daftarkan serial number unit sepeda listrik GODA (scan barcode). */
+private const val ROUTE_GODA_SERIAL = "home_goda_serial"
 private const val ROUTE_DEADSTOCK = "home_deadstock"
 /** Konsumen Gebyar — daftar konsumen berhak kupon doorprize di cabang sendiri.
  *  Prefiks `home_` mengikuti seluruh route anak tabel ini. */
@@ -215,6 +221,7 @@ internal fun routeForNavKey(navKey: String): String? = when (navKey) {
     "hs_teknisi" -> ROUTE_HS_TEKNISI
     "hs_tarik" -> ROUTE_HS_TARIK
     "hs_driver" -> ROUTE_HS_DRIVER
+    "hs_saya" -> ROUTE_HS_SAYA
     "pemasangan_ac" -> ROUTE_PEMASANGAN_AC
     // Bukti chat harian: layar karyawan (kirim) vs antrian kepala cabang (periksa).
     "indent" -> ROUTE_INDENT
@@ -224,6 +231,7 @@ internal fun routeForNavKey(navKey: String): String? = when (navKey) {
     "opname" -> ROUTE_OPNAME
     // Antrian validasi unit opname ketik-manual (admin-stok).
     "opname_validasi" -> ROUTE_OPNAME_VALIDASI
+    "goda_serial" -> ROUTE_GODA_SERIAL
     "spk_input" -> ROUTE_DLV_CREATE
     "spk_history" -> ROUTE_DLV_HISTORY
     "spk_gantung" -> ROUTE_DLV_PENDING_PAYMENT
@@ -326,17 +334,22 @@ fun ActivityNavHost(
                 onQuickAccessLeads = { navController.navigate(ROUTE_LEADS_LIST) { launchSingleTop = true } },
                 onQuickAccessIndent = { navController.navigate(ROUTE_INDENT) { launchSingleTop = true } },
                 onQuickAccessSales = { navController.navigate(ROUTE_SALES) { launchSingleTop = true } },
+                onKlasemenLapangan = {
+                    navController.navigate(ROUTE_KLASEMEN_LAPANGAN) { launchSingleTop = true }
+                },
                 onQuickAccessOpname = { navController.navigate(ROUTE_OPNAME) { launchSingleTop = true } },
                 onQuickAccessAbsen = { navController.navigate(ROUTE_ABSEN) { launchSingleTop = true } },
                 onQuickAccessGaji = { navController.navigate(ROUTE_GAJI) { launchSingleTop = true } },
                 onQuickAccessKpi = { navController.navigate(ROUTE_KPI) { launchSingleTop = true } },
                 onQuickAccessHargaGs = { navController.navigate(ROUTE_HARGA_GS) { launchSingleTop = true } },
                 onQuickAccessSerialInput = { navController.navigate(ROUTE_SERIAL_INPUT) { launchSingleTop = true } },
+                onQuickAccessGodaSerial = { navController.navigate(ROUTE_GODA_SERIAL) { launchSingleTop = true } },
                 onQuickAccessDeadstock = { navController.navigate(ROUTE_DEADSTOCK) { launchSingleTop = true } },
                 onQuickAccessMutasiHistori = { navController.navigate(ROUTE_MUTASI_HISTORI) { launchSingleTop = true } },
                 // Home Service: dua ubin Akses Cepat (2026-08-15). Route-nya sudah
                 // lama ada di tabel ini — yang selama ini hilang cuma pintunya.
                 onKomplainLapor = { navController.navigate(ROUTE_HS_LAPOR) { launchSingleTop = true } },
+                onKomplainSaya = { navController.navigate(ROUTE_HS_SAYA) { launchSingleTop = true } },
                 onKomplainTugas = { navController.navigate(ROUTE_HS_TEKNISI) { launchSingleTop = true } },
                 onPemasanganAcKontrol = {
                     navController.navigate(ROUTE_PEMASANGAN_AC_KONTROL) { launchSingleTop = true }
@@ -438,6 +451,7 @@ fun ActivityNavHost(
             ROUTE_HS_TEKNISI to HsMode.TEKNISI,
             ROUTE_HS_TARIK to HsMode.TARIK,
             ROUTE_HS_DRIVER to HsMode.DRIVER,
+            ROUTE_HS_SAYA to HsMode.SAYA_LAPOR,
         ).forEach { (route, mode) ->
             composable(route) {
                 HomeServiceListScreen(
@@ -458,6 +472,9 @@ fun ActivityNavHost(
         composable(ROUTE_VERTEL) {
             VertelScreen(onBack = { navController.popBackStack() })
         }
+        composable(ROUTE_KLASEMEN_LAPANGAN) {
+            KlasemenLapanganScreen(onBack = { navController.popBackStack() })
+        }
         composable(
             route = ROUTE_HS_DETAIL,
             arguments = listOf(navArgument("id") { type = NavType.StringType })
@@ -475,6 +492,9 @@ fun ActivityNavHost(
         }
         composable(ROUTE_SERIAL_INPUT) {
             SerialInputScreen(onBack = { navController.popBackStack() })
+        }
+        composable(ROUTE_GODA_SERIAL) {
+            GodaSerialScreen(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_DEADSTOCK) {
             DeadstockScreen(onBack = { navController.popBackStack() })

@@ -67,6 +67,7 @@ fun OpnameValidasiScreen(
     val state by viewModel.uiState.collectAsState()
     var tolakUnit by remember { mutableStateOf<ManualUnitDto?>(null) }
     var alasan by remember { mutableStateOf("") }
+    var konfirmasiMassal by remember { mutableStateOf(false) }
 
     TridjayaCollapsibleHeader(title = "Validasi Opname", onBack = onBack) { contentModifier ->
         Box(modifier = contentModifier.fillMaxSize()) {
@@ -137,11 +138,44 @@ fun OpnameValidasiScreen(
                                     )
                                 }
                             }
+                            // Approve massal HANYA di antrian `pending`. Di tab
+                            // riwayat (`approved`/`rejected`) barisnya sudah
+                            // diputus, jadi tombolnya cuma akan menghasilkan
+                            // "gagal" untuk tiap unit.
+                            if (state.status == VALIDASI_PENDING && state.items.isNotEmpty()) {
+                                item(key = "setujui_semua") {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            // Angkanya menyebut apa yang BENAR-BENAR akan
+                                            // dikirim — tombol massal tanpa jumlah membuat
+                                            // orang menekannya tanpa tahu cakupannya.
+                                            text = "${state.items.size} unit menunggu keputusan",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        TextButton(
+                                            onClick = { konfirmasiMassal = true },
+                                            enabled = !state.massalBerjalan && state.submittingId == null
+                                        ) {
+                                            Text(
+                                                if (state.massalBerjalan) "Memproses…"
+                                                else "Setujui semua (${state.items.size})"
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             items(state.items, key = { it.id }) { unit ->
                                 ManualUnitCard(
                                     unit = unit,
                                     photos = state.photos,
-                                    submitting = state.submittingId != null,
+                                    submitting = state.submittingId != null || state.massalBerjalan,
                                     onBukaFoto = { viewModel.muatFoto(unit) },
                                     onSetujui = { viewModel.setujui(unit) },
                                     onTolak = {
@@ -165,6 +199,41 @@ fun OpnameValidasiScreen(
             title = { Text("Keputusan gagal", fontWeight = FontWeight.Bold) },
             text = { Text(pesan) },
             confirmButton = { TextButton(onClick = viewModel::clearActionError) { Text("Tutup") } }
+        )
+    }
+
+    // Konfirmasi WAJIB: menyetujui ratusan unit sekaligus tak bisa dibatalkan
+    // dari app (tak ada endpoint "batalkan approve"), jadi satu salah-tekan
+    // menutup seluruh antrian tanpa jalan pulang.
+    if (konfirmasiMassal) {
+        AlertDialog(
+            onDismissRequest = { konfirmasiMassal = false },
+            title = { Text("Setujui ${state.items.size} unit?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Semua unit yang tampil di antrian ini akan disetujui. " +
+                        "Menyetujui tidak mengubah hitungan opname — ia hanya membuka gerbang " +
+                        "penutupan sesi. Keputusan ini tidak bisa dibatalkan dari aplikasi."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    konfirmasiMassal = false
+                    viewModel.setujuiSemua()
+                }) { Text("Setujui semua") }
+            },
+            dismissButton = {
+                TextButton(onClick = { konfirmasiMassal = false }) { Text("Batal") }
+            }
+        )
+    }
+
+    state.hasilMassal?.let { pesan ->
+        AlertDialog(
+            onDismissRequest = viewModel::clearHasilMassal,
+            title = { Text("Hasil persetujuan", fontWeight = FontWeight.Bold) },
+            text = { Text(pesan) },
+            confirmButton = { TextButton(onClick = viewModel::clearHasilMassal) { Text("Tutup") } }
         )
     }
 

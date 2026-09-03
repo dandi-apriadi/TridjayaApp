@@ -121,6 +121,45 @@ class VertelPlanTest {
     }
 
     @Test
+    fun `daftarTampil membuang baris selesai bila tampilkanSelesai false`() {
+        val selesai = baris(
+            no = "SUDAH",
+            panggilan = VertelPanggilanDto(kanal = VertelKanal.TELEPON, hasil = VertelHasil.TERHUBUNG),
+        )
+        val belum = baris(no = "BELUM")
+
+        assertEquals(
+            listOf("BELUM"),
+            VertelPlan.daftarTampil(listOf(selesai, belum), tampilkanSelesai = false).map { it.noTransaksi },
+        )
+    }
+
+    @Test
+    fun `daftarTampil mengembalikan semua baris bila tampilkanSelesai true, untuk koreksi`() {
+        val selesai = baris(
+            no = "SUDAH",
+            panggilan = VertelPanggilanDto(kanal = VertelKanal.TELEPON, hasil = VertelHasil.TERHUBUNG),
+        )
+        val belum = baris(no = "BELUM")
+
+        assertEquals(
+            listOf("BELUM", "SUDAH"),
+            VertelPlan.daftarTampil(listOf(selesai, belum), tampilkanSelesai = true).map { it.noTransaksi },
+        )
+    }
+
+    @Test
+    fun `baris tanpa nomor tetap tampil walau tampilkanSelesai false - bukan 'selesai', tapi tak bisa dikerjakan`() {
+        val takAdaNomor = baris(no = "TANPA", hp = null, wa = null)
+        val belum = baris(no = "BELUM")
+
+        assertEquals(
+            listOf("BELUM", "TANPA"),
+            VertelPlan.daftarTampil(listOf(takAdaNomor, belum), tampilkanSelesai = false).map { it.noTransaksi },
+        )
+    }
+
+    @Test
     fun `urutan stabil untuk baris yang setara`() {
         // Urutan server dipertahankan di dalam kelompok yang sama — verifikator
         // yang menggulir tak boleh melihat daftarnya berlompatan tiap refresh.

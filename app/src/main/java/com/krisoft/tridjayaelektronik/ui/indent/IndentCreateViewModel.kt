@@ -2,11 +2,8 @@ package com.krisoft.tridjayaelektronik.ui.indent
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.net.Uri
 import android.webkit.MimeTypeMap
-import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.krisoft.tridjayaelektronik.data.AuthResult
@@ -16,6 +13,8 @@ import com.krisoft.tridjayaelektronik.data.model.CreateIndentRequest
 import com.krisoft.tridjayaelektronik.domain.indent.CreateIndentUseCase
 import com.krisoft.tridjayaelektronik.domain.indent.SearchProductsUseCase
 import com.krisoft.tridjayaelektronik.domain.indent.UploadIndentProofUseCase
+import com.krisoft.tridjayaelektronik.util.ImagePixelPipeline
+import com.krisoft.tridjayaelektronik.util.bacaInfoBerkas
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -25,14 +24,85 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
+import java.io.File
 import javax.inject.Inject
-import kotlin.math.max
 
 /** Server caps proof uploads at 5 MB — compress toward this so camera photos never bounce. */
-private const val MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+private const val MAX_UPLOAD_BYTES = 4L * 1024 * 1024
 private const val MAX_DIMENSION = 1920
+
+// WEBP (bukan WEBP_LOSSY, yang butuh API 30+) — deprecated tapi tetap lossy & fungsional;
+// lihat catatan sama di `PhotoWatermark.kt`.
+@Suppress("DEPRECATION")
+private val IMAGE_PARAMS = ImagePixelPipeline.Params(
+    maxDimension = MAX_DIMENSION,
+    format = Bitmap.CompressFormat.WEBP,
+    startQuality = 85,
+    minQuality = 40,
+    step = 15,
+    maxBytes = MAX_UPLOAD_BYTES,
+)
+
+/**
+ * Satu foto bukti yang SUDAH ada salinannya di `cacheDir/indent/`.
+ *
+ * [uri] disimpan hanya sebagai identitas (dedup pilihan ganda + kunci `LazyRow`),
+ * BUKAN untuk dibaca lagi — grant Photo Picker tak persistable, jadi satu-satunya
+ * sumber byte yang sah setelah tahap pilih adalah [file]. [nama] & [mimeType]
+ * dibaca sekali saat menyalin, sehingga jalur kirim tak menyentuh ContentResolver
+ * sama sekali.
+ *
+ * [uploadedUrl] terisi setelah unggahannya berhasil, supaya penekanan tombol
+ * "Ajukan Indent" berikutnya tidak mengunggah berkas yang sama dua kali.
+ */
+data class FotoBukti(
+    val uri: Uri,
+    val file: File,
+    val nama: String,
+    val mimeType: String,
+    val uploadedUrl: String? = null,
+)
+
+/** Hasil menyalin satu pilihan ke cache — sebab kegagalan ikut, tidak ditelan. */
+private sealed interface SalinFoto {
+    data class Berhasil(val foto: FotoBukti) : SalinFoto
+    data class Gagal(val label: String) : SalinFoto
+}
+
+/** `null` → `"tak diketahui"`, supaya label kegagalan tak pernah berakhir "()". */
+private fun Throwable?.namaKelas(): String = this?.javaClass?.simpleName ?: "tak diketahui"
+
+private fun FotoBukti.denganUrl(peta: Map<Uri, String>): FotoBukti =
+    peta[uri]?.let { copy(uploadedUrl = it) } ?: this
+
+/**
+ * Foto yang gagal DISALIN di tahap pilih. `null` = tak ada yang gagal.
+ *
+ * Menyebut yang mana + sebabnya disengaja: `FileNotFoundException` (berkas Google
+ * Foto yang masih di cloud), `SecurityException` (grant sudah dicabut), dan
+ * `IOException` (unduhan putus) menuntut langkah yang berbeda-beda dari
+ * pemiliknya, sementara "gagal membaca salah satu foto bukti" — kalimat yang
+ * dipakai sampai vc116 — tak menuntun ke satu pun.
+ */
+internal fun pesanFotoGagalDisalin(label: List<String>): String? {
+    if (label.isEmpty()) return null
+    return "${label.size} foto tidak bisa dibaca dan tidak ikut dilampirkan: " +
+        "${label.joinToString(", ")}. Coba buka di Galeri lalu simpan ulang sebagai JPG."
+}
+
+/**
+ * Foto yang sudah tersalin tapi gagal DISIAPKAN saat mengirim (mis. gambar
+ * korup, memori tak cukup). `null` = tak ada yang gagal.
+ *
+ * Ekor "tekan lagi" ada karena pengajuannya memang BERHENTI: foto yang gagal
+ * dilepas dari daftar, dan melanjutkan tanpa bukti itu harus jadi keputusan
+ * pemiliknya, bukan keputusan diam-diam app.
+ */
+internal fun pesanFotoDilewati(label: List<String>): String? {
+    if (label.isEmpty()) return null
+    return "${label.size} foto bukti gagal disiapkan dan sudah dilepas dari daftar: " +
+        "${label.joinToString(", ")}. Tekan \"Ajukan Indent\" lagi untuk melanjutkan tanpa foto itu."
+}
 
 data class IndentCreateUiState(
     val namaBarang: String = "",
@@ -43,7 +113,7 @@ data class IndentCreateUiState(
     val keterangan: String = "",
     val searchQuery: String = "",
     val suggestions: List<ProductAggregate> = emptyList(),
-    val photos: List<Uri> = emptyList(),
+    val photos: List<FotoBukti> = emptyList(),
     val isSubmitting: Boolean = false,
     val errorMessage: String? = null,
     val isDone: Boolean = false
@@ -100,19 +170,83 @@ class IndentCreateViewModel @Inject constructor(
     }
 
     /**
-     * Memilih foto yang SAMA dua kali di pemilih galeri mengirimkan `Uri` yang
-     * identik. Tanpa dedup, dua thumbnail kembar itu menjadi dua kunci
-     * `LazyRow` yang sama dan Compose menjatuhkan app dengan
-     * `IllegalArgumentException: Key ... was already used` — bukan sekadar
-     * duplikat yang jelek di layar. Dedup di sini, BUKAN cuma di kunci daftar,
-     * karena bukti kembar juga akan diunggah dua kali oleh [submit].
+     * Foto disalin ke `cacheDir/indent/` SEKARANG JUGA, bukan saat [submit].
+     *
+     * ## Kenapa disalin, bukan menyimpan `Uri`-nya
+     *
+     * Grant `Uri` dari Photo Picker TIDAK persistable: ia hidup selama Activity
+     * pemanggilnya hidup, dan tak seorang pun pernah memanggil
+     * `takePersistableUriPermission` di sini. Menyimpannya lalu membacanya
+     * belakangan berarti bergantung pada izin yang bisa hilang di antara "pilih"
+     * dan "Ajukan".
+     *
+     * **Jujur soal seberapa besar dampaknya:** layar ini TIDAK punya pemulihan
+     * state (`IndentCreateUiState` hidup di ViewModel biasa, bukan
+     * `SavedStateHandle`), jadi kalau prosesnya benar-benar mati, isian formnya
+     * ikut hilang dan orangnya mengulang dari nol — grant yang basi bukan
+     * kerugian tambahan di skenario itu. Yang benar-benar dibayar salinan ini
+     * ada tiga, dan ketiganya nyata tanpa perlu proses mati: kegagalan baca
+     * dilaporkan saat MEMILIH (bukan setelah menunggu unggahan), nama asli
+     * berkas + MIME terbaca sekali di sini sehingga [submit] tak lagi menyentuh
+     * ContentResolver sama sekali, dan pembacaan diska keluar dari jalur kirim.
+     *
+     * Dedup tetap by-`Uri` (bukan by-berkas): memilih foto yang SAMA dua kali
+     * mengirim `Uri` yang identik, dan tanpa dedup dua thumbnail kembar menjadi
+     * dua kunci `LazyRow` yang sama — Compose menjatuhkan app dengan
+     * `IllegalArgumentException: Key … was already used`, bukan sekadar
+     * duplikat yang jelek di layar. Menyalin dulu baru dedup akan kehilangan
+     * sifat itu, karena tiap salinan berkasnya unik.
      */
     fun addPhotos(uris: List<Uri>) {
-        _uiState.update { st -> st.copy(photos = (st.photos + uris).distinct()) }
+        val sudahAda = _uiState.value.photos.map { it.uri }.toSet()
+        val baru = uris.distinct().filterNot { it in sudahAda }
+        if (baru.isEmpty()) return
+        viewModelScope.launch {
+            val hasil = withContext(Dispatchers.IO) { baru.map { salinKeCache(it) } }
+            val berhasil = hasil.filterIsInstance<SalinFoto.Berhasil>().map { it.foto }
+            val gagal = hasil.filterIsInstance<SalinFoto.Gagal>().map { it.label }
+            _uiState.update { st ->
+                st.copy(
+                    photos = st.photos + berhasil,
+                    errorMessage = pesanFotoGagalDisalin(gagal) ?: st.errorMessage,
+                )
+            }
+        }
     }
 
-    fun removePhoto(uri: Uri) {
-        _uiState.update { it.copy(photos = it.photos - uri) }
+    fun removePhoto(foto: FotoBukti) {
+        _uiState.update { it.copy(photos = it.photos - foto) }
+        // Salinan cache tak berguna lagi begitu thumbnailnya dilepas. Gagal
+        // hapus tak perlu dilaporkan — OS membersihkan cacheDir sendiri.
+        runCatching { foto.file.delete() }
+    }
+
+    /**
+     * Salin satu `Uri` pilihan ke cache + baca nama & MIME-nya sekali di sini.
+     * Sebab kegagalan DIBAWA IKUT (`e.javaClass.simpleName`) — `getOrNull()`
+     * yang lama menelannya, sehingga "gagal membaca salah satu foto bukti"
+     * adalah satu-satunya keterangan yang pernah dilihat siapa pun.
+     */
+    private fun salinKeCache(uri: Uri): SalinFoto {
+        val resolver = appContext.contentResolver
+        val (namaAsli, _) = bacaInfoBerkas(resolver, uri)
+        val nama = namaAsli.ifBlank { "foto" }
+        val mimeType = resolver.getType(uri)
+            ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(uri.lastPathSegment?.substringAfterLast('.'))
+            ?: "image/jpeg"
+        val target = File(appContext.cacheDir, "indent/bukti_${System.nanoTime()}")
+            .apply { parentFile?.mkdirs() }
+        return runCatching {
+            resolver.openInputStream(uri)?.use { inp ->
+                target.outputStream().use { out -> inp.copyTo(out) }
+            } ?: error("openInputStream null")
+        }.fold(
+            onSuccess = { SalinFoto.Berhasil(FotoBukti(uri, target, nama, mimeType)) },
+            onFailure = { e ->
+                runCatching { target.delete() }
+                SalinFoto.Gagal("$nama (${e.javaClass.simpleName})")
+            },
+        )
     }
 
     fun submit() {
@@ -126,21 +260,69 @@ class IndentCreateViewModel @Inject constructor(
             // Upload proof photos first (if any) — a create request only ever references
             // bukti paths that already exist server-side, never raw device URIs.
             val buktiUrls = mutableListOf<String>()
-            for (uri in state.photos) {
-                val prepared = withContext(Dispatchers.Default) { prepareProofUpload(uri) }
-                if (prepared == null) {
-                    _uiState.update { it.copy(isSubmitting = false, errorMessage = "Gagal membaca salah satu foto bukti") }
-                    return@launch
+            val gagalSiap = mutableListOf<FotoBukti>()
+            val labelGagal = mutableListOf<String>()
+            val urlBaru = mutableMapOf<Uri, String>()
+            for (foto in state.photos) {
+                // URL dari percobaan sebelumnya dipakai ulang: satu foto yang
+                // gagal disiapkan menghentikan pengajuan (lihat di bawah), dan
+                // tanpa ini penekanan tombol kedua akan mengunggah ULANG berkas
+                // yang sudah ada di server — berkas yatim yang tak pernah
+                // dirujuk baris indent mana pun.
+                val sudah = foto.uploadedUrl
+                if (sudah != null) {
+                    buktiUrls += sudah
+                    continue
                 }
-                val (bytes, mimeType) = prepared
+                val siap = prepareProofUpload(foto)
+                val isi = siap.getOrNull()
+                if (isi == null) {
+                    gagalSiap += foto
+                    labelGagal += "${foto.nama} (${siap.exceptionOrNull().namaKelas()})"
+                    continue
+                }
+                val (bytes, mimeType) = isi
                 val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType) ?: "jpg"
                 when (val result = uploadIndentProofUseCase(bytes, "bukti_${System.currentTimeMillis()}.$extension", mimeType)) {
-                    is AuthResult.Success -> buktiUrls += result.data
+                    is AuthResult.Success -> {
+                        buktiUrls += result.data
+                        urlBaru[foto.uri] = result.data
+                    }
                     is AuthResult.Failure -> {
-                        _uiState.update { it.copy(isSubmitting = false, errorMessage = result.message) }
+                        // Kegagalan JARINGAN — bisa sembuh sendiri, jadi
+                        // fotonya dipertahankan (beserta yang sudah naik) dan
+                        // pesannya dari server apa adanya.
+                        _uiState.update { st ->
+                            st.copy(
+                                isSubmitting = false,
+                                errorMessage = result.message,
+                                photos = st.photos.map { it.denganUrl(urlBaru) },
+                            )
+                        }
                         return@launch
                     }
                 }
+            }
+
+            // Foto yang tak bisa disiapkan DILEPAS dari daftar (thumbnailnya
+            // hilang = umpan balik yang terlihat) dan pengajuannya BERHENTI di
+            // sini, bukan lanjut diam-diam tanpa bukti itu: bukti indent adalah
+            // alasan pengajuannya disetujui, dan membuangnya tanpa sepengetahuan
+            // pemiliknya kelas kesalahannya lebih mahal daripada satu tekan
+            // tombol tambahan. Tekan "Ajukan Indent" lagi = lanjut tanpa foto itu.
+            //
+            // Sebelum ini SATU foto rusak membatalkan seluruh pengajuan dengan
+            // "Gagal membaca salah satu foto bukti" — tanpa menyebut yang mana,
+            // dan tanpa jalan keluar selain menebak lalu menghapus satu per satu.
+            if (gagalSiap.isNotEmpty()) {
+                _uiState.update { st ->
+                    st.copy(
+                        isSubmitting = false,
+                        errorMessage = pesanFotoDilewati(labelGagal),
+                        photos = st.photos.filterNot { it in gagalSiap }.map { it.denganUrl(urlBaru) },
+                    )
+                }
+                return@launch
             }
 
             val request = CreateIndentRequest(
@@ -160,66 +342,65 @@ class IndentCreateViewModel @Inject constructor(
     }
 
     /**
-     * Reads the picked file and, for images, recompresses toward the server's 5 MB proof cap
-     * (raw camera photos routinely exceed it and bounced the whole submission). Returns the
-     * upload bytes + mime type; PDFs and undecodable files pass through untouched.
+     * Membaca salinan cache lalu, untuk gambar, mengompres ulang menuju batas
+     * bukti 5 MB milik server (foto kamera mentah rutin menembusnya dan dulu
+     * memantulkan seluruh pengajuan). Mengembalikan byte upload + MIME; PDF dan
+     * berkas yang tak bisa didekode lewat apa adanya.
+     *
+     * **`Result`, bukan `null`.** Versi lama membungkus segalanya dengan
+     * `.getOrNull()` sehingga `OutOfMemoryError` saat dekode, berkas korup, dan
+     * `IOException` sama-sama menjadi `null` — lalu dilaporkan sebagai satu
+     * kalimat "gagal membaca salah satu foto bukti" yang tak menyebut foto mana
+     * pun maupun sebabnya. Sekarang sebabnya sampai ke layar (lihat
+     * [pesanFotoDilewati]).
+     *
+     * `runCatching` (bukan `try/catch (e: Exception)`) memang disengaja: yang paling mungkin
+     * dilempar dari dalam `ImagePixelPipeline.compress` adalah `OutOfMemoryError`, turunan
+     * `Error` yang tak tertangkap `catch (e: Exception)` dan akan menutup app lewat
+     * `viewModelScope` — kelas kegagalan yang sama dengan `PhotoWatermark.prepareWatermarkedJpeg`
+     * (`ImagePixelPipeline.compress` sendiri SUDAH membungkus badannya dengan `runCatching`
+     * juga, dijaga `ImagePixelPipelineGuardTest`; lapis di sini menangkap `foto.file.readBytes()`
+     * yang berada DI LUAR pipeline).
+     *
+     * `suspend` + `withContext(Dispatchers.Default)` membungkus SELURUH badan (bukan cuma bagian
+     * kompresi) supaya `ImagePixelPipeline.compress` dipanggil di fungsi yang sama dengan
+     * pemindahan dispatcher-nya — dijaga `ImagePixelPipelineGuardTest`. Ini murni pemindahan
+     * tempat: `submit()` dulu membungkus PANGGILAN ke fungsi ini dengan
+     * `withContext(Dispatchers.Default) { prepareProofUpload(foto) }`; utasnya sama persis,
+     * cuma baris `withContext`-nya kini di dalam, bukan di kalinya `submit()`.
      */
-    private fun prepareProofUpload(uri: Uri): Pair<ByteArray, String>? {
-        val raw = runCatching {
-            appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        }.getOrNull() ?: return null
-        val mimeType = appContext.contentResolver.getType(uri)
-            ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(uri.lastPathSegment?.substringAfterLast('.'))
-            ?: "image/jpeg"
-        if (mimeType == "application/pdf") return raw to mimeType
-        val compressed = runCatching { compressImage(raw) }.getOrNull()
-        return if (compressed != null) compressed to "image/jpeg" else raw to mimeType
-    }
-
-    /** Downscale to [MAX_DIMENSION], fix EXIF rotation, then JPEG-compress under [MAX_UPLOAD_BYTES]. */
-    private fun compressImage(raw: ByteArray): ByteArray? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-
-        var sampleSize = 1
-        while (max(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= MAX_DIMENSION) sampleSize *= 2
-        var bitmap = BitmapFactory.decodeByteArray(raw, 0, raw.size, BitmapFactory.Options().apply { inSampleSize = sampleSize })
-            ?: return null
-
-        val maxSide = max(bitmap.width, bitmap.height)
-        if (maxSide > MAX_DIMENSION) {
-            val scale = MAX_DIMENSION.toFloat() / maxSide
-            bitmap = Bitmap.createScaledBitmap(
-                bitmap,
-                (bitmap.width * scale).toInt().coerceAtLeast(1),
-                (bitmap.height * scale).toInt().coerceAtLeast(1),
-                true
-            )
+    private suspend fun prepareProofUpload(foto: FotoBukti): Result<Pair<ByteArray, String>> =
+        withContext(Dispatchers.Default) {
+            runCatching {
+                val raw = foto.file.readBytes()
+                if (raw.isEmpty()) error("berkas salinan kosong")
+                // PDF SENGAJA TIDAK dikompres di sini — ini keputusan desain (riset kompresi
+                // media on-device, 2026-08-29), bukan sesuatu yang belum sempat dikerjakan.
+                // Dua opsi nyata dipertimbangkan: android.graphics.pdf.PdfRenderer (bawaan, nol
+                // dependency) merasterisasi SELURUH halaman termasuk teks vektor — untuk PDF
+                // born-digital (faktur/kontrak, kemungkinan besar isi jalur bukti indent ini)
+                // itu regresi kualitas nyata (hilang searchable/selectable, berpotensi buram),
+                // layak disingkirkan terlepas dari volume; sedangkan com.tom-roush:pdfbox-android
+                // ternyata TIDAK diblokir teknis oleh JitPack seperti dugaan awal (artifact resmi
+                // di Maven Central resolve bersih — jp2-android cuma compileOnly di source pustaka
+                // itu, tak muncul di POM konsumen) tapi tetap ditunda karena pustakanya sendiri
+                // terbukti tak terawat 2,5+ tahun (push terakhir 2024-03-18, rilis Maven terakhir
+                // Jan 2023, 125 issue terbuka) — risiko pemeliharaan nyata untuk manfaat yang
+                // volumenya di jalur ini (satu-satunya upload PDF di app, admin/indent, bukan
+                // hot-path tangkap-lapangan) belum terukur sama sekali. Prasyarat sebelum
+                // membangun kompresi PDF apa pun: satu query murah COUNT(*)+AVG(byte_size) atas
+                // baris indent_pemesanan.bukti_urls berekstensi .pdf di produksi 30 hari terakhir
+                // — kalau share-nya berarti DAN shape-nya "born-digital" (banyak halaman, byte/
+                // halaman rendah), pdfbox-android via Maven Central (WAJIB
+                // JPEGFactory.createFromImage, BUKAN LosslessFactory — GitHub issue
+                // TomRoush/PdfBox-Android#271: LosslessFactory bisa MEMBESARKAN file drastis)
+                // adalah jalan yang benar, bukan PdfRenderer. Sampai query itu dijalankan,
+                // passthrough mentah di baris berikut ini SUDAH BENAR: fail-soft yang sama dengan
+                // seluruh pipa gambar/video di berkas ini, PDF tak pernah gagal karena kompresi
+                // yang memang belum ada. Jangan mencoba lagi tanpa data itu.
+                if (foto.mimeType == "application/pdf") return@runCatching raw to foto.mimeType
+                val compressed = ImagePixelPipeline.compress(raw, IMAGE_PARAMS)?.first
+                if (compressed != null) compressed to "image/webp" else raw to foto.mimeType
+            }
         }
-
-        // Re-encoding drops EXIF, so bake the camera orientation into the pixels first.
-        val orientation = runCatching {
-            ExifInterface(ByteArrayInputStream(raw))
-                .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
-        val degrees = when (orientation) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-            else -> 0f
-        }
-        if (degrees != 0f) {
-            val matrix = Matrix().apply { postRotate(degrees) }
-            bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-        }
-
-        var quality = 85
-        var out = ByteArrayOutputStream().apply { bitmap.compress(Bitmap.CompressFormat.JPEG, quality, this) }.toByteArray()
-        while (out.size > MAX_UPLOAD_BYTES && quality > 40) {
-            quality -= 15
-            out = ByteArrayOutputStream().apply { bitmap.compress(Bitmap.CompressFormat.JPEG, quality, this) }.toByteArray()
-        }
-        return out
-    }
 }

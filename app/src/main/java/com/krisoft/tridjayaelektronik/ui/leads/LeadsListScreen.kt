@@ -541,6 +541,22 @@ private fun LeadRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            // Lead-nya TERSIMPAN, hanya penerimanya yang tak diberitahu — jadi
+            // oranye (peringatan), bukan merah (tertolak) seperti baris di atas.
+            // Menyamakan warnanya membuat "perlu dihubungi manual" terbaca
+            // sebagai "gagal simpan", dan orangnya akan mengetik ulang prospek
+            // yang sudah ada di server.
+            lead.assignmentWarning?.let { pesan ->
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "⚠ $pesan",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFB5670C),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
         Spacer(modifier = Modifier.width(10.dp))
         Column(

@@ -62,8 +62,39 @@ internal const val MAX_GAMBAR_INPUT_BYTES = 25L * 1024 * 1024
  * SENGAJA bernama beda dari `MAX_VIDEO_BYTES` milik bukti chat (50 MB) supaya
  * auto-import tak menyeret angka yang salah: keduanya endpoint berbeda dengan
  * batas berbeda.
+ *
+ * **Tetap budget SERVER, ditegakkan DUA KALI sejak kompresi video otomatis
+ * (2026-08-29)**: sekali di sini sebagai target kompresi
+ * (`AktivitasViewModel.kirimVideo` mencoba menekan video ke bawah angka ini),
+ * dan sekali lagi SETELAH kompresi selesai sebagai gerbang terakhir sebelum
+ * upload. [MAX_VIDEO_INPUT_BYTES] di bawah ini yang jadi ambang MASUKAN baru;
+ * angka ini tidak berubah.
  */
 internal const val MAX_VIDEO_BUKTI_BYTES = 30L * 1024 * 1024
+
+/**
+ * Ambang MASUKAN sebelum kompresi otomatis dicoba sama sekali (2026-08-29) —
+ * BUKAN budget server, [MAX_VIDEO_BUKTI_BYTES] itu, tetap ditegakkan SETELAH
+ * kompresi (lihat `AktivitasViewModel.kirimVideo`).
+ *
+ * Video di atas [MAX_VIDEO_BUKTI_BYTES] tapi di bawah ambang INI sekarang
+ * boleh masuk staging: `kirimVideo` akan MENCOBA mengompresnya dulu sebelum
+ * menolak, jadi video yang dulu ditolak di titik SELEKSI (`gateKirimBukti`)
+ * sekarang punya kesempatan terkirim. Video di atas ambang ini tetap ditolak
+ * di titik seleksi — menahannya SEBELUM satu byte pun diproses lebih jujur
+ * daripada membuat petugas menunggu beberapa detik transcode (di HP kelas
+ * bawah, nyata) untuk penolakan yang sudah nyaris pasti.
+ *
+ * **150 MB, titik awal beralasan — bukan angka final.** Rekaman kamera HP di
+ * 1080p pada bitrate encoder H.264 hardware kelas menengah/bawah yang umum
+ * (~17 Mbps, patokan industri, bukan hasil ukur khusus repo ini) berarti
+ * 150 MB ≈ 70 detik. Bukti raport secara alami pendek (dokumentasi SATU
+ * aktivitas, bukan rekaman panjang), jadi 70 detik sudah lapang untuk kasus
+ * wajar sambil tetap menahan video yang jelas di luar kebutuhan fitur ini.
+ * Perlu divalidasi dengan pengukuran nyata di HP lapangan sebelum dianggap
+ * final — sama seperti [com.krisoft.tridjayaelektronik.util.VideoTranscoder.Params.timeoutMs].
+ */
+internal const val MAX_VIDEO_INPUT_BYTES = 150L * 1024 * 1024
 
 /** Hasil pemeriksaan sebelum unggah. [alasan] null saat [ok]. */
 internal data class BuktiGate(val ok: Boolean, val alasan: String? = null)
@@ -113,15 +144,38 @@ internal fun gateKirimBukti(
     jumlahGambar > MAX_GAMBAR ->
         BuktiGate(false, "Maksimal $MAX_GAMBAR gambar per aktivitas.")
 
-    ukuranVideoBytes > MAX_VIDEO_BUKTI_BYTES ->
+    // Ambang MASUKAN, bukan budget server — lihat KDoc [MAX_VIDEO_INPUT_BYTES].
+    // Video di atas MAX_VIDEO_BUKTI_BYTES (30 MB) TETAP lolos gerbang ini
+    // selama masih di bawah angka ini: `kirimVideo` yang akan mencoba
+    // mengompresnya sebelum menolak.
+    ukuranVideoBytes > MAX_VIDEO_INPUT_BYTES ->
         BuktiGate(
             false,
-            "Video terlalu besar (maks ${MAX_VIDEO_BUKTI_BYTES / (1024 * 1024)} MB). " +
+            "Video terlalu besar (maks ${MAX_VIDEO_INPUT_BYTES / (1024 * 1024)} MB — bahkan " +
+                "dengan kompresi otomatis kemungkinan besar tetap ditolak server). " +
                 "Potong videonya atau turunkan kualitas perekam ke 720p.",
         )
 
     else -> BuktiGate(true)
 }
+
+/**
+ * Pesan penolakan video yang MASIH di atas [MAX_VIDEO_BUKTI_BYTES] SETELAH
+ * kompresi dicoba (gagal, timeout, atau hasilnya tetap kebesaran).
+ *
+ * TEKS PERSIS pesan lama sebelum kompresi otomatis video ada (sebelum
+ * 2026-08-29) — saat itu inilah SATU-satunya jawaban untuk video >30 MB,
+ * ditulis langsung sebagai alasan di [gateKirimBukti]. Sekarang gerbang itu
+ * memakai [MAX_VIDEO_INPUT_BYTES] yang lebih longgar, dan kalimat ini pindah
+ * ke sini supaya kegagalan kompresi jatuh ke pesan yang SUDAH DIKENAL user —
+ * bukan pesan baru yang belum pernah teruji di lapangan.
+ * `AktivitasViewModel.kirimVideo` memanggilnya sebagai fallback; ini murni
+ * mengembalikan perilaku SEBELUM kompresi otomatis ada untuk video yang tetap
+ * tak bisa dikirim, bukan regresi baru.
+ */
+internal fun pesanVideoTerlaluBesarSetelahKompresi(): String =
+    "Video terlalu besar (maks ${MAX_VIDEO_BUKTI_BYTES / (1024 * 1024)} MB). " +
+        "Potong videonya atau turunkan kualitas perekam ke 720p."
 
 /**
  * Ekstensi video yang server terima, atau null kalau tak dikenal.
@@ -155,11 +209,13 @@ internal fun mimeVideo(ext: String): String = when (ext) {
 }
 
 /**
- * Keluaran `PhotoWatermark.prepareWatermarkedJpeg` SELALU JPEG apa pun format
- * sumbernya, jadi ekstensi & MIME dipaku `.jpg`/`image/jpeg` — termasuk untuk
- * PNG/WEBP yang dipilih dari galeri.
+ * Keluaran `PhotoWatermark.prepareWatermarkedJpeg` SELALU WEBP apa pun format
+ * sumbernya (2026-08-28, sebelumnya JPEG), jadi ekstensi & MIME dipaku
+ * `.webp`/`image/webp` — termasuk untuk PNG/JPEG yang dipilih dari galeri.
+ * Server (`is_valid_raport_evidence_content`) memvalidasi ekstensi & MIME
+ * HARUS cocok — ubah salah satu tanpa yang lain akan menolak upload.
  */
-internal fun namaBerkasGambar(urutan: Int, millis: Long): String = "raport_${millis}_$urutan.jpg"
+internal fun namaBerkasGambar(urutan: Int, millis: Long): String = "raport_${millis}_$urutan.webp"
 
 internal fun namaBerkasVideo(ext: String, millis: Long): String = "raport_$millis.$ext"
 
@@ -195,14 +251,68 @@ internal fun formatUkuranBerkas(bytes: Long): String = when {
  * bisa HEIF di API 28 sedangkan minSdk repo ini 24, jadi HEIC dari iPhone/HP
  * baru gagal senyap di Android 7/8 dan "coba jepret ulang" jadi saran yang
  * tidak nyambung sama sekali.
+ *
+ * [sebab] = nama kelas pengecualian (`e.javaClass.simpleName`), ditempelkan di
+ * ekor kalau ada. Bukan hiasan: `FileNotFoundException` (berkas cloud yang
+ * belum terunduh), `SecurityException` (grant Uri sudah dicabut), dan
+ * `IOException` (unduhan Google Foto gagal di tengah) adalah tiga masalah
+ * BERBEDA dengan jalan keluar berbeda, dan tanpa ekor ini ketiganya terbaca
+ * sebagai satu kalimat tentang HEIC yang cuma benar untuk salah satunya.
  */
-internal fun pesanGagalDekode(dariGaleri: Boolean): String =
-    if (dariGaleri) {
+internal fun pesanGagalDekode(dariGaleri: Boolean, sebab: String? = null): String {
+    val inti = if (dariGaleri) {
         "Format foto ini tidak didukung HP kamu (mis. HEIC). Buka di Galeri, " +
             "simpan/bagikan sebagai JPG, lalu pilih lagi."
     } else {
         "Foto gagal diproses, coba jepret ulang"
     }
+    return sebab?.takeIf { it.isNotBlank() }?.let { "$inti ($it)" } ?: inti
+}
+
+/**
+ * Kalimat untuk gambar yang TIDAK jadi masuk staging, dipisah per SEBAB.
+ * `null` = tak ada yang diabaikan (jangan tampilkan apa-apa).
+ *
+ * ## Kenapa penghitungnya dipisah
+ *
+ * Sampai vc116 ketiga sebab menaikkan SATU penghitung `gagal`, lalu dirender
+ * dengan satu kalimat tetap: *"$n gambar diabaikan — maksimal
+ * [MAX_GAMBAR] gambar per aktivitas."* Kuota adalah sebab yang paling jarang
+ * dan paling mudah dibantah pengguna: seseorang yang memilih 2 gambar dan
+ * melihat "maksimal 10" tahu persis bahwa penjelasannya salah, lalu berhenti
+ * mempercayai pesan berikutnya juga.
+ *
+ * Yang sebenarnya menyala hampir selalu [takTerbaca]. Ambang [terlaluBesar]
+ * 25 MB praktis tak pernah tertembus foto HP (foto 108 MP JPEG ≈ 8-15 MB), jadi
+ * cabang itu pun jarang — sementara berkas cloud yang gagal diunduh dan HEIC
+ * yang tak terdekode adalah kejadian sehari-hari.
+ *
+ * Ketiganya sengaja ditulis sebagai kalimat terpisah, bukan digabung jadi satu
+ * angka: satu pemilihan bisa memuat ketiganya sekaligus, dan penjumlahan
+ * menghapus justru keterangan yang menentukan langkah pengguna berikutnya.
+ */
+internal fun pesanGambarDiabaikan(
+    takMuat: Int,
+    terlaluBesar: Int,
+    takTerbaca: Int,
+    sebabTakTerbaca: String? = null,
+): String? {
+    val kalimat = buildList {
+        if (takMuat > 0) {
+            add("$takMuat gambar tidak ditambahkan — maksimal $MAX_GAMBAR gambar per aktivitas.")
+        }
+        if (terlaluBesar > 0) {
+            add(
+                "$terlaluBesar gambar dilewati karena lebih besar dari " +
+                    "${formatUkuranBerkas(MAX_GAMBAR_INPUT_BYTES)}.",
+            )
+        }
+        if (takTerbaca > 0) {
+            add("$takTerbaca gambar tidak bisa dibaca. ${pesanGagalDekode(true, sebabTakTerbaca)}")
+        }
+    }
+    return kalimat.takeIf { it.isNotEmpty() }?.joinToString(" ")
+}
 
 // ── Gerbang hari Minggu (2026-08-16) ─────────────────────────────────────────
 
@@ -305,3 +415,131 @@ internal fun terkunciPic(reviewStatus: String?): Boolean =
  * atas kegagalan yang sebenarnya sembuh sendiri.
  */
 internal fun gagalPermanen(httpStatus: Int?): Boolean = httpStatus == 400 || httpStatus == 422
+
+// ── Butir CHAT trainee (gelombang 2, vc123) ──────────────────────────────────
+//
+// Masa training dipersempit 2026-08-31: trainee kehilangan Input Prospek dan
+// pekerjaan hariannya yang menghasilkan angka pindah ke butir "CHAT n WA" di
+// Aktivitas Harian. Angkanya dikirim di field `jumlah`, dan buktinya WAJIB
+// video — bukan karena video lebih sulit dipalsukan (`dhash` anti-duplikat
+// bernilai `None` untuk video, jadi ia TIDAK menangkap kiriman ulang; jangan
+// menjanjikan sebaliknya di layar), melainkan karena `mode="none"` + alasan 10
+// karakter sudah cukup MELAHIRKAN baris hari ini, dan baris itulah yang
+// menaikkan hitungan `terisi` di gerbang absen pulang.
+//
+// **Yang menegakkan tetap server** (`aktivitas_harian::service::upsert`).
+// Fungsi di bawah cuma MENDAHULUKAN kabarnya, pola sama `gerbangHariIni` dan
+// `terkunciPic`: tanpa ini orang mengunggah video puluhan MB di sinyal lapangan
+// lalu ditolak 400 karena angka yang bisa diperiksa sebelum satu byte bergerak.
+
+/**
+ * Batas bawah & atas `jumlah` — cerminan rentang `1..=100_000` di validator
+ * server. Bawah 1 (bukan 0) karena 0 adalah KLAIM "saya chat nol orang", bukan
+ * "belum diisi"; atas 100.000 menahan salah ketik yang tak akan pernah nyata.
+ */
+internal const val MIN_JUMLAH_CHAT = 1
+internal const val MAX_JUMLAH_CHAT = 100_000
+
+/**
+ * Blok `chatTrainee` dari `GET /aktivitas-harian/penempatan-saya`, sudah
+ * disaring: `null` = TIDAK BERLAKU (bukan trainee, saklar mati, setelan rusak,
+ * divisi tak ketemu, master tanpa butir CHAT, atau server lama).
+ *
+ * `null` sengaja tak dibedakan dari "gagal memuat". Arahnya fail-open dan itu
+ * keputusan: gerbang chat yang menyala karena ambang yang TIDAK terbaca akan
+ * mengunci orang di toko atas angka yang tak pernah bisa dilihatnya — bentuk
+ * insiden 31 Juli 2026 (39 karyawan) dan 17 Agustus (285 dari 291 hari).
+ *
+ * PUBLIK, bukan `internal` seperti [BuktiGate] di atas: ia dipegang
+ * `AktivitasUiState` yang publik, dan Kotlin menolak properti publik yang
+ * membocorkan tipe internal (`copy()` data class ikut terkena). Menyembunyikan
+ * tipenya akan memaksa UiState menyimpan angkanya sebagai dua field lepas —
+ * dan dua field lepas adalah cara termudah membuat "ambang ada" dan "gerbang
+ * berlaku" berselisih diam-diam.
+ */
+data class AmbangChatTrainee(val aktivitasIndex: Int, val ambang: Int)
+
+/**
+ * Butir CHAT menurut TEKS masternya: prefiks `"CHAT "` sesudah trim,
+ * case-insensitive.
+ *
+ * PREFIKS, bukan `contains("chat")`. Konvensi ini sudah dilembagakan migrasi
+ * 231 (`JSON_SEARCH(@v,'one','CHAT %')`) dan dipakai fungsi yang sama namanya
+ * di Rust (`aktivitas_harian::domain::butir_chat`) serta web
+ * (`isChatTargetAktivitas`). `contains` akan menyambar butir seperti
+ * "WA CHAT" maupun kalimat yang kebetulan memuat kata itu, lalu menuntut video
+ * atas pekerjaan yang tak pernah dimaksudkan.
+ */
+internal fun butirChat(teks: String): Boolean =
+    teks.trim().lowercase().startsWith("chat ")
+
+/**
+ * Kotak angka DIRENDER untuk baris ini?
+ *
+ * Sengaja PERMISIF (`||`): kotak yang muncul di baris yang ternyata bukan butir
+ * chat tak merugikan siapa pun — server mengabaikan `jumlah` untuk butir
+ * non-chat dan untuk pengirim non-trainee. Kotak yang HILANG dari butir yang
+ * benar-benar ditagih justru membuat orangnya mustahil memenuhi gerbang absen
+ * pulang dari HP; itu asimetri yang menentukan arah fungsi ini.
+ *
+ * Karena itu ia menerima DUA sumber: teks masternya sendiri ([butirChat]) ATAU
+ * nomor butir yang disebut server. Keduanya membaca master yang sama lewat
+ * endpoint berbeda, jadi selisih hanya mungkin saat master berubah di antara
+ * dua panggilan — dan saat itu terjadi, yang benar adalah menampilkan keduanya.
+ */
+internal fun tampilkanJumlahChat(chat: AmbangChatTrainee?, index: Int, teks: String): Boolean =
+    chat != null && (butirChat(teks) || index == chat.aktivitasIndex)
+
+/**
+ * Gerbang klien MENAHAN pengiriman baris ini?
+ *
+ * Sengaja LEBIH SEMPIT dari [tampilkanJumlahChat] — hanya teks masternya
+ * sendiri yang dipercaya, TIDAK nomor butir dari server. Alasannya arah
+ * kerugian, bukan kerapian: `aktivitasIndex` yang basi (master berubah setelah
+ * blok itu dihitung) akan menunjuk baris LAIN, dan menahan baris yang server
+ * sendiri akan terima berarti mengunci orangnya atas aturan yang tak pernah
+ * berlaku untuknya. Menampilkan kotak angka berlebih tidak menahan apa pun;
+ * menahan tombol Kirim menahan pekerjaan.
+ */
+internal fun gerbangChatBerlaku(chat: AmbangChatTrainee?, teks: String): Boolean =
+    chat != null && butirChat(teks)
+
+/**
+ * Aturan butir CHAT trainee, cerminan validator `service::upsert` sisi server:
+ * angka WAJIB ada & masuk akal, angka WAJIB mencapai [ambang], dan buktinya
+ * WAJIB video.
+ *
+ * [ambang] `<= 0` = FAIL-OPEN (lolos tanpa syarat). Itu bukan cabang mati:
+ * ambang nol/negatif berarti setelannya tak terbaca dengan benar, dan doktrin
+ * modul ini melarang cabang yang tak bisa dihitung mengunci orang.
+ *
+ * Pesan penolakannya menyebut ANGKA — yang dikirim dan yang ditagih. Kalimat
+ * "kurang N butir" yang dipakai gerbang absen pulang sengaja tidak diulang di
+ * sini: di layar inilah satu-satunya tempat orangnya bisa melihat "142 dari
+ * 200", dan tanpa angka itu ia tak tahu berapa lagi yang kurang.
+ */
+internal fun gateJumlahChat(jumlah: Int?, ambang: Int, adaVideo: Boolean): BuktiGate = when {
+    ambang <= 0 -> BuktiGate(true)
+
+    jumlah == null -> BuktiGate(
+        false,
+        "Isi dulu jumlah chat hari ini (minimal $ambang) di kotak angka di atas.",
+    )
+
+    jumlah < MIN_JUMLAH_CHAT || jumlah > MAX_JUMLAH_CHAT -> BuktiGate(
+        false,
+        "Jumlah chat harus antara $MIN_JUMLAH_CHAT dan $MAX_JUMLAH_CHAT.",
+    )
+
+    jumlah < ambang -> BuktiGate(
+        false,
+        "Jumlah chat baru $jumlah, target hari ini $ambang. Kurang ${ambang - jumlah} lagi.",
+    )
+
+    !adaVideo -> BuktiGate(
+        false,
+        "Bukti butir chat harus VIDEO. Foto dan \"tanpa bukti\" ditolak server untuk butir ini.",
+    )
+
+    else -> BuktiGate(true)
+}

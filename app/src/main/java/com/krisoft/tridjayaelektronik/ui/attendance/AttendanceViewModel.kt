@@ -290,7 +290,7 @@ class AttendanceViewModel @Inject constructor(
         if (state.submitting) return
         _uiState.update { it.copy(submitting = true, actionError = null) }
         viewModelScope.launch {
-            val filename = "selfie_${System.currentTimeMillis()}.jpg"
+            val filename = "selfie_${System.currentTimeMillis()}.webp"
             when (val upload = repository.uploadPhoto(bytes, filename)) {
                 is AuthResult.Failure ->
                     _uiState.update { it.copy(submitting = false, actionError = upload.message) }

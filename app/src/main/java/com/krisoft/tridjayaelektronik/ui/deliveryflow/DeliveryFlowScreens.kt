@@ -1,5 +1,6 @@
 package com.krisoft.tridjayaelektronik.ui.deliveryflow
 
+import android.widget.Toast
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -116,6 +117,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.MoneyTextField
 import com.krisoft.tridjayaelektronik.ui.theme.ScrollableCenter
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1276,6 +1278,15 @@ fun DeliveryJobDetailScreen(id: String, onBack: () -> Unit, viewModel: DeliveryF
                         Spacer(Modifier.height(14.dp))
                         EditSpkAction(job, viewModel, state.submitting)
                     }
+                    // Lokasi maps punya aksinya SENDIRI (2026-08-30): jendelanya
+                    // sampai unit terkirim, jauh lebih lebar dari "Ubah Isi SPK"
+                    // yang berhenti sebelum PDI. Driver tak bisa dijadwalkan
+                    // tanpa lokasi, jadi menutupnya bersama jendela sunting
+                    // berarti unitnya diam sampai ada yang membuka dashboard web.
+                    if (bolehIsiMapsSpk(job, viewModel.isAdminViewer, viewModel.currentUserId)) {
+                        Spacer(Modifier.height(14.dp))
+                        IsiMapsAction(job, viewModel, state.submitting)
+                    }
                     Spacer(Modifier.height(14.dp))
                     val shareContext = LocalContext.current
                     ExpressiveOutlinedButton(onClick = {
@@ -1340,8 +1351,19 @@ fun DeliveryJobDetailScreen(id: String, onBack: () -> Unit, viewModel: DeliveryF
                                 Spacer(Modifier.height(8.dp))
                                 SimpleAction("Berangkat (Dispatch)", state.submitting) { viewModel.dispatch(job.id) {} }
                             }
+                        // DC/admin atas unit yang SUDAH punya driver. Ditaruh
+                        // SESUDAH cabang `isMyDriverJob` di atas dengan sengaja:
+                        // orang yang merangkap driver + DC harus melihat tombol
+                        // KERJANYA dulu (Berangkat), bukan alat kelolanya.
+                        job.status == DeliveryStatusKey.ASSIGNED && access.jadwal ->
+                            KelolaDriverAction(job, viewModel, state.submitting, state.drivers, bolehBatal = true)
                         job.status == DeliveryStatusKey.IN_TRANSIT && isMyDriverJob ->
                             DeliverAction(job, viewModel, state.submitting, state.driverChecklist, state.driverChecklistError)
+                        // Sudah berangkat: "batal" tak lagi punya arti operasional
+                        // (barangnya fisik di tangan orang), tapi PINDAH masih —
+                        // motor mogok / driver sakit di tengah jalan itu nyata.
+                        job.status == DeliveryStatusKey.IN_TRANSIT && access.jadwal ->
+                            KelolaDriverAction(job, viewModel, state.submitting, state.drivers, bolehBatal = false)
                         // Unit sudah sampai konsumen tapi uangnya belum tercatat masuk.
                         // Berlaku SEMUA jenis pembayaran (2026-07-28) — sebelumnya
                         // non-COD tak punya titik konfirmasi sama sekali.
@@ -1713,7 +1735,10 @@ private fun PdiAction(
     val file = remember { File(context.cacheDir, "delivery/pdi_$id.jpg").apply { parentFile?.mkdirs() } }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
     val photoState by vm.state.collectAsState()
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onPdiPhotoCaptured(file) }
+    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onPdiPhotoCaptured(file) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
 
     // Hasil checklist per item.id: hasil (ok/tidak/na) default "ok" + catatan.
     val hasil = rememberSaveable(checklist, saver = petaJawabanSaver) {
@@ -1838,7 +1863,13 @@ private fun PdiAction(
     Spacer(Modifier.height(10.dp))
     GpsStatusRow(photoState) { vm.refreshGps() }
     Spacer(Modifier.height(8.dp))
-    PhotoBox(photoState.pdiPhoto, "Foto unit siap (opsional)") { cam.launch(uri) }
+    // Label TANPA `*` selama masih tahap peringatan: di berkas ini `*` berarti
+    // WAJIB (checklist menempelkannya dari `item.wajib`), jadi memasangnya
+    // sebelum tombolnya benar-benar diblokir adalah janji yang tak ditepati —
+    // dan janji semacam itu mengajari petugas bahwa `*` boleh diabaikan, yang
+    // merusak artinya di seluruh form. Tambahkan `*` di sini pada saat yang
+    // sama dengan mengembalikan `fotoPdiSiap` ke `enabled` tombol Simpan.
+    PhotoBox(photoState.pdiPhoto, "Foto unit siap") { cam.launch(uri) }
 
     // Form REJECTED dikecualikan (paritas gate backend pasca-093): semua form
     // rejected = wajib buat form BARU — form create dirender lagi (dulu
@@ -1871,7 +1902,11 @@ private fun PdiAction(
             val akiPhotoFile = remember { File(context.cacheDir, "delivery/aki_$id.jpg").apply { parentFile?.mkdirs() } }
             val akiPhotoUri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", akiPhotoFile) }
             val akiCam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-                if (!ok) return@rememberLauncherForActivityResult
+                // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+                if (!ok) {
+                    Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+                    return@rememberLauncherForActivityResult
+                }
                 akiPhotoUploading = true
                 akiScope.launch {
                     val url = vm.uploadAkiPhoto(akiPhotoFile)
@@ -2012,6 +2047,54 @@ private fun PdiAction(
     // ditolak backend". Form rejected diabaikan (paritas 093).
     val akiApproved = activeAkiForms.isNotEmpty() && activeAkiForms.all { it.approvalStatus == "approved" }
     val missingCatatan = checklist.any { hasil[it.id] == "tidak" && catatan[it.id].orEmpty().isBlank() }
+    // Foto unit siap DITAGIH, belum diblokir (2026-08-29) — di APK ia selama
+    // ini opsional sementara form web `PdiDetailPage` sudah mewajibkannya
+    // sejak lama, dan tak ada yang pernah menyebutnya. Asimetrinya bukan
+    // sekadar tak rapi: PDI adalah satu-satunya tahap yang memotret barangnya
+    // SEBELUM keluar gudang, jadi baris yang lolos tanpa foto meninggalkan
+    // lubang tepat di titik yang paling dibutuhkan saat konsumen mengeluh unit
+    // datang cacat — dan lubang itu hanya muncul pada baris yang dikerjakan
+    // lewat HP, tanpa satu pun tanda di data bahwa penyebabnya platform.
+    //
+    // **TAHAP 1: PERINGATAN, BELUM MEMBLOKIR** (keputusan user 2026-08-29).
+    // Draf pertama perubahan ini mematikan tombol Simpan, dan angka produksi
+    // menunjukkan itu terlalu tajam untuk langsung: dari 701 baris PDI unit
+    // besar Agustus, 149 (21,3%) tak berfoto — dan sebarannya timpang, satu
+    // petugas menyumbang 80 dari 94 barisnya sendiri (85%). Mematikan tombol
+    // tanpa pemberitahuan berarti orang itu membuka unit pertamanya besok
+    // pagi, mengisi checklist seperti biasa, lalu menyimpulkan app-nya rusak —
+    // dan antrian PDI cabangnya berhenti sampai ada yang menjelaskan. Jadi
+    // sekarang: peringatan merah yang tak bisa dilewatkan mata, tombol tetap
+    // hidup. Menaikkannya jadi gate = kembalikan `fotoPdiSiap` ke `enabled`
+    // di bawah, SETELAH petugas PDI diberi tahu.
+    //
+    // Server SENGAJA tak ikut ditegakkan sampai kapan pun soal ini diputuskan:
+    // `submit_pdi` menerima `readyPhotoUrl` opsional demi kompat APK lama
+    // (`delivery.rs:4702-4705`), jadi menyalakannya mematikan PDI di seluruh
+    // APK yang masih beredar, bukan cuma yang baru.
+    //
+    // `pdiPhotoConfirmed` ikut disyaratkan, bukan cuma `pdiPhoto != null` —
+    // pola sama `hasPhoto` di tiga tahap serah terima (`SetoranKasirAction`,
+    // `DeliverAction`, `SelfPickupCompleteAction`). Disebut NAMA, bukan nomor
+    // baris: berkas ini 4.700 baris dan sitasi baris di dalamnya sudah basi
+    // sebelum commit-nya mendarat — versi pertama komentar ini menunjuk :2419
+    // /:2897/:2968 yang sudah meleset 22 baris gara-gara hunk di atasnya
+    // sendiri, dan tiga tempat yang ditunjuknya tetap terlihat masuk akal
+    // sehingga kesalahannya tak menimbulkan kecurigaan.
+    val fotoPdiSiap = photoState.pdiPhoto != null && photoState.pdiPhotoConfirmed
+    if (!fotoPdiSiap) {
+        // Merah, bukan kuning: kuning di berkas ini (`Color(0xFFB5670C)`)
+        // dipakai untuk keadaan yang memang sedang menunggu pihak lain —
+        // approval aki. Yang ini menunggu petugas itu sendiri, dan ia akan
+        // melewatinya kalau warnanya tak menuntut apa-apa.
+        Text(
+            "Foto unit siap belum diambil — akan diwajibkan. Ambil sekarang selagi unitnya di depan kamu.",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.error,
+        )
+        Spacer(Modifier.height(8.dp))
+    }
     ExpressiveFilledButton(
         onClick = {
             val bodies = checklist.map { com.krisoft.tridjayaelektronik.data.model.PdiChecklistItemBody(item = it.itemLabel, hasil = hasil[it.id] ?: "ok", catatan = catatan[it.id]?.trim()?.ifBlank { null }) }
@@ -2379,7 +2462,10 @@ private fun SetoranKasirAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, s
     val context = LocalContext.current
     val file = remember { File(context.cacheDir, "delivery/setoran_${job.id}.jpg").apply { parentFile?.mkdirs() } }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onDeliverPhotoCaptured(file) }
+    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onDeliverPhotoCaptured(file) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
     // Nominal per unit-id. Kunci `job.id` supaya berpindah SPK mengosongkan
     // isian — kalau tidak, angka SPK sebelumnya ikut terkirim (pola sama
     // [ConfirmSpkAction], dan alasan Saver-nya ada di [petaJawabanSaver]).
@@ -2502,14 +2588,18 @@ private fun AssignAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, submitt
     Text("Assign Driver + Jadwal", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
     Spacer(Modifier.height(4.dp))
     // Fan-out `assign_driver` (2026-08-05). Konsekuensi operasional yang WAJIB
-    // disebut: memecah satu SPK ke dua driver tak lagi bisa lewat assign
-    // satu-satu — tugaskan sekali, lalu pindahkan unitnya lewat "reassign" di
-    // web (jalur itu sengaja TIDAK difan-out justru supaya pemecahan tetap
-    // mungkin). Tanpa kalimat ini DC akan mengira app-nya rusak.
+    // disebut: memecah satu SPK ke dua driver tak bisa lewat assign satu-satu —
+    // tugaskan sekali, lalu pindahkan unitnya lewat "Pindah Driver" (jalur
+    // `reassign` sengaja TIDAK difan-out justru supaya pemecahan tetap mungkin).
+    // Tanpa kalimat ini DC akan mengira app-nya rusak.
+    //
+    // Kalimat "lewat menu reassign di WEB" dibuang 2026-08-28: sejak
+    // `KelolaDriverAction` ada, jalurnya sudah ada di HP dan menyuruh DC pindah
+    // ke browser justru menyembunyikan tombol yang tepat di layar berikutnya.
     SpkFanOutNote(
         "Driver & jadwal ini berlaku untuk SELURUH unit SPK yang masih menunggu penjadwalan. " +
             "Unit \"diambil sendiri\" dilewati. Mau dipecah ke dua driver? Tugaskan sekali dulu, " +
-            "lalu pindahkan unitnya lewat menu reassign di web."
+            "lalu buka unitnya dan pakai \"Pindah Driver\"."
     )
     Spacer(Modifier.height(8.dp))
     // SEMUA driver ditampilkan, lintas cabang/region — se-cabang di atas, cabang
@@ -2595,6 +2685,164 @@ private fun AssignAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, submitt
 }
 
 /**
+ * Kelola driver pada unit yang SUDAH ditugaskan — Batalkan & Pindahkan.
+ *
+ * **Kenapa ini ada.** Sampai 2026-08-28 kedua endpoint-nya (`unassign`,
+ * `reassign`) hanya punya klien di web, jadi DC yang bekerja dari HP wajib
+ * pindah ke browser untuk koreksi salah-tugas — dan layar ini sendiri
+ * menyuruhnya begitu ("pindahkan unitnya lewat menu reassign di web").
+ *
+ * [bolehBatal] `false` saat unit sudah `in_transit`: server memang menolak
+ * `unassign` sesudah berangkat, jadi menampilkan tombolnya cuma menghasilkan
+ * pesan validasi. PINDAH tetap boleh sampai unit diterima konsumen.
+ *
+ * **Jalur ini TIDAK di-fan-out se-SPK** (beda dari `assign`), dan itu justru
+ * fiturnya: memecah satu SPK ke dua driver hanya bisa lewat sini.
+ */
+@Composable
+private fun KelolaDriverAction(
+    job: DeliveryJobDto,
+    vm: DeliveryFlowViewModel,
+    submitting: Boolean,
+    drivers: List<com.krisoft.tridjayaelektronik.data.model.DriverDto>,
+    bolehBatal: Boolean,
+) {
+    var mode by remember(job.id) { mutableStateOf("") }
+    var driverId by remember(job.id) { mutableStateOf("") }
+    var driverName by remember(job.id) { mutableStateOf("") }
+    var tanggal by remember(job.id) { mutableStateOf("") }
+    var alasan by remember(job.id) { mutableStateOf("") }
+
+    Text("Kelola Driver", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+    Spacer(Modifier.height(4.dp))
+    SpkFanOutNote(
+        if (bolehBatal) {
+            "Berlaku untuk UNIT INI SAJA, bukan seluruh SPK — inilah cara memecah satu SPK ke dua driver."
+        } else {
+            "Unit sudah berangkat: penugasan tak bisa dibatalkan, tapi masih bisa dipindahkan ke driver lain."
+        }
+    )
+    Spacer(Modifier.height(8.dp))
+    job.assignedDriverName?.takeIf { it.isNotBlank() }?.let {
+        Text(
+            "Driver sekarang: $it",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+    }
+
+    Row(modifier = Modifier.fillMaxWidth()) {
+        if (bolehBatal) {
+            OutlinedButton(
+                onClick = { mode = if (mode == "batal") "" else "batal" },
+                enabled = !submitting,
+                modifier = Modifier.weight(1f)
+            ) { Text(if (mode == "batal") "Tutup" else "Batalkan") }
+            Spacer(Modifier.width(8.dp))
+        }
+        OutlinedButton(
+            onClick = { mode = if (mode == "pindah") "" else "pindah" },
+            enabled = !submitting,
+            modifier = Modifier.weight(1f)
+        ) { Text(if (mode == "pindah") "Tutup" else "Pindah Driver") }
+    }
+
+    when (mode) {
+        "batal" -> {
+            Spacer(Modifier.height(10.dp))
+            // Alasan OPSIONAL di server, tapi ia masuk teks notifikasi driver
+            // yang unitnya ditarik — tanpa itu ia cuma tahu tugasnya hilang.
+            ExpressiveTextField(
+                alasan, { alasan = it },
+                label = "Alasan (dikirim ke driver)",
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(10.dp))
+            ExpressiveFilledButton(
+                onClick = { vm.unassign(job.id, alasan) { mode = ""; alasan = "" } },
+                enabled = !submitting,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (submitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                else Text("Batalkan Penugasan")
+            }
+        }
+        "pindah" -> {
+            Spacer(Modifier.height(10.dp))
+            // `driverBisaDitugaskan` + `effectiveId` dipakai ULANG dari jalur
+            // assign — himpunan driver yang sah sama persis, dan `effectiveId`
+            // (bukan `id`) itu yang dibandingkan server: `delivery_jobs
+            // .assigned_driver_id` huruf kecil sementara `auth_users.id`
+            // UPPERCASE.
+            val pindahable = driverBisaDitugaskan(drivers, job.kodeDealer)
+                // Driver yang SEDANG memegang unit ini dibuang dari pilihan —
+                // server menolaknya ("Driver baru sama dengan driver sekarang"),
+                // jadi menampilkannya cuma menawarkan tombol yang pasti gagal.
+                .filterNot { d ->
+                    job.assignedDriverId?.equals(d.effectiveId, ignoreCase = true) == true
+                }
+            if (pindahable.isEmpty()) {
+                Text(
+                    "Tak ada driver lain yang bisa dipilih untuk cabang ini.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                pindahable.forEach { d ->
+                    val sel = driverId == d.effectiveId
+                    Surface(
+                        onClick = { driverId = d.effectiveId; driverName = d.name },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+                            Text(
+                                d.name.ifBlank { d.effectiveId },
+                                color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis
+                            )
+                            val cabang = d.cabangName.trim()
+                            if (cabang.isNotEmpty()) {
+                                Text(
+                                    cabang, style = MaterialTheme.typography.labelSmall,
+                                    color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            // KOSONG = pertahankan tanggal yang ada. Sengaja tidak di-prefill
+            // dengan hari ini: memindahkan driver tak selalu berarti menggeser
+            // jadwal, dan prefill membuat penggeseran jadi efek samping senyap.
+            ExpressiveTextField(
+                tanggal, { tanggal = it },
+                label = "Jadwal baru (kosongkan = tetap)",
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(10.dp))
+            ExpressiveFilledButton(
+                onClick = {
+                    vm.reassign(job.id, driverId, driverName, tanggal) {
+                        mode = ""; driverId = ""; driverName = ""; tanggal = ""
+                    }
+                },
+                enabled = !submitting && driverId.trim().isNotEmpty(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (submitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                else Text("Pindahkan ke Driver Ini")
+            }
+        }
+    }
+}
+
+/**
  * Timestamp backend → epoch millis, penafsiran ikut BENTUK nilainya.
  *
  * Meneruskan ke [parseTimestampMillis] (router yang sama dipakai label
@@ -2623,12 +2871,18 @@ private fun DeliverAction(
     val file = remember { File(context.cacheDir, "delivery/deliver_$id.jpg").apply { parentFile?.mkdirs() } }
     val uri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
     val photoState by vm.state.collectAsState()
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onDeliverPhotoCaptured(file) }
+    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onDeliverPhotoCaptured(file) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
     // 088: foto bukti terima uang (wajib bila job.driverTerimaUang == true)
     val needCash = job.driverTerimaUang == true
     val cashFile = remember { File(context.cacheDir, "delivery/cash_$id.jpg").apply { parentFile?.mkdirs() } }
     val cashUri = remember { FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", cashFile) }
-    val cashCam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onCashPhotoCaptured(cashFile) }
+    val cashCam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onCashPhotoCaptured(cashFile) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
     // 088: checklist serah-terima stage=driver (fail-open bila kosong)
     val hasil = rememberSaveable(driverChecklist, saver = petaJawabanSaver) {
         mutableStateMapOf<String, String>().apply { driverChecklist.forEach { put(it.id, "ok") } }
@@ -2796,7 +3050,10 @@ private fun SelfPickupCompleteAction(job: DeliveryJobDto, vm: DeliveryFlowViewMo
     val photoState by vm.state.collectAsState()
     // Reuse slot foto [DeliveryFlowViewModel.onDeliverPhotoCaptured] — job self_pickup
     // (pending_scheduling) tak pernah bareng job in_transit (deliver) di layar yang sama.
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok -> if (ok) vm.onDeliverPhotoCaptured(file) }
+    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan — lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) vm.onDeliverPhotoCaptured(file) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
 
     photoState.deliverPhoto?.takeIf { !photoState.deliverPhotoConfirmed }?.let { bmp ->
         PhotoReviewDialog(bmp, onRetake = { vm.retakeDeliverPhoto() }, onConfirm = { vm.confirmDeliverPhoto() })
@@ -3134,7 +3391,12 @@ fun CreateSpkScreen(
     )
     val itemsValid = items.isNotEmpty() && items.all { it.issues().isEmpty() }
     val mapUrlWajib = deliveryMethodSel == "sales_delivery"
-    val mapUrlKurang = mapUrlWajib && mapUrl.isBlank()
+    // Isi yang SUDAH diketik tapi tak bisa dibuka driver = salah, apa pun
+    // metode kirimnya. Sengaja TIDAK ikut `mapUrlWajib`: server menolaknya
+    // untuk semua metode (`create_delivery`, 2026-08-30), dan menandainya hanya
+    // pada satu metode berarti sales metode lain baru tahu setelah 400.
+    val mapUrlSalahBentuk = mapUrl.isNotBlank() && !mapsTerpakai(mapUrl)
+    val mapUrlKurang = (mapUrlWajib && mapUrl.isBlank()) || mapUrlSalahBentuk
     val blocker = spkSubmitBlocker(
         pelanggan = pelanggan, telepon = telepon, nik = nik, mapUrl = mapUrl,
         deliveryMethod = deliveryMethodSel, spkCabang = spkCabang,
@@ -3193,10 +3455,20 @@ fun CreateSpkScreen(
                         label = if (mapUrlWajib) "Link Lokasi Maps *" else "Link Lokasi Maps",
                         keyboardType = KeyboardType.Uri,
                         modifier = Modifier.fillMaxWidth(),
-                        isError = attemptedSubmit && mapUrlKurang,
-                        supportingText = if (mapUrlWajib)
-                            "Wajib untuk Sales Antar Sendiri — tanpa ini job masuk antrian Delivery Control, bukan ke kamu."
-                        else null
+                        // Bentuk salah menyala SEKETIKA (tanpa menunggu
+                        // `attemptedSubmit`): sales sedang menatap field yang
+                        // baru ia isi, dan itu momen termurah untuk memperbaiki.
+                        // Yang KOSONG tetap menunggu percobaan kirim — menyalakan
+                        // merah pada field yang belum sempat diisi cuma derau.
+                        isError = mapUrlSalahBentuk || (attemptedSubmit && mapUrlKurang),
+                        supportingText = when {
+                            mapUrlSalahBentuk ->
+                                "Belum berupa link atau koordinat — tempel link dari Google Maps, atau kosongkan dulu."
+                            mapUrlWajib ->
+                                "Wajib untuk Sales Antar Sendiri — tanpa ini job masuk antrian Delivery Control, bukan ke kamu."
+                            else ->
+                                "Boleh dikosongkan — kamu akan diingatkan lagi setelah PDI selesai."
+                        }
                     )
 
                     SpkGrupLabel("Data tambahan (boleh dilewati)")
@@ -3392,7 +3664,9 @@ fun CreateSpkScreen(
                                 onRemove = { items = items.filterIndexed { i, _ -> i != idx } },
                                 onSerialFocus = { viewModel.ensureSerials(spkCabang, item.kodeBarang) },
                                 uploadPoPhoto = { file -> viewModel.uploadPoPhoto(file) },
-                                uploadBuktiAcc = { file -> viewModel.uploadBuktiAccPhoto(file) },
+                                uploadBuktiAcc = { file, dariGaleri ->
+                                    viewModel.uploadBuktiAccPhoto(file, dariGaleri)
+                                },
                                 deliveryMethod = deliveryMethodSel,
                             )
                         }
@@ -4460,6 +4734,105 @@ fun SpkDiskonDetailScreen(
     }
 }
 
+
+/**
+ * Isi/perbaiki **lokasi maps** unit ini.
+ *
+ * Aksi TERPISAH dari [EditSpkAction] karena jendelanya berbeda: sunting SPK
+ * berhenti sebelum PDI, lokasi maps boleh sampai unit terkirim. Endpointnya pun
+ * berbeda (`.../map-url`), dan menumpangkannya ke dialog sunting berarti
+ * menawarkan puluhan field lain di saat server hanya mengizinkan satu.
+ *
+ * Isi lama DITAMPILKAN apa adanya saat tak bisa dipakai. Sales yang menulis
+ * "hgl" merasa sudah mengisi — tanpa melihatnya ia akan mengira layar ini
+ * keliru. (1.008 dari 2.224 unit produksi berisi teks semacam itu, lebih banyak
+ * daripada yang kosong.)
+ */
+@Composable
+private fun IsiMapsAction(job: DeliveryJobDto, vm: DeliveryFlowViewModel, submitting: Boolean) {
+    var show by remember { mutableStateOf(false) }
+    // `job.id` sebagai kunci — berpindah unit harus mengosongkan isian, kalau
+    // tidak lokasi unit A tersimpan ke unit B.
+    var nilai by remember(job.id) { mutableStateOf("") }
+    var pesan by remember(job.id) { mutableStateOf<String?>(null) }
+    val isiLama = job.customerMapUrl.orEmpty().trim()
+    val sudahBaik = mapsTerpakai(isiLama)
+
+    OutlinedButton(
+        onClick = { nilai = if (sudahBaik) isiLama else ""; show = true },
+        enabled = !submitting,
+        modifier = Modifier.fillMaxWidth()
+    ) { Text(if (sudahBaik) "Ubah Lokasi Maps" else "Isi Lokasi Maps") }
+    if (!sudahBaik) {
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (isiLama.isEmpty()) {
+                "Belum ada lokasi — driver tidak bisa dijadwalkan."
+            } else {
+                "Lokasi \"$isiLama\" tidak bisa dibuka driver."
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.error
+        )
+    }
+    pesan?.let {
+        Spacer(Modifier.height(6.dp))
+        Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+    }
+
+    if (show) {
+        val sah = mapsTerpakai(nilai)
+        AlertDialog(
+            onDismissRequest = { if (!submitting) show = false },
+            title = { Text("Lokasi Maps Konsumen") },
+            text = {
+                Column {
+                    Text(
+                        "Driver memakai ini untuk menemukan alamat. Buka Google Maps -> cari " +
+                            "lokasi -> Bagikan -> Salin tautan.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    if (isiLama.isNotEmpty() && !sudahBaik) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Sekarang terisi \"$isiLama\" — tidak bisa dibuka.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    ExpressiveTextField(
+                        value = nilai,
+                        onValueChange = { nilai = it },
+                        label = "Link atau koordinat",
+                        placeholder = "https://maps.app.goo.gl/...",
+                        isError = nilai.isNotEmpty() && !sah,
+                        supportingText = if (nilai.isNotEmpty() && !sah) {
+                            "Belum berupa link atau koordinat."
+                        } else {
+                            "Boleh juga koordinat: -6.123456, 106.789012"
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !submitting && sah,
+                    onClick = {
+                        vm.setMapUrl(job.id, nilai.trim()) {
+                            show = false
+                            pesan = "Lokasi maps tersimpan"
+                        }
+                    }
+                ) { Text(if (submitting) "Menyimpan..." else "Simpan") }
+            },
+            dismissButton = {
+                TextButton(onClick = { show = false }, enabled = !submitting) { Text("Batal") }
+            }
+        )
+    }
+}
 
 /**
  * Koreksi salah input SPK oleh administrator (2026-08-01). Dialognya

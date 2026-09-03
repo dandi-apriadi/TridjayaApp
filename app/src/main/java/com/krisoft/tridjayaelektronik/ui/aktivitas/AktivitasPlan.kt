@@ -9,9 +9,22 @@ import com.krisoft.tridjayaelektronik.data.model.AktivitasItemDto
  */
 
 /**
- * Posisi aktivitas milik seorang karyawan berdasarkan `divisi`-nya. Port 1:1
- * dari `getPositionMatch` di web (`KaryawanAktivitasPage.tsx`) supaya daftar
- * aktivitas di HP sama persis dengan yang dinilai PIC di web.
+ * Posisi aktivitas milik seorang karyawan berdasarkan `divisi`-nya.
+ *
+ * **BUKAN port 1:1 dari web — komentar lama di sini mengklaim begitu dan itu
+ * sudah tidak benar.** Web (`utils/aktivitasDivisiMatch.ts`
+ * `cariDivisiAktivitas`) menormalkan KEDUA sisi lewat
+ * `normalizeAktivitasMatchKey`/`kunciDivisi` dan punya TINGKAT KETIGA yang
+ * dinilai per-tag dengan aturan ">1 kandidat = BERHENTI"; fungsi ini
+ * membandingkan `lowercase().trim()` MENTAH dan berhenti di `contains`.
+ * Urutan tingkatnya pun berbeda.
+ *
+ * Diukur di produksi 2026-08-27: hasilnya berbeda untuk **0 dari 164 akun**
+ * (34 akun memakai jalur ini, 36 tag unik, nol tag mengandung spasi maupun
+ * underscore), jadi ini utang dokumentasi — bukan cacat yang sedang berjalan.
+ * Kalau kodenya suatu saat dikerjakan, tulis ULANG sebagai cerminan `cocok
+ * (tingkat)` (loop per-tingkat di LUAR, per-divisi di DALAM), bukan tiga
+ * tambalan normalisasi — tambalan melestarikan perbedaan urutannya.
  *
  * `null` saat tak ada yang cocok — SENGAJA tak jatuh ke posisi pertama: karyawan
  * yang divisinya tak ada di master akan dinilai (dan didenda) memakai aktivitas
@@ -56,6 +69,22 @@ internal sealed interface PenempatanSaya {
 
     data class Ada(val positionId: String) : PenempatanSaya
 }
+
+/**
+ * Seluruh isi `GET /aktivitas-harian/penempatan-saya` yang dipakai layar ini.
+ *
+ * **Dibungkus jadi satu, BUKAN dua panggilan.** Blok `chatTrainee` menumpang
+ * endpoint yang sudah ada justru supaya tak ada rute baru dan tak ada
+ * round-trip kedua di jalur yang dibuka orang tiap pagi. Memisahnya jadi
+ * `chatTraineeSetting()` sendiri akan membatalkan alasan itu.
+ *
+ * [chatTrainee] `null` = gerbang chat tidak berlaku ATAU permintaannya gagal —
+ * satu arti, dan itu disengaja (fail-open). Lihat KDoc [AmbangChatTrainee].
+ */
+internal data class PenempatanSayaHasil(
+    val penempatan: PenempatanSaya,
+    val chatTrainee: AmbangChatTrainee? = null,
+)
 
 /**
  * Normalisasi kunci pencocokan — cerminan `normalizeAktivitasMatchKey` di

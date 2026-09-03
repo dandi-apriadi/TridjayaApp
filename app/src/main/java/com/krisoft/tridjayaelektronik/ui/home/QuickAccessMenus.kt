@@ -115,6 +115,12 @@ internal val KNOWN_ROLES: Set<String> = setOf(
     "agent", "hrd", "pic_raport", "pic-raport", "crm-manager", "ads-manager",
     "ai-engineer", "pdi", "kasir", "driver", "delivery-control",
     "indent-approver", "discount-approver", "aki-approver",
+    // `trainee` = role primary KELIMA sejak 2026-08-17 (paket 3.18d), BUKAN
+    // divisi. Ia sudah dipegang `CRM_INPUT_ROLES` + `STAFF_SELF_SERVICE_ROLES`
+    // di rust-shared sejak hari itu, tapi tak pernah didaftarkan di sini —
+    // sehingga `allowedRoles` mana pun yang menyebutnya akan divonis salah ketik
+    // oleh test dan cadangan offline-nya tak akan pernah bisa ditulis.
+    "trainee",
     // `cs` BUKAN lagi role hantu sejak migrasi 223 (2026-08-15): divisi
     // `verificator-dan-reporting` naik jadi divisi ber-akses, dan
     // `divisi_access_slugs` (rust-shared `auth.rs`) melipatnya jadi slug `cs`
@@ -126,12 +132,33 @@ internal val KNOWN_ROLES: Set<String> = setOf(
     // divonis salah ketik oleh test — jadi dua menu verifikator di bawah tak
     // akan bisa punya cadangan offline sama sekali.
     "cs",
+    // `staf-gudang` = slug divisi, dinaikkan dari label-only 2026-09-01
+    // (`auth.rs::divisi_access_slugs`). Enam akun aktif memegang divisi itu;
+    // empat di antaranya tak punya `admin-stok`, jadi sebelum kenaikan itu
+    // mereka tak melihat satu pun menu dari pos kerjanya. Tanpa baris di
+    // sini, `allowedRoles` yang menyebutnya divonis salah ketik oleh test.
+    "staf-gudang",
 )
 
+/**
+ * Cerminan `SPK_BLOCKED_ROLES` (rust-shared `capabilities.rs`) — daftar
+ * TERLARANG, karena `spk.pipeline` di backend memang dihitung dari DENYLIST.
+ *
+ * **Ditulis eksplisit sejak 2026-08-28, dan itu memperbaiki regresi nyata.**
+ * Sebelumnya baris ini berbunyi `KNOWN_ROLES - "ai-engineer"` dengan alasan
+ * "supaya role baru otomatis ikut, sama seperti backend" — premis yang benar
+ * HANYA selama backend meloloskan tiap role baru. Sejak `trainee` lahir
+ * (2026-08-17) itu tidak lagi benar: Rust memblokirnya. Begitu `trainee`
+ * ditambahkan ke [KNOWN_ROLES] (commit sinkronisasi role hari ini, demi Absen
+ * & Input Prospek yang memang haknya), selisih ini diam-diam memberinya kartu
+ * SPK juga — kartu yang `create_delivery` jawab 403, dan yang masterplan 3.18d
+ * justru ingin tutup. Denylist yang disalin apa adanya tak punya mode gagal itu.
+ */
+internal val SPK_BLOCKED_ROLES: Set<String> = setOf("ai-engineer", "trainee")
+
 /** `is_pipeline_actor` (inventory-service delivery.rs) meloloskan semua role
- *  KECUALI ai-engineer murni — dinyatakan sebagai selisih supaya role baru
- *  otomatis ikut, sama seperti backend. */
-internal val SPK_MENU_ROLES: Set<String> = KNOWN_ROLES - "ai-engineer"
+ *  KECUALI yang ada di [SPK_BLOCKED_ROLES]. */
+internal val SPK_MENU_ROLES: Set<String> = KNOWN_ROLES - SPK_BLOCKED_ROLES
 
 /**
  * Home Service — daftar role cadangan offline. Tinggal DI SINI, bukan di
@@ -209,6 +236,36 @@ internal val VERTEL_ROLES = setOf("cs", "admin", "superadmin")
 // menu lain juga pindah lagi nanti.
 internal val QUICK_ACCESS_MENUS: List<QuickAccessMenu> = listOf(
     QuickAccessMenu(
+        id = "klasemen_lapangan",
+        // Kunci BARU, sengaja bukan `klasemen.view` (audiens klasemen PENJUALAN,
+        // yang justru tak memuat driver maupun pdi). Daftar rolenya hidup di
+        // `KLASEMEN_OPERASIONAL_ROLES` — cadangan di bawah cuma dipakai saat
+        // peta kemampuan server belum termuat (offline / server lama).
+        capability = "klasemen.operasional",
+        label = "Klasemen Lapangan",
+        allowedRoles = setOf(
+            "driver", "pdi", "delivery-control", "kepala-cabang",
+            "sales-manager", "manager", "admin", "superadmin", "owner",
+        ),
+        backendGuard = "kinerja-service klasemen.rs LIHAT_ROLES (= KLASEMEN_OPERASIONAL_ROLES)",
+    ),
+    // `capability` dan `allowedRoles` di ubin ini SENGAJA tidak lagi sepadan
+    // sejak 2026-08-31, dan itu bukan cermin yang tertinggal:
+    //  * kunci `payroll.self` kini memakai `PAYROLL_SELF_ROLES` di rust-shared
+    //    (= `STAFF_SELF_SERVICE_ROLES` minus `trainee`) — keputusan user
+    //    membuang slip gaji dari masa training. Saat peta kemampuan TERBACA,
+    //    `gateAllows` memakai kunci ini, jadi ubin ini hilang untuk trainee;
+    //  * cadangan offline TETAP `STAFF_MENU_ROLES` (memuat `trainee`) karena
+    //    daftar itu juga memikul kartu Absen masuk & Absen pulang di
+    //    `ActivityRegistry.kt`. Membuat salinan minus-trainee khusus ubin ini
+    //    hanya berguna kalau server juga menolak trainee — dan ia TIDAK:
+    //    `VIEW_OWN_ROLES` sengaja dibiarkan luas, jadi trainee yang bersinyal
+    //    lemah melihat ubin ini beberapa detik lalu benar-benar bisa membukanya,
+    //    bukan dijawab 403.
+    // Kalau `VIEW_OWN_ROLES` kelak ikut dipersempit, ubin inilah yang wajib
+    // dapat daftar cadangannya sendiri — jangan mencabut `trainee` dari
+    // `STAFF_MENU_ROLES`, itu ikut mematikan kartu Absen.
+    QuickAccessMenu(
         id = "gaji",
         capability = "payroll.self",
         label = "Slip Gaji",
@@ -284,6 +341,22 @@ internal val QUICK_ACCESS_MENUS: List<QuickAccessMenu> = listOf(
         allowedRoles = SERIAL_INPUT_MENU_ROLES,
         backendGuard = "inventory-service serials.rs is_admin_stok_role",
     ),
+    // SN Goda — menambah serial number unit sepeda listrik GODA sambil memegang
+    // unitnya (scan barcode rangka). Kunci kemampuannya `goda.serial.add`, BUKAN
+    // `goda.view` maupun `goda.serial.edit`: layar ini HANYA memanggil `POST
+    // /goda/serial` (menambah SN baru) — `PUT /goda/serial/{id}` (mengganti SN
+    // yang sudah ada) sengaja tak diekspos di app (lihat dokumentasi modul GODA
+    // di atas). Kunci ini DIPISAH dari `goda.serial.edit` 2026-09-03 (permintaan
+    // user membuka akses TAMBAH untuk kepala-cabang/admin-penjualan/kasir, web
+    // DAN mobile, tanpa ikut membuka GANTI) — `allowedRoles` (`GODA_SERIAL_
+    // MENU_ROLES` di `HomeScreen.kt`) ikut melebar ke ketiganya di PR yang sama.
+    QuickAccessMenu(
+        id = "goda_serial",
+        capability = "goda.serial.add",
+        label = "SN Goda",
+        allowedRoles = GODA_SERIAL_MENU_ROLES,
+        backendGuard = "kinerja-service goda.rs tambah_sn + rust-shared capabilities.rs GODA_SERIAL_ADD_ROLES",
+    ),
     QuickAccessMenu(
         id = "deadstock",
         capability = "deadstock.cabang",
@@ -319,6 +392,16 @@ internal val QUICK_ACCESS_MENUS: List<QuickAccessMenu> = listOf(
         label = "Lapor Komplain",
         allowedRoles = HS_LAPOR_ROLES,
         backendGuard = "tanpa guard: kinerja-service home_service/handlers.rs create_ticket login-only (self-scoped)",
+    ),
+    QuickAccessMenu(
+        id = "komplain_saya",
+        // `null` dengan alasan yang SAMA seperti tetangga di atas — jalur
+        // `sayaLapor` self-scoped (server memaksa `pelapor_user_id` = id aktor).
+        // Siapa pun yang boleh melapor harus bisa melihat laporannya sendiri.
+        capability = null,
+        label = "Komplain Saya",
+        allowedRoles = HS_LAPOR_ROLES,
+        backendGuard = "tanpa guard: kinerja-service home_service/service.rs list sayaLapor (self-scoped, pelapor_user_id = id aktor)",
     ),
     QuickAccessMenu(
         id = "komplain_tugas",

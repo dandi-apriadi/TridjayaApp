@@ -223,6 +223,36 @@ const val MAX_SPK_UNIT = 10
  * sendiri kalau `customer_map_url` terisi; kosong = fail-soft diam ke antrian
  * Delivery Control.
  */
+/**
+ * Lokasi maps BISA DIPAKAI driver? Cerminan `maps_terpakai` (Rust
+ * `delivery.rs`) dan `mapsTerpakai` (web `deliveryAccess.ts`).
+ *
+ * **"Terisi" TIDAK sama dengan "bisa dipakai".** Gerbang penugasan driver di
+ * server hanya menuntut kolomnya tak kosong, dan hasilnya terukur di produksi
+ * 2026-08-30: dari 2.224 unit, 985 kosong tapi **1.008 berisi teks bebas** dan
+ * hanya 231 membawa tautan. Isi teratas singkatan lokal — "hgl" 236x, "sbg"
+ * 44x, "pmk" 21x — beserta kalimat yang bukan lokasi ("sesuai sharelok").
+ * Dari 1.045 unit yang pernah sampai ke tangan driver hanya 129 (12,3%)
+ * membawa tautan yang bisa dibuka.
+ *
+ * **Sengaja permisif soal DOMAIN**: menerima http/https apa pun dan pasangan
+ * koordinat, bukan hanya `maps.app.goo.gl`. Orang memakai tautan pendek, Apple
+ * Maps, hasil bagikan WhatsApp; salah-tolak di sini jauh lebih mahal daripada
+ * meloloskan satu tautan aneh.
+ *
+ * Ketiga salinan (Rust, web, di sini) HARUS sepakat — kalau tidak, app menahan
+ * isian yang server terima, atau meloloskan yang server tolak dengan 400.
+ */
+fun mapsTerpakai(nilai: String?): Boolean {
+    val t = (nilai ?: "").trim()
+    if (t.length < 8) return false
+    val rendah = t.lowercase()
+    if (rendah.startsWith("http://") || rendah.startsWith("https://")) return true
+    // "-6.123456, 106.789012" — koordinat mentah tetap bisa dibuka driver.
+    val bagian = t.split(",")
+    return bagian.size == 2 && bagian.all { it.trim().toDoubleOrNull() != null }
+}
+
 fun spkSubmitBlocker(
     pelanggan: String,
     telepon: String,
@@ -238,6 +268,17 @@ fun spkSubmitBlocker(
     nik.isNotEmpty() && nik.length != 16 -> "NIK harus 16 digit angka."
     deliveryMethod == "sales_delivery" && mapUrl.isBlank() ->
         "Isi Link Lokasi Maps — wajib untuk metode Sales Antar Sendiri."
+    // Cerminan validasi `create_delivery` (server, 2026-08-30): yang SUDAH
+    // diketik harus bisa dibuka driver. Kosong tetap boleh — mewajibkannya di
+    // sini akan menghentikan pembuatan SPK untuk sales yang memang belum
+    // memegang lokasinya, dan alur susulan (notifikasi + layar isi maps) sudah
+    // menangkapnya.
+    //
+    // Tanpa cerminan ini sales baru tahu setelah menekan Simpan dan menerima
+    // 400 atas form yang panjang.
+    mapUrl.isNotBlank() && !mapsTerpakai(mapUrl) ->
+        "Link Lokasi Maps belum berupa link atau koordinat — tempel link dari " +
+            "Google Maps, atau kosongkan dulu."
     spkCabang.isBlank() -> "Pilih cabang dulu."
     itemsCount == 0 -> "Tambah minimal 1 barang dari pencarian stok."
     itemsCount > MAX_SPK_BARIS -> "Maksimal $MAX_SPK_BARIS barang per SPK"

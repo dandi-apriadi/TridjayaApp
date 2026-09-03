@@ -16,11 +16,13 @@ import com.krisoft.tridjayaelektronik.data.model.HsTicketDetailDto
 import com.krisoft.tridjayaelektronik.util.PhotoWatermark
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 
@@ -142,22 +144,31 @@ class HomeServiceDetailViewModel @Inject constructor(
     /**
      * Foto bukti dari kamera → watermark (judul + jam/lokasi dicap KE PIKSEL,
      * util yang sama dipakai absensi/PDI) → unggah → URL relatif.
+     *
+     * **`withContext(Dispatchers.Default)` WAJIB.** `viewModelScope` berjalan di
+     * `Dispatchers.Main.immediate`, jadi dekode + skala + rotasi EXIF + loop
+     * kompresi WebP di util itu membekukan layar teknisi persis saat ia menutup
+     * kunjungan di lapangan. `HomeServiceLaporViewModel` (jalur lapor, layar
+     * tetangga) sudah memakainya sejak awal — layar ini yang tertinggal.
+     * Dijaga `PhotoWatermarkGuardTest`.
      */
     fun unggahFoto(file: File, judul: String, lat: Double? = null, lng: Double? = null) {
         _state.update { it.copy(mengunggahFoto = true, error = null) }
         viewModelScope.launch {
-            val siap = PhotoWatermark.prepareWatermarkedJpeg(
-                file = file,
-                lat = lat,
-                lng = lng,
-                title = judul,
-                subtitle = _state.value.tiket?.nomorTiket.orEmpty(),
-            )
+            val siap = withContext(Dispatchers.Default) {
+                PhotoWatermark.prepareWatermarkedJpeg(
+                    file = file,
+                    lat = lat,
+                    lng = lng,
+                    title = judul,
+                    subtitle = _state.value.tiket?.nomorTiket.orEmpty(),
+                )
+            }
             if (siap == null) {
                 _state.update { it.copy(mengunggahFoto = false, error = "Foto tidak terbaca, ulangi.") }
                 return@launch
             }
-            when (val r = repository.uploadPhoto(siap.first, "home-service.jpg")) {
+            when (val r = repository.uploadPhoto(siap.first, "home-service.webp")) {
                 is AuthResult.Success -> _state.update {
                     it.copy(mengunggahFoto = false, fotoTerunggah = it.fotoTerunggah + r.data)
                 }
@@ -228,8 +239,25 @@ class HomeServiceDetailViewModel @Inject constructor(
     fun tugaskanDriver(driverId: String, tanggal: String?) =
         jalankan { repository.assignTarik(ticketId, driverId, jadwalUntukServer(tanggal)) }
 
+    /**
+     * **`lastOrNull`, BUKAN `firstOrNull` (2026-08-29).** [fotoTerunggah] hanya
+     * BERTAMBAH — [unggahFoto] menulis `it.fotoTerunggah + r.data`, tak pernah
+     * mengganti — sementara aksi ini cuma mengirim SATU foto. Yang membuat
+     * elemen pertama berbahaya adalah tombolnya sendiri: ia berbunyi "Foto siap
+     * — **jepret ulang**", jadi satu-satunya cara memperbaiki foto yang salah
+     * adalah tindakan yang dijamin gagal memperbaikinya. Nol error; server
+     * menerima URL apa pun sebagai bukti serah terima.
+     *
+     * Sisa yang sengaja dibiarkan: jepretan yang ditinggalkan tetap terunggah
+     * di server sebagai berkas yatim. Itu ongkos penyimpanan, bukan bukti yang
+     * salah — beda kelas dari yang diperbaiki di sini.
+     *
+     * Aturannya hidup di [fotoUntukAmbilUnit] (fungsi murni, diuji) supaya
+     * satu kata yang salah tak bisa kembali tanpa gerbang. Baca doc-nya juga
+     * untuk alasan kenapa ini BUKAN penjaga kebocoran lintas-tahap.
+     */
     fun tandaiUnitDiambil(catatan: String?) = jalankan {
-        repository.ambilUnit(ticketId, _state.value.fotoTerunggah.firstOrNull(), catatan)
+        repository.ambilUnit(ticketId, fotoUntukAmbilUnit(_state.value.fotoTerunggah), catatan)
     }
 
     fun hapusPesan() = _state.update { it.copy(pesan = null, error = null) }

@@ -7,8 +7,10 @@ import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.KuponGebyarRepository
 import com.krisoft.tridjayaelektronik.data.model.KuponGebyarBarisDto
 import com.krisoft.tridjayaelektronik.data.model.KuponGebyarDaftarDto
+import com.krisoft.tridjayaelektronik.ui.aktivitas.pesanGagalDekode
 import com.krisoft.tridjayaelektronik.util.PhotoWatermark
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 
@@ -164,31 +167,58 @@ class KuponGebyarViewModel @Inject constructor(
      * diambil tak lebih berguna daripada tak ada foto — dan yang dipertaruhkan
      * di sini hadiah doorprize.
      */
-    fun unggahBukti(baris: KuponGebyarBarisDto, file: File, catatan: String?) {
+    fun unggahBukti(
+        baris: KuponGebyarBarisDto,
+        file: File,
+        catatan: String?,
+        dariGaleri: Boolean = false,
+    ) {
         if (_state.value.mengunggah) return
         _state.update { it.copy(mengunggah = true, actionError = null) }
         viewModelScope.launch {
             val user = authRepository.cachedUser
-            val siap = PhotoWatermark.prepareWatermarkedJpeg(
-                file = file,
-                lat = null,
-                lng = null,
-                title = "TRIDJAYA · UNDANGAN GEBYAR",
-                subtitle = listOfNotNull(
-                    baris.nama.takeIf { it.isNotBlank() },
-                    user?.name?.takeIf { it.isNotBlank() },
-                ).joinToString(" · "),
-            )
+            // `withContext(Dispatchers.Default)` WAJIB — `viewModelScope`
+            // berjalan di `Dispatchers.Main.immediate`, jadi tanpa ini seluruh
+            // decode + penskalaan + rotasi EXIF + kompresi WebP mengunci UI
+            // thread. Enam pemanggil `PhotoWatermark` lain sudah begitu
+            // (`AttendanceViewModel`, `AktivitasViewModel`, `DeliveryFlowViewModel`,
+            // `OpnameDetailViewModel` ×2, `HomeServiceLaporViewModel`); layar ini
+            // ketinggalan. Yang membuatnya lebih menggigit di sini: foto galeri
+            // bisa jauh lebih besar dari jepretan kamera, dan spinner
+            // `mengunggah` bahkan tak sempat dirender karena coroutine-nya
+            // mulai undispatched di thread yang sama.
+            val siap = withContext(Dispatchers.Default) {
+                PhotoWatermark.prepareWatermarkedJpeg(
+                    file = file,
+                    lat = null,
+                    lng = null,
+                    title = "TRIDJAYA · UNDANGAN GEBYAR",
+                    subtitle = listOfNotNull(
+                        baris.nama.takeIf { it.isNotBlank() },
+                        user?.name?.takeIf { it.isNotBlank() },
+                    ).joinToString(" · "),
+                )
+            }
             if (siap == null) {
+                // Sebabnya BEDA menurut sumber foto, dan "ulangi" salah untuk
+                // salah satunya. `BitmapFactory` baru bisa HEIF di API 28
+                // sedangkan minSdk 24, jadi HEIC yang MASUK dari luar (iPhone,
+                // Bluetooth, kartu SD) ke HP Android 7/8 gagal dekode
+                // SELAMANYA untuk berkas itu — menyuruh mengulang berarti
+                // menyuruh mengulang hal yang dijamin gagal lagi. Jalur kamera
+                // tak punya masalah itu, foto barunya memang bisa menolong.
+                // Kalimatnya dipakai ULANG dari `pesanGagalDekode` (jalur
+                // raport sudah menyelesaikan ini lebih dulu) supaya satu
+                // kegagalan tak dijelaskan dua cara berbeda di dua layar.
                 _state.update {
-                    it.copy(mengunggah = false, actionError = "Foto tidak terbaca, ulangi.")
+                    it.copy(mengunggah = false, actionError = pesanGagalDekode(dariGaleri))
                 }
                 return@launch
             }
             val url = when (
                 val up = repository.unggahFoto(
                     siap.first,
-                    "gebyar_${baris.kodeRekanan}_${System.currentTimeMillis()}.jpg",
+                    "gebyar_${baris.kodeRekanan}_${System.currentTimeMillis()}.webp",
                 )
             ) {
                 is AuthResult.Success -> up.data

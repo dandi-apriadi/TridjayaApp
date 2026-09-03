@@ -1,5 +1,6 @@
 package com.krisoft.tridjayaelektronik.ui.homeservice
 
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -49,6 +50,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.ClayCard
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveFilledButton
 import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveOutlinedButton
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import java.io.File
 
 /**
@@ -75,7 +77,11 @@ fun HomeServiceLaporScreen(
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", fileKwitansi)
     }
     val kamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        // `ok == false` tak lagi ditelan: kegagalan simpan foto kamera dulu
+        // menghasilkan nol pesan, jadi petugas menyangka buktinya terkirim.
+        // Lihat [PESAN_KAMERA_TAK_TERSIMPAN].
         if (ok) viewModel.unggahKwitansi(fileKwitansi)
+        else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
     }
 
     TridjayaCollapsibleHeader(title = "Lapor Komplain", onBack = onBack) { contentModifier ->

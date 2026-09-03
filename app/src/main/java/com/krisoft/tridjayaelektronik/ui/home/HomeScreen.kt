@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.PhoneInTalk
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Discount
 import androidx.compose.material.icons.rounded.PointOfSale
+import androidx.compose.material.icons.rounded.ElectricBike
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.CalendarToday
@@ -126,12 +127,15 @@ fun HomeScreen(
     onQuickAccessKpi: () -> Unit = {},
     onQuickAccessHargaGs: () -> Unit = {},
     onQuickAccessSerialInput: () -> Unit = {},
+    onQuickAccessGodaSerial: () -> Unit = {},
     onQuickAccessDeadstock: () -> Unit = {},
     onQuickAccessMutasiHistori: () -> Unit = {},
     onKomplainLapor: () -> Unit = {},
+    onKomplainSaya: () -> Unit = {},
     onKomplainTugas: () -> Unit = {},
     onPemasanganAcKontrol: () -> Unit = {},
     onVertel: () -> Unit = {},
+    onKlasemenLapangan: () -> Unit = {},
     /** Buka satu menu alur SPK berdasarkan key: input/diskon/kasir/pdi/kontrol/driver. */
     onSpkMenu: (String) -> Unit = {},
     /** Buka layar isi prospek untuk satu event (id-nya). */
@@ -228,9 +232,10 @@ fun HomeScreen(
                                     onQuickAccessInventory, onQuickAccessSearch, onQuickAccessLeads, onQuickAccessIndent, onQuickAccessSales,
                                     onQuickAccessOpname, onQuickAccessAbsen, onQuickAccessGaji, onQuickAccessKpi,
                                     onQuickAccessHargaGs,
-                                    onQuickAccessSerialInput, onQuickAccessDeadstock, onQuickAccessMutasiHistori,
-                                    onKomplainLapor, onKomplainTugas,
-                                    onPemasanganAcKontrol, onVertel,
+                                    onQuickAccessSerialInput, onQuickAccessGodaSerial,
+                                    onQuickAccessDeadstock, onQuickAccessMutasiHistori,
+                                    onKomplainLapor, onKomplainSaya, onKomplainTugas,
+                                    onPemasanganAcKontrol, onVertel, onKlasemenLapangan,
                                     onSpkMenu
                                 )
                             }
@@ -261,12 +266,15 @@ private fun LazyListScope.homeSection(
     onQuickAccessKpi: () -> Unit,
     onQuickAccessHargaGs: () -> Unit,
     onQuickAccessSerialInput: () -> Unit,
+    onQuickAccessGodaSerial: () -> Unit,
     onQuickAccessDeadstock: () -> Unit,
     onQuickAccessMutasiHistori: () -> Unit,
     onKomplainLapor: () -> Unit,
+    onKomplainSaya: () -> Unit,
     onKomplainTugas: () -> Unit,
     onPemasanganAcKontrol: () -> Unit,
     onVertel: () -> Unit,
+    onKlasemenLapangan: () -> Unit,
     onSpkMenu: (String) -> Unit
 ) {
     when (section) {
@@ -297,12 +305,15 @@ private fun LazyListScope.homeSection(
                     onKpi = onQuickAccessKpi,
                     onHargaGs = onQuickAccessHargaGs,
                     onSerialInput = onQuickAccessSerialInput,
+                    onGodaSerial = onQuickAccessGodaSerial,
                     onDeadstock = onQuickAccessDeadstock,
                     onMutasiHistori = onQuickAccessMutasiHistori,
                     onKomplainLapor = onKomplainLapor,
+                    onKomplainSaya = onKomplainSaya,
                     onKomplainTugas = onKomplainTugas,
                     onPemasanganAcKontrol = onPemasanganAcKontrol,
                     onVertel = onVertel,
+                    onKlasemenLapangan = onKlasemenLapangan,
                     onSpkMenu = onSpkMenu,
                 )
             }
@@ -462,6 +473,37 @@ internal val HARGA_GS_MENU_ROLES = setOf("admin", "manager", "owner", "kepala-ca
 /** `is_admin_stok_role` di `serials.rs` — POST /inventory/serial-numbers hanya role ini. */
 internal val SERIAL_INPUT_MENU_ROLES = setOf("admin-stok")
 
+/**
+ * Cerminan `GODA_SERIAL_ADD_ROLES` (rust-shared `capabilities.rs`, dipisah dari
+ * `GODA_SERIAL_EDIT_ROLES` 2026-09-03) — PENAMBAH registry SN GODA, bukan
+ * pembacanya maupun penulis-ganti.
+ *
+ * Sengaja BUKAN `GODA_VIEW_ROLES` yang lebih luas (manager/owner ikut di
+ * sana, tapi TIDAK boleh menambah/mengganti). Menu mobile ini satu-satunya
+ * isinya adalah MENAMBAH SN (`POST`, bukan `PUT` — lihat `ui/goda/`), jadi
+ * daftar pembaca akan membuka layar yang tombol simpannya dijawab 403 — persis
+ * "menu mati" yang CLAUDE.md repo ini ingin cegah. Gateway sendiri tetap
+ * meloloskan pembaca (`require_goda_access` = `GODA_VIEW_ROLES`); penyempitan
+ * untuk penulisan terjadi di service, dan cadangan offline ini mencerminkan
+ * lapis yang menolak, bukan lapis yang meloloskan.
+ *
+ * `kepala-cabang`/`admin-penjualan`/`kasir` ikut sejak 2026-09-03 (permintaan
+ * user membuka akses TAMBAH SN, web DAN mobile — dua sisi menu yang sama):
+ * ketiganya boleh menambah SN yang belum terdaftar dari HP saat unit diterima
+ * cabang, TAPI TIDAK ikut `GODA_SERIAL_EDIT_ROLES` (mengganti SN yang sudah
+ * ada tetap admin-stok/admin/superadmin/staf-gudang saja — registry tanpa
+ * tabel riwayat, keputusan eksplisit user saat ditanya).
+ */
+internal val GODA_SERIAL_MENU_ROLES = setOf(
+    "admin-stok",
+    "admin",
+    "superadmin",
+    "staf-gudang",
+    "kepala-cabang",
+    "admin-penjualan",
+    "kasir",
+)
+
 /** `is_cabang_role` di `deadstock/mod.rs` (dealer dipaksa backend, anti-IDOR) — manager
  *  punya mode terpisah (monitoring+audit, web-only) jadi tidak termasuk di sini. */
 internal val DEADSTOCK_MENU_ROLES = setOf("karyawan", "kepala-cabang", "admin-stok")
@@ -494,9 +536,18 @@ internal fun canAccessMutasiHistori(roles: Set<String>): Boolean =
 
 /** `STAFF_ROLES` di kinerja-service (`absensi.rs`) — dipakai absensi DAN slip
  *  gaji (`VIEW_OWN_ROLES = STAFF_ROLES`). `crm-manager`/`ai-engineer` TIDAK ada
- *  di sana, jadi dua menu itu 403 untuk mereka. */
+ *  di sana, jadi dua menu itu 403 untuk mereka.
+ *
+ *  Cerminan `STAFF_SELF_SERVICE_ROLES` (rust-shared `capabilities.rs`).
+ *  **`trainee` ditambahkan 2026-08-28** — ia sudah ada di sisi Rust sejak role
+ *  itu lahir (17 Agt, paket 3.18d) dengan alasan yang ditulis eksplisit di sana:
+ *  trainee WAJIB bisa absen di hari pertamanya, dan `attendance/report.rs`
+ *  menyaring `LOWER(u.role) IN (...)` dari daftar yang sama. Cerminan di sini
+ *  tertinggal, jadi trainee yang membuka app saat peta kemampuan belum termuat
+ *  (sinyal lemah, bukan cuma mode pesawat) kehilangan kartu Absen & Slip Gaji —
+ *  padahal server mengizinkannya. */
 internal val STAFF_MENU_ROLES = setOf(
-    "karyawan", "kepala-cabang", "admin-sales", "sales", "pdi", "driver", "kasir",
+    "karyawan", "trainee", "kepala-cabang", "admin-sales", "sales", "pdi", "driver", "kasir",
     "delivery-control", "admin-stok", "operator", "agent", "hrd", "manager", "admin",
     "superadmin", "owner",
 )
@@ -528,7 +579,26 @@ internal fun canAccessSpk(roles: Set<String>): Boolean =
  *  (laporan user: kepala cabang ber-`is_sales` punya target prospek harian tapi
  *  tak punya menu untuk mengisinya). Daftar ini cuma CADANGAN saat peta
  *  `/api/me/capabilities` belum termuat — lihat `gateAllows`; saat online
- *  server yang memutuskan, jadi perbaikan backend berlaku tanpa APK baru. */
+ *  server yang memutuskan, jadi perbaikan backend berlaku tanpa APK baru.
+ *
+ *  **`trainee` DICABUT 2026-08-31 (keputusan user), setelah sempat ditambahkan
+ *  2026-08-28.** Alasan penambahan dulu — "prospek harian adalah SATU-SATUNYA
+ *  pekerjaan trainee yang menghasilkan angka" — sudah tidak berlaku: masa
+ *  training dipersempit ke Data Inventory + Aktivitas Harian + Pengaturan Akun,
+ *  dan `CRM_INPUT_ROLES` di rust-shared ikut mencabutnya di paket yang sama.
+ *  Konsekuensi yang diukur, bukan diasumsikan: scorecard training kehilangan
+ *  sumber `prospek_rata_rata`/`closing_terverifikasi`, jadi keduanya dilaporkan
+ *  "tidak diukur" — BUKAN angka 0 — supaya vonis kelulusan tidak melawan sinyal
+ *  yang memang tak punya sumber lagi.
+ *
+ *  **Kenapa cadangan offline ini WAJIB ikut dicabut, bukan cukup sisi server.**
+ *  Kartu "Input prospek" (`ActivityRegistry.kt`) ber-`capability = "crm.input"`,
+ *  jadi saat ONLINE ia hilang sendiri begitu peta kemampuan datang. Yang tersisa
+ *  adalah jendela sebelum peta itu termuat (sinyal lemah, bukan cuma mode
+ *  pesawat): trainee melihat kartunya beberapa detik, mengetuknya, lalu dijawab
+ *  403 — bentuk "menu mati" yang justru ingin dicegah CLAUDE.md repo ini.
+ *  `CadanganRoleCerminRustTest` membaca `capabilities.rs` LANGSUNG, jadi
+ *  pencabutan di satu sisi saja langsung merah. */
 internal val CRM_MENU_ROLES =
     setOf("karyawan", "kepala-cabang", "crm-manager", "admin", "superadmin")
 
@@ -571,12 +641,15 @@ private fun QuickAccessRow(
     onKpi: () -> Unit,
     onHargaGs: () -> Unit,
     onSerialInput: () -> Unit,
+    onGodaSerial: () -> Unit,
     onDeadstock: () -> Unit,
     onMutasiHistori: () -> Unit,
     onKomplainLapor: () -> Unit,
+    onKomplainSaya: () -> Unit,
     onKomplainTugas: () -> Unit,
     onPemasanganAcKontrol: () -> Unit,
     onVertel: () -> Unit,
+    onKlasemenLapangan: () -> Unit,
     onSpkMenu: (String) -> Unit,
 ) {
     // Tile dirender dari REGISTRI (`QuickAccessMenus.kt`) — hak akses tiap menu
@@ -607,12 +680,15 @@ private fun QuickAccessRow(
                         "crm" -> onLeads()
                         "indent" -> onIndent()
                         "klasemen" -> onSales()
+                        "klasemen_lapangan" -> onKlasemenLapangan()
                         "opname" -> onOpname()
                         "harga_gs" -> onHargaGs()
                         "serial_input" -> onSerialInput()
+                        "goda_serial" -> onGodaSerial()
                         "deadstock" -> onDeadstock()
                         "mutasi_histori" -> onMutasiHistori()
                         "komplain_lapor" -> onKomplainLapor()
+                        "komplain_saya" -> onKomplainSaya()
                         "komplain_tugas" -> onKomplainTugas()
                         "pemasangan_ac_kontrol" -> onPemasanganAcKontrol()
                         "vertel" -> onVertel()
@@ -638,15 +714,18 @@ private fun quickAccessVisual(id: String): Pair<androidx.compose.ui.graphics.vec
     "crm" -> Pair(Icons.Rounded.Groups, MaterialTheme.colorScheme.tertiary)
     "indent" -> Pair(Icons.Rounded.PlaylistAddCheck, MaterialTheme.colorScheme.secondary)
     "klasemen" -> Pair(Icons.Rounded.BarChart, Color(0xFF12B76A))
+    "klasemen_lapangan" -> Pair(Icons.Rounded.EmojiEvents, Color(0xFFF79009))
     "opname" -> Pair(Icons.Rounded.FactCheck, Color(0xFF0BA5EC))
     "harga_gs" -> Pair(Icons.Rounded.PriceChange, Color(0xFFF79009))
     "serial_input" -> Pair(Icons.Rounded.Numbers, Color(0xFF667085))
+    "goda_serial" -> Pair(Icons.Rounded.ElectricBike, Color(0xFF12B76A))
     "deadstock" -> Pair(Icons.Rounded.Inventory2, Color(0xFFB54708))
     "mutasi_histori" -> Pair(Icons.Rounded.SwapHoriz, Color(0xFF7A5AF8))
     // Warna merah yang sama dipakai kartu komplain di layar Activity
     // (`ActivityScreen.kt`), supaya modul yang sama tak berganti rupa
     // tergantung dari mana ia dibuka.
     "komplain_lapor" -> Pair(Icons.Rounded.Build, Color(0xFFD92D20))
+    "komplain_saya" -> Pair(Icons.Rounded.Build, Color(0xFFB5670C))
     "komplain_tugas" -> Pair(Icons.Rounded.HomeRepairService, Color(0xFFD92D20))
     // Ikon yang sama dengan kartu "Tugas Pemasangan AC" di layar Activity:
     // dua sisi modul yang sama tak boleh berganti rupa tergantung dari mana

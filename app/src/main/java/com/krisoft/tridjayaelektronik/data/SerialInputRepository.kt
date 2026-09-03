@@ -192,7 +192,7 @@ class SerialInputRepository @Inject constructor(
 
     /** Foto bukti usulan (JPEG sudah dikompres pemanggil) → URL relatif. */
     suspend fun uploadPhoto(bytes: ByteArray, filename: String): AuthResult<String> = try {
-        val part = MultipartBody.Part.createFormData("file", filename, bytes.toRequestBody("image/jpeg".toMediaType()))
+        val part = MultipartBody.Part.createFormData("file", filename, bytes.toRequestBody("image/webp".toMediaType()))
         val response = api.uploadSerialPhoto(part)
         val data = response.body()?.data
         if (response.isSuccessful && data != null && data.url.isNotBlank()) AuthResult.Success(data.url)

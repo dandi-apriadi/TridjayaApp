@@ -8,6 +8,8 @@ import com.krisoft.tridjayaelektronik.data.model.ManualUnitListData
 import com.krisoft.tridjayaelektronik.data.model.OpnameDetailDto
 import com.krisoft.tridjayaelektronik.data.model.RejectUnitBody
 import com.krisoft.tridjayaelektronik.ui.opname.buangUnit
+import com.krisoft.tridjayaelektronik.ui.opname.rencanaApproveMassal
+import com.krisoft.tridjayaelektronik.ui.opname.ringkasHasilMassal
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -152,6 +154,65 @@ class OpnameValidasiTest {
         assertEquals(listOf("u1", "u3"), buangUnit(items, "u2").map { it.id })
         // Id yang tak ada tak boleh mengosongkan daftar.
         assertEquals(3, buangUnit(items, "u9").size)
+    }
+
+    // ── Approve massal ───────────────────────────────────────────────────────
+
+    /**
+     * `approve-batch` ber-path `/opname/{id}/units/approve-batch` — SATU
+     * panggilan hanya menyentuh SATU sesi, sedangkan antrian layar ini datang
+     * dari `GET /opname/manual-units` yang LINTAS-sesi. Tanpa pengelompokan,
+     * unit sesi lain dikirim ke sessionId yang salah dan dilaporkan gagal.
+     */
+    @Test
+    fun `rencana massal mengelompokkan unit per sesi`() {
+        val items = listOf(
+            ManualUnitDto(id = "a1", sessionId = "S1"),
+            ManualUnitDto(id = "b1", sessionId = "S2"),
+            ManualUnitDto(id = "a2", sessionId = "S1"),
+        )
+        val rencana = rencanaApproveMassal(items)
+        assertEquals(2, rencana.size)
+        assertEquals("S1" to listOf("a1", "a2"), rencana[0])
+        assertEquals("S2" to listOf("b1"), rencana[1])
+    }
+
+    /** Baris tanpa `sessionId` tak punya tujuan panggilan — dibuang, bukan
+     *  dikirim ke path kosong yang jadi 404. */
+    @Test
+    fun `unit tanpa sessionId tidak ikut rencana`() {
+        val rencana = rencanaApproveMassal(
+            listOf(ManualUnitDto(id = "x", sessionId = ""), ManualUnitDto(id = "y", sessionId = "S1"))
+        )
+        assertEquals(listOf("S1" to listOf("y")), rencana)
+    }
+
+    /**
+     * Daftar KOSONG ditolak sebelum menyentuh jaringan: server memperlakukan
+     * `unitIds: []` sebagai "SELURUH pending sesi ini", jadi mengirimnya berarti
+     * menyetujui unit yang tak pernah tampil di layar pemutusnya.
+     */
+    @Test
+    fun `approve massal menolak daftar kosong sebelum menyentuh jaringan`() = runBlocking {
+        val api = FakeApi()
+
+        val hasil = repo(api).approveManualUnitsBatch(sessionId, emptyList())
+
+        assertTrue(hasil is AuthResult.Failure)
+        assertEquals("validation", (hasil as AuthResult.Failure).code)
+    }
+
+    /**
+     * `gagal > 0` adalah hasil yang SAH (unit sudah diputus orang lain di sela),
+     * bukan error — kalimatnya harus menyebut angkanya, bukan menyuruh
+     * mencoba lagi.
+     */
+    @Test
+    fun `ringkasan hasil massal membedakan sebagian gagal dari gagal total`() {
+        assertEquals("5 unit disetujui.", ringkasHasilMassal(5, 0))
+        assertTrue(ringkasHasilMassal(3, 2).contains("3 unit disetujui, 2 gagal"))
+        assertTrue(ringkasHasilMassal(0, 4).contains("4 unit gagal"))
+        assertEquals("Tak ada unit yang diproses.", ringkasHasilMassal(0, 0))
     }
 
     @Test

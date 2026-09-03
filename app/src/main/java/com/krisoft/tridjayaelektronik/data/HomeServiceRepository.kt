@@ -47,9 +47,12 @@ class HomeServiceRepository @Inject constructor(
         status: String? = null,
         jenis: String? = null,
         mine: Boolean? = null,
+        sayaLapor: Boolean? = null,
         limit: Int = 200,
     ): AuthResult<HsListData> = try {
-        val response = api.list(status = status, jenis = jenis, mine = mine, limit = limit)
+        val response = api.list(
+            status = status, jenis = jenis, mine = mine, sayaLapor = sayaLapor, limit = limit
+        )
         val data = response.body()?.data
         if (response.isSuccessful && data != null) AuthResult.Success(data)
         else parseError(response, "Gagal memuat daftar komplain")
@@ -101,7 +104,7 @@ class HomeServiceRepository @Inject constructor(
     /** Foto (kwitansi/bukti kerja/bukti bayar/unit ditarik) → URL relatif. */
     suspend fun uploadPhoto(bytes: ByteArray, filename: String): AuthResult<String> = try {
         val part = MultipartBody.Part.createFormData(
-            "file", filename, bytes.toRequestBody("image/jpeg".toMediaType())
+            "file", filename, bytes.toRequestBody("image/webp".toMediaType())
         )
         val response = api.uploadPhoto(part)
         val url = response.body()?.data?.url

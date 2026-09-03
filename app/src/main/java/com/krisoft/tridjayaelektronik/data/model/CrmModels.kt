@@ -60,7 +60,13 @@ data class LeadDto(
      * — layar WAJIB membedakannya dari "ANTRE", karena keduanya terlihat sama
      * bagi sales sampai targetnya meleset di akhir hari.
      */
-    val syncRejectReason: String? = null
+    val syncRejectReason: String? = null,
+    /**
+     * Client-only: WhatsApp penugasan ke penerima lead ini TIDAK terkirim.
+     * Lead-nya TERSIMPAN — beda tajam dari [syncRejectReason]. Lihat
+     * `LeadEntity.assignmentWarning`.
+     */
+    val assignmentWarning: String? = null
 )
 
 @Serializable
@@ -118,10 +124,42 @@ data class ProspekUploadData(
     val url: String = "",
 )
 
+/**
+ * Hasil pengiriman WhatsApp PENUGASAN ke penerima lead —
+ * `AssignmentNotification` (kinerja-service `prospek/assignment.rs`).
+ *
+ * `status`: `sent` | `skipped_self` | `send_failed` | dan beberapa varian gagal
+ * lain (`failed(...)`: penerima tak ditemukan, nomor WA kosong, dst). Diperlakukan
+ * sebagai STRING, bukan enum: nilai baru dari server tak boleh membuat dekode
+ * gagal, dan yang app butuhkan cuma "berhasil atau tidak".
+ */
+@Serializable
+data class AssignmentNotificationDto(
+    val status: String = "",
+    val message: String = "",
+    val to: String? = null
+) {
+    /**
+     * `true` bila penerima lead ini TIDAK diberitahu. `skipped_self` bukan
+     * kegagalan — penugasan ke diri sendiri memang sengaja tak dikirimi WA.
+     *
+     * Status yang TIDAK DIKENAL dihitung gagal (fail-closed): satu peringatan
+     * berlebih ongkosnya sebaris teks, sementara kegagalan yang lolos berarti
+     * lead mati tanpa ada yang tahu.
+     */
+    val perluDiberitahukan: Boolean get() = status != "sent" && status != "skipped_self"
+}
+
 /** Loose response payload of `POST /api/prospek-harian` — we only care that it succeeded (+ id). */
 @Serializable
 data class CreateProspekData(
-    val id: Long? = null
+    val id: Long? = null,
+    /**
+     * Dibaca sejak 2026-08-28. Sebelumnya field ini di-drop `ignoreUnknownKeys`,
+     * dan `prospek.rs` sendiri berkomentar bahwa app Android tak pernah
+     * membacanya sehingga "WA gagal kirim" terlihat identik dengan "berhasil".
+     */
+    val assignmentNotification: AssignmentNotificationDto? = null
 )
 
 /**

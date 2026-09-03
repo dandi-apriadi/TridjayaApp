@@ -242,9 +242,18 @@ fun gateAbsenPulang(today: AbsensiTodayDto?): GatePulang {
 /**
  * Hasil gate tombol Absen Masuk (geofence).
  *
- * Absen MASUK ditolak server kalau di luar area, absen PULANG tidak
- * (`check_out` sengaja tak dipagari supaya driver/sales yang masih di lapangan
- * sore hari tetap bisa pulang).
+ * **Di luar radius TIDAK ditolak server** — sejak 2026-08-26 barisnya tetap
+ * tercatat berstatus `pending_review`; yang ditolak 400 hanya
+ * `in_geofence == None`, yaitu geofence cabang belum dikonfigurasi sama sekali.
+ * Karena itu [boleh] praktis selalu `true`; lihat [gateAbsenMasuk] untuk
+ * aturan lengkap dan alasannya. Absen PULANG memang tak pernah dipagari area
+ * (`check_out` sengaja begitu supaya driver/sales yang masih di lapangan sore
+ * hari tetap bisa pulang).
+ *
+ * Kalimat lama di sini ("Absen MASUK ditolak server kalau di luar area")
+ * bertentangan dengan aturan yang berlaku dan dikoreksi 2026-08-28 — doc tipe
+ * inilah yang muncul lebih dulu saat seseorang hover di IDE, jadi ia sempat
+ * membacakan kebalikan dari penjelasan yang ada 15 baris di bawahnya.
  */
 data class GateMasuk(val boleh: Boolean, val alasan: String? = null)
 
@@ -257,29 +266,47 @@ data class GateMasuk(val boleh: Boolean, val alasan: String? = null)
 const val AMBANG_DUGAAN_TITIK_SALAH_M = 500
 
 /**
- * Cermin gate server `AbsensiService::check_in` → `pastikan_di_area_toko`
- * (kinerja-service): absen MASUK di luar radius semua toko ditolak 400, tidak
- * tercatat sama sekali.
+ * Cermin gate server `AbsensiService::check_in` (kinerja-service). **Sejak
+ * 2026-08-26 fungsi ini TIDAK PERNAH mengunci tombol** — ia murni pemberi
+ * peringatan; `boleh` tetap ada di [GateMasuk] karena layar memakainya untuk
+ * memilih warna, dan supaya aturan ini bisa dikembalikan tanpa merombak tipe.
  *
- * **Kenapa ada.** Sebelum ini layar absensi menulis "absen perlu review" untuk
- * keadaan itu dan membiarkan tombol Check In hidup — kalimat yang menjanjikan
- * absennya tetap masuk, hanya butuh persetujuan. Yang terjadi sebaliknya: tak ada
- * baris yang lahir. Terukur di nginx produksi 4–15 Agustus 2026, **314 check-in
- * dijawab 400 dan seluruhnya penolakan geofence** (ukuran badan 152/153/154 byte
- * = varian pesan berjarak; nol yang "foto wajib" atau "titik toko belum diatur").
- * Orang di lapangan tak punya cara membedakannya dari aplikasi rusak.
+ * **Aturan server yang berlaku SEKARANG**, dibaca dari `service.rs::check_in`:
+ * `pastikan_di_area_toko` cuma dipanggil saat `in_geofence.is_none()`, yaitu
+ * geofence **belum dikonfigurasi sama sekali** (kesalahan setelan, bukan
+ * sengketa lokasi). Di luar radius tapi geofence terkonfigurasi
+ * (`in_geofence == Some(false)`) **TETAP TERCATAT**, berstatus `pending_review`,
+ * dan diputus kepala cabang/admin lewat `PATCH /absensi/review/{id}`.
  *
- * **[daftarCabangLengkap] menentukan apakah kita BOLEH mengunci.** Server menilai
- * terhadap SELURUH `absensi_cabang_config` (karyawan boleh absen di cabang
- * Tridjaya manapun), jadi vonis "di luar area" baru sepadan dengan vonis server
- * kalau app memegang daftar lengkapnya — yaitu saat `today` mengirim `geofences[]`.
- * Server lama hanya mengirim `geofence` tunggal (cabang sendiri); dari satu titik
- * itu "di luar" bisa berarti "sedang bertugas di cabang sebelah", dan mengunci
- * atas dasar itu MENGHENTIKAN orang yang sebenarnya berhak. Karena itu tanpa
- * daftar lengkap fungsi ini **fail-open** — server tetap penegak sebenarnya.
+ * **Kenapa berubah, dan kenapa arah sebelumnya juga benar pada zamannya.**
+ * Sampai 2026-08-15 layar ini membiarkan tombolnya hidup sambil menulis "absen
+ * perlu review", padahal server MENOLAK dan tak ada baris yang lahir — janji
+ * palsu, terukur 314 check-in dijawab 400 di nginx produksi 4–15 Agustus 2026.
+ * Gate ini lahir untuk menutup itu. Lalu keputusan user 2026-08-26 membalik
+ * sisi SERVER-nya: orang ber-GPS kasar (kasus yang memicu 314 penolakan tadi)
+ * tak boleh kehilangan absennya sama sekali. Begitu server menerima, gate klien
+ * yang tetap mengunci berubah dari penjaga jadi **satu-satunya** yang
+ * menghentikan orang — persis kerugian yang dulu ingin dicegah, arah terbalik.
  *
- * [inArea] `null` (lokasi belum terbaca / belum ada geofence sama sekali) juga
- * fail-open, alasan yang sama.
+ * **Yang WAJIB tetap disebut: konsekuensinya.** `pending_review` belum dihitung
+ * hadir untuk KPI sampai disetujui (`kpi/mysql.rs::kehadiran_rate_by_karyawan`
+ * membedakannya lewat `check_in_in_geofence = 0`). "Tercatat" tanpa kalimat itu
+ * adalah janji setengah — orangnya mengira beres, lalu kehadirannya kosong.
+ *
+ * **[daftarCabangLengkap] kini cuma memilih KALIMAT, bukan boleh-tidaknya.**
+ * Server menilai terhadap SELURUH `absensi_cabang_config` (karyawan boleh absen
+ * di cabang Tridjaya manapun), jadi vonis "di luar area" hanya sepadan dengan
+ * vonis server saat app memegang daftar lengkapnya — yaitu ketika `today`
+ * mengirim `geofences[]`. Dengan daftar lengkap kita TAHU hasilnya
+ * `pending_review`; tanpa itu (server lama, `geofence` tunggal) "di luar" bisa
+ * berarti "sedang bertugas di cabang sebelah" yang justru dinilai `valid`, jadi
+ * kalimatnya harus lebih hati-hati.
+ *
+ * [inArea] `null` (lokasi belum terbaca / belum ada geofence sama sekali) lolos
+ * tanpa kalimat apa pun. Itu SENGAJA menutupi satu kasus yang server tolak
+ * (geofence belum diatur): app tak bisa membedakannya dari "GPS belum terbaca",
+ * dan menuduh yang kedua akan menahan orang tiap kali sinyal lambat. Penolakan
+ * server untuk kasus itu sudah menyebut sebabnya sendiri.
  */
 fun gateAbsenMasuk(
     inArea: Boolean?,
@@ -297,24 +324,28 @@ fun gateAbsenMasuk(
         else -> "Kamu berada di luar area toko"
     }
     if (!daftarCabangLengkap) {
-        // Tak boleh mengunci, tapi diam juga salah: orangnya berhak tahu titik
-        // ini akan ditolak KALAU ia memang tak sedang di cabang lain.
+        // Daftar sepotong: hasilnya bisa `valid` (ternyata di radius cabang lain)
+        // ATAU `pending_review`. Jangan menjanjikan salah satunya.
         return GateMasuk(
             true,
-            "$sebutJarak. Kalau kamu sedang bertugas di cabang lain, absen masuk tetap bisa; " +
-                "kalau tidak, mendekatlah ke toko dulu."
+            "$sebutJarak. Kalau kamu sedang bertugas di cabang lain, absennya dihitung normal; " +
+                "kalau tidak, absennya tercatat berstatus Perlu Review dulu."
         )
     }
     // Dugaan "titik cabangnya yang meleset" hanya masuk akal dari dekat. Menyodorkan
     // "minta admin memperbaiki titik" kepada orang yang jaraknya 2 km mengajari
     // seluruh cabang menyalahkan setelan untuk lokasi yang memang salah.
     val jalanKeluar = if (jarak != null && jarak <= AMBANG_DUGAAN_TITIK_SALAH_M) {
-        " Mendekatlah ke toko lalu perbarui lokasi. Kalau kamu memang sudah di toko, " +
-            "minta admin membetulkan titik lokasi cabang di halaman Absensi."
+        " Kalau kamu memang sudah di toko, minta admin membetulkan titik lokasi " +
+            "cabang di halaman Absensi."
     } else {
-        " Mendekatlah ke toko lalu perbarui lokasi."
+        " Mendekatlah ke toko lalu perbarui lokasi kalau kamu memang sedang di sana."
     }
-    return GateMasuk(false, "Absen masuk hanya bisa dari dalam area toko. $sebutJarak.$jalanKeluar")
+    return GateMasuk(
+        true,
+        "$sebutJarak. Absen masuk tetap tercatat, tapi berstatus Perlu Review dan " +
+            "belum dihitung hadir sampai disetujui atasan.$jalanKeluar"
+    )
 }
 
 fun buildTimeline(

@@ -31,8 +31,8 @@ android {
         // satu-satunya cara menguji jalur yang cuma pecah di runtime Android
         // lama (mis. `java.time` di API < 26).
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 124
-        versionName = "3.13"
+        versionCode = 125
+        versionName = "3.14"
 
         // Gateway Rust tridjaya, deployed at tridjaya.com (HTTPS, no emulator/LAN
         // workaround needed since it's a public domain). Migrated 2026-07-13 from
@@ -62,6 +62,35 @@ android {
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
+
+                // v1 (JAR signing) WAJIB DINYALAKAN EKSPLISIT — insiden 2026-08-28.
+                //
+                // AGP mematikan v1 sendiri begitu `minSdk >= 24`, karena untuk
+                // MEMASANG APK v2 memang sudah cukup di Android 7+. Alasan itu
+                // benar dan tetap benar; yang salah adalah menganggapnya cukup
+                // untuk semua hal.
+                //
+                // `UpdateManager.ditandatanganiKitaSendiri()` (audit keamanan
+                // 2026-08, temuan 3.5) memeriksa sertifikat APK yang BARU
+                // DIUNDUH lewat `PackageManager.getPackageArchiveInfo()`. Untuk
+                // berkas APK LEPAS — bukan paket terpasang — panggilan itu di
+                // banyak versi/ROM Android hanya membaca **JAR signature (v1)**.
+                // Tanpa v1, `signingInfo`/`signatures` kosong, pemeriksanya
+                // fail-closed, dan SETIAP update ditolak dengan kalimat
+                // "tanda tangannya bukan milik aplikasi ini" — tuduhan yang
+                // salah terhadap APK kita sendiri, plus berkasnya dihapus.
+                //
+                // Rusak DIAM-DIAM sejak pemeriksa itu mendarat (`06009bef`,
+                // 24 Agu 23:38) sampai 28 Agu: `mandatory=false` membuat orang
+                // sekadar mengabaikan update yang gagal, jadi tak ada yang
+                // melapor. Rilis 3.06 menyalakan `mandatory=true` dan seluruh
+                // fleet menabraknya serentak.
+                //
+                // JANGAN matikan lagi dengan alasan "minSdk 24 tak butuh v1".
+                // Ongkosnya cuma ukuran APK; yang dibeli adalah satu-satunya
+                // jalur update yang dipunyai app ini.
+                enableV1Signing = true
+                enableV2Signing = true
             }
         }
     }
@@ -224,6 +253,19 @@ dependencies {
     // on-demand), jauh lebih ringan daripada bundling CameraX+ML Kit.
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 
+    // Transcode video bukti Input Aktivitas >30MB on-device (H.264/MediaCodec hardware) sebelum
+    // upload (util/VideoTranscoder.kt) — pustaka androidx RESMI untuk transcode via MediaCodec,
+    // satu-satunya jalan realistis selain menulis ulang MediaCodec/MediaMuxer manual sendiri.
+    // Versi diverifikasi LANGSUNG dari maven-metadata.xml dl.google.com/android/maven2
+    // (latest/release=1.11.0 utk transformer, common, DAN effect), bukan diketik dari ingatan.
+    implementation("androidx.media3:media3-transformer:1.9.4")
+    // Tipe bersama Transformer (EditedMediaItem, MediaItem via androidx.media3.common, dll) —
+    // versi HARUS sama persis dengan media3-transformer, media3 tak menjamin kompat lintas versi.
+    implementation("androidx.media3:media3-common:1.9.4")
+    // Presentation.createForWidthAndHeight (scale target lebar/tinggi) — Transformer sendiri
+    // tak punya parameter dimensi, efeknya hidup di modul terpisah ini.
+    implementation("androidx.media3:media3-effect:1.9.4")
+
     // Installs the bundled baseline profile on first run (removes cold-start/first-scroll JIT jank).
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     // Consumes the profile produced by the :baselineprofile module and bundles it into the APK.
@@ -248,8 +290,96 @@ dependencies {
 // Dilewati saat flag aktif; FCM lalu inert (DeviceRepository.fetchFcmToken sudah
 // menangani Firebase tak ter-inisialisasi), yang memang benar untuk varian uji:
 // ia tak boleh ikut menerima push yang ditujukan ke app produksi.
-if (rootProject.file("app/google-services.json").exists() && !project.hasProperty("localApi")) {
+val berkasGoogleServices = rootProject.file("app/google-services.json")
+val firebaseSengajaDilewati = project.hasProperty("localApi")
+if (berkasGoogleServices.exists() && !firebaseSengajaDilewati) {
     apply(plugin = "com.google.gms.google-services")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GERBANG KERAS — build RILIS MENOLAK jalan tanpa google-services.json
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// "Dilewati diam-diam" di atas BENAR untuk build debug dan SALAH TOTAL untuk
+// rilis. Tanpa berkas itu plugin tak pernah diterapkan, jadi APK terbit tanpa
+// satu pun string konfigurasi Firebase — sementara pustaka `firebase-messaging`
+// tetap ikut ter-bundle. Hasilnya app yang KELIHATAN utuh:
+// `DeviceRepository.fetchFcmToken` menangkap kegagalan init lalu mengembalikan
+// null, `registerCurrentToken` menulis satu `Log.w` ke logcat HP, dan
+// `POST /absensi/register-device` TIDAK PERNAH LAHIR. Server tak menyimpan jejak
+// percobaan gagal karena memang tak ada percobaan — nol error di kedua sisi.
+//
+// INSIDEN YANG DITUTUPNYA (forensik 2026-09-01, diukur di APK produksi + DB):
+// laptop di-instal ulang 2026-08-08. `keystore.properties` dan
+// `release-keystore.jks` dipulihkan manual dari arsip (keduanya bertanggal
+// 2026-08-08 22:02:59); `google-services.json` TIDAK — ia gitignored persis
+// seperti keystore, tapi tak masuk daftar pemulihan. Sejak rilis berikutnya
+// (vc72/73, 9–10 Agustus) SETIAP APK release terbit tanpa Firebase, ~52 versi
+// berturut-turut. Yang terukur 26 hari kemudian:
+//   • APK vc123/3.12 yang BEREDAR: `google_app_id`, `gcm_defaultSenderId`,
+//     `project_id`, `google_api_key` = NOL semuanya dari 93 string resource
+//     (APK vc10 yang sehat masih memuat project_id `tridjayaelektronik-35068`).
+//   • Token FCM terakhir yang pernah terdaftar: 2026-08-06 21:46:37. Nol baris
+//     baru sesudahnya.
+//   • 51 dari 122 pengguna APK aktif (41,8%) tanpa device token; log
+//     kinerja-service mencatat 3.395 "push DIBUANG: akun aktif belum punya
+//     device token" dalam 7 hari, menyentuh 80 nama unik.
+// Empat dari sepuluh karyawan berhenti menerima notifikasi approval/pengiriman
+// selama 26 hari dan tak satu pun sinyal menyebutkannya. Build sukses, app
+// jalan, notifikasi diam — itulah kenapa penjaganya harus di sini, bukan di
+// runbook yang bergantung pada ingatan orang setelah instal ulang berikutnya.
+//
+// Debug SENGAJA tidak ikut diwajibkan: mesin pengembangan harus tetap bisa
+// membangun tanpa Firebase.
+//
+// **`-PlocalApi` TIDAK mengecualikan gerbang ini** (koreksi review PR — draf
+// pertama menyamakannya dengan pengecualian debug di atas, dan itu salah).
+// `-PlocalApi` hanya mengubah `applicationIdSuffix` di build type `debug`
+// (lihat blok `debug {}` di bawah); ia TIDAK PUNYA efek apa pun pada build
+// type `release`. Jadi `./gradlew assembleRelease -PlocalApi` sebelumnya
+// menghasilkan APK PRODUKSI asli (applicationId `com.krisoft.tridjayaelektronik`,
+// release-signed) tanpa Firebase — mereproduksi PERSIS insiden yang gerbang
+// ini dibuat untuk mencegah, lewat kombinasi flag yang tak ada yang menahannya.
+//
+// Daftar tugasnya EKSAK, bukan pola "berakhiran Release": `:app:generateBaselineProfile`
+// membangun varian `nonMinifiedRelease` yang tak pernah dibagikan ke siapa pun,
+// dan pola longgar akan ikut menghentikannya.
+//
+// **Diperiksa lewat `gradle.taskGraph.whenReady`, BUKAN daftar nama task CLI
+// literal (`startParameter.taskNames`)** — koreksi review PR kedua. Bentuk itu
+// cuma berisi nama task yang DIKETIK di CLI secara literal — `./gradlew build`
+// atau `./gradlew assemble` menjalankan
+// `assembleRelease` secara TRANSITIF (task itu mendepend padanya) tanpa string
+// "assembleRelease" pernah muncul di `taskNames`, jadi gerbang lama tak pernah
+// menyala untuk keduanya. Task graph yang SUDAH DIRESOLVE (`allTasks`) memuat
+// task transitif ini. `whenReady` tetap menyala SEBELUM eksekusi task mana pun
+// (bukan `doFirst`), jadi gagalnya tetap dalam hitungan detik, bukan setelah R8
+// selesai ~44 menit.
+val tugasWajibFirebase = setOf("assembleRelease", "bundleRelease", "installRelease")
+gradle.taskGraph.whenReady {
+    val mintaBuildRilis = allTasks.any { it.name in tugasWajibFirebase }
+    if (mintaBuildRilis && !berkasGoogleServices.exists()) {
+        throw GradleException(
+            "google-services.json TIDAK ADA — build RILIS dihentikan.\n" +
+                "\n" +
+                "Taruh berkasnya PERSIS di: ${berkasGoogleServices.path}\n" +
+                "\n" +
+                "Ambilnya: Firebase console → proyek `tridjayaelektronik-35068` → Project settings → " +
+                "Your apps → Android app `com.krisoft.tridjayaelektronik` → Download " +
+                "google-services.json. Hanya PEMILIK akun Firebase yang bisa mengunduhnya, jadi ini " +
+                "tak bisa diselesaikan sendiri oleh sesi mana pun tanpa dia.\n" +
+                "\n" +
+                "Berkas ini ter-gitignore (mobile/.gitignore `app/google-services.json`), jadi ia TIDAK " +
+                "ikut clone/checkout dan TIDAK ikut dipulihkan bersama keystore setelah instal ulang. " +
+                "Tanpa dia APK terbit tanpa konfigurasi Firebase dan pendaftaran token FCM mati total " +
+                "di semua HP: terukur 2026-09-01 → 41,8% pengguna APK aktif tanpa device token, nol " +
+                "pendaftaran baru selama 26 hari, ~52 versi rusak berturut-turut sejak vc72 (9 Agt 2026).\n" +
+                "\n" +
+                "Build variant DEBUG (dengan atau tanpa `-PlocalApi`) tidak menuntut berkas ini — " +
+                "pakai itu untuk pengembangan lokal. Build RILIS TIDAK PUNYA jalan keluar lewat " +
+                "flag apa pun, termasuk `-PlocalApi`.",
+        )
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -278,7 +408,24 @@ val berkasMappingRilis = layout.buildDirectory.file("outputs/mapping/release/map
 // `cadangan-lokal/` hidup DI LUAR repo (sejajar dengannya) — sengaja, sama
 // seperti keystore: arsip yang tinggal di dalam pohon kerja git adalah arsip
 // yang lenyap pada `git clean -xdf` berikutnya.
-val direktoriArsipRilis = rootProject.file("../cadangan-lokal")
+//
+// **Letaknya DUA kandidat, bukan satu path mati.** `../cadangan-lokal` benar
+// untuk repo mobile berdiri sendiri (`Tridjaya/TridjayaApp` + `Tridjaya/
+// cadangan-lokal`), tapi sejak subtree 2026-08-21 `rootProject` bisa juga
+// `<monorepo>/mobile`, dan dari sana arsipnya ada di `../../cadangan-lokal`.
+// Terbukti menggigit saat rilis 3.03 (2026-08-28): build SUKSES, APK terunggah,
+// dan peta R8-nya TIDAK terarsip — satu baris `warn` di antara 58 task, yang
+// baru ketahuan karena kebetulan dibaca. Peta yang hilang tak menimbulkan
+// keluhan sampai ada crash report yang harus dibaca berbulan-bulan kemudian,
+// dan saat itu ia tak bisa dibuat ulang.
+// `ARSIP_RILIS_DIR` (env) menang atas keduanya, untuk mesin dengan layout lain.
+val kandidatArsipRilis = listOfNotNull(
+    System.getenv("ARSIP_RILIS_DIR")?.let { File(it) },
+    rootProject.file("../cadangan-lokal"),    // repo mobile berdiri sendiri
+    rootProject.file("../../cadangan-lokal"), // mobile/ di dalam monorepo
+)
+val direktoriArsipRilis = kandidatArsipRilis.firstOrNull { it.isDirectory }
+    ?: kandidatArsipRilis.last()
 
 val arsipkanMappingRilis = tasks.register("arsipkanMappingRilis") {
     description = "Salin mapping.txt R8 ke ../cadangan-lokal/ dengan nama ber-versi."
@@ -293,7 +440,17 @@ val arsipkanMappingRilis = tasks.register("arsipkanMappingRilis") {
             return@doLast
         }
         if (!direktoriArsipRilis.isDirectory) {
-            logger.warn("arsip mapping DILEWATI: ${direktoriArsipRilis.path} tak ada — peta untuk $versiNamaRilis TIDAK terarsip")
+            // Pesannya menyebut SEMUA kandidat yang dicoba: "direktori X tak
+            // ada" pada layout yang salah membuat orang membuat direktori di
+            // tempat yang juga salah.
+            logger.warn(
+                "arsip mapping DILEWATI: tak ada direktori arsip — peta untuk " +
+                    "$versiNamaRilis vc$versiKodeRilis TIDAK terarsip. Yang dicoba: " +
+                    kandidatArsipRilis.joinToString(", ") { it.path } +
+                    ". Set ARSIP_RILIS_DIR=/path/ke/cadangan-lokal lalu jalankan " +
+                    "ulang `gradlew arsipkanMappingRilis` — mapping.txt hasil build " +
+                    "tadi masih ada, jadi arsipnya tak perlu build ulang.",
+            )
             return@doLast
         }
         val tujuan = File(direktoriArsipRilis, "mapping-$versiNamaRilis-vc$versiKodeRilis.txt")

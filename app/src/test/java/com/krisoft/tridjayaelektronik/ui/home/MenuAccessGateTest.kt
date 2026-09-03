@@ -197,6 +197,43 @@ class QuickAccessRegistryTest {
     }
 
     /**
+     * Ubin **SN Goda** memakai kunci PENAMBAH (`goda.serial.add`, dipisah dari
+     * `goda.serial.edit` 2026-09-03), bukan kunci pembaca (`goda.view`) yang
+     * jauh lebih luas.
+     *
+     * Bedanya bukan soal kerapian: gateway `require_goda_access` MELOLOSKAN
+     * manager/owner/kepala-cabang ke seluruh rute `/api/goda/…`, dan yang
+     * menolak penulisan adalah service-nya. Ubin yang meniru gerbang gateway
+     * karena itu akan terbuka untuk mereka, lalu tombol simpannya dijawab 400
+     * saat orangnya sudah berdiri di depan unit — layar ini tak punya isi lain
+     * selain menulis. **`kepala-cabang` PINDAH KUBU 2026-09-03**: ia dulu
+     * pembaca murni (di sini bersama manager/owner), sekarang JUGA penambah
+     * (bersama admin-penjualan/kasir yang baru) — TAPI tetap bukan PENGGANTI
+     * (`goda.serial.edit` tetap tak menyentuhnya).
+     */
+    @Test
+    fun `SN Goda hanya untuk penulis registry, bukan pembaca List Goda`() {
+        assertFalse("goda_serial" in visibleQuickAccessMenus(setOf("manager")).map { it.id })
+        assertFalse("goda_serial" in visibleQuickAccessMenus(setOf("owner")).map { it.id })
+        assertTrue("goda_serial" in visibleQuickAccessMenus(setOf("karyawan", "admin-stok")).map { it.id })
+        assertTrue("goda_serial" in visibleQuickAccessMenus(setOf("superadmin")).map { it.id })
+        // 2026-09-03: ketiga role BARU ini kini juga penambah, bukan lagi
+        // pembaca murni — lihat dokumentasi di atas.
+        for (penambahBaru in listOf("kepala-cabang", "admin-penjualan", "kasir")) {
+            assertTrue(
+                "`$penambahBaru` harus melihat ubin SN Goda sejak 2026-09-03",
+                "goda_serial" in visibleQuickAccessMenus(setOf(penambahBaru)).map { it.id },
+            )
+        }
+
+        // Peta kemampuan server tetap yang memutuskan saat ia ada.
+        val ditolak = visibleQuickAccessMenus(setOf("admin-stok"), mapOf("goda.serial.add" to false))
+        assertFalse(ditolak.any { it.id == "goda_serial" })
+        val diizinkan = visibleQuickAccessMenus(setOf("karyawan"), mapOf("goda.serial.add" to true))
+        assertTrue(diizinkan.any { it.id == "goda_serial" })
+    }
+
+    /**
      * Laporan user 2026-08-15: sales & PDI tak menemukan menu Home Service di app.
      *
      * Sebabnya modul komplain NOL pintu masuk di beranda — registri ini tak punya
@@ -313,8 +350,16 @@ class CapabilityDrivenMenuTest {
         // `komplain_lapor` menyusul 2026-08-15 dengan alasan yang SAMA seperti
         // `kpi`: endpointnya tak memanggil `ensure_role` sama sekali (login-only,
         // self-scoped), jadi kunci apa pun akan lebih sempit dari servernya.
+        // `komplain_saya` menyusul 2026-08-28 — pasangan baca dari
+        // `komplain_lapor`, dan self-scoped dengan cara yang sama: jalur
+        // `sayaLapor` memaksa `pelapor_user_id` = id AKTOR di server dan tak
+        // pernah membacanya dari query, jadi ia tak bisa dipakai mengintip
+        // laporan orang lain DAN tak punya kunci yang bisa dicerminkan.
         val tanpaKunci = QUICK_ACCESS_MENUS.filter { it.capability == null }.map { it.id }
-        assertEquals(listOf("kpi", "inventory", "cari_semua", "komplain_lapor"), tanpaKunci)
+        assertEquals(
+            listOf("kpi", "inventory", "cari_semua", "komplain_lapor", "komplain_saya"),
+            tanpaKunci,
+        )
     }
 
     @Test

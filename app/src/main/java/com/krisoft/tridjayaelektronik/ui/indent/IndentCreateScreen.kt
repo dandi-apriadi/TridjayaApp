@@ -2,9 +2,6 @@ package com.krisoft.tridjayaelektronik.ui.indent
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.net.Uri
-import android.os.Build
-import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -50,7 +47,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -64,6 +60,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.util.kunciUnik
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 @Composable
 fun IndentCreateScreen(
@@ -155,9 +152,9 @@ fun IndentCreateScreen(
             Text("Bukti pengajuan (opsional)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(4.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val kunciFoto = kunciUnik(state.photos) { it.toString() }
-                itemsIndexed(state.photos, key = { i, _ -> kunciFoto.getOrElse(i) { "idx_$i" } }) { _, uri ->
-                    PhotoThumbnail(uri = uri, onRemove = { viewModel.removePhoto(uri) })
+                val kunciFoto = kunciUnik(state.photos) { it.uri.toString() }
+                itemsIndexed(state.photos, key = { i, _ -> kunciFoto.getOrElse(i) { "idx_$i" } }) { _, foto ->
+                    PhotoThumbnail(foto = foto, onRemove = { viewModel.removePhoto(foto) })
                 }
                 item {
                     Surface(
@@ -210,19 +207,20 @@ private fun SuggestionRow(product: ProductAggregate, onClick: () -> Unit) {
     }
 }
 
+/**
+ * Pratinjau dibaca dari SALINAN CACHE, bukan dari `Uri` picker: sesudah tahap
+ * pilih, berkas itulah satu-satunya sumber byte yang tak bergantung pada grant
+ * Uri (lihat KDoc `FotoBukti`). Sekaligus membuang cabang `loadThumbnail`
+ * (API 29+) vs `decodeStream` tanpa batas (API 24-28) — cabang kedua mendekode
+ * gambar UTUH cuma untuk kotak 72dp, jadi `inSampleSize` di bawah bukan sekadar
+ * penyeragaman melainkan pengurangan alokasi puluhan MB per thumbnail.
+ */
 @Composable
-private fun PhotoThumbnail(uri: Uri, onRemove: () -> Unit) {
-    val context = LocalContext.current
-    var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(uri) {
+private fun PhotoThumbnail(foto: FotoBukti, onRemove: () -> Unit) {
+    var bitmap by remember(foto.file) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(foto.file) {
         bitmap = withContext(Dispatchers.IO) {
-            runCatching {
-                if (Build.VERSION.SDK_INT >= 29) {
-                    context.contentResolver.loadThumbnail(uri, Size(160, 160), null)
-                } else {
-                    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-                }
-            }.getOrNull()
+            runCatching { dekodeKecil(foto.file, TARGET_THUMBNAIL_PX) }.getOrNull()
         }
     }
     Box(modifier = Modifier.size(72.dp)) {
@@ -251,4 +249,23 @@ private fun PhotoThumbnail(uri: Uri, onRemove: () -> Unit) {
             }
         }
     }
+}
+
+private const val TARGET_THUMBNAIL_PX = 160
+
+/**
+ * Dekode berkas gambar ke bitmap yang cukup besar untuk kotak [targetPx],
+ * memakai `inSampleSize` supaya foto 108 MP tak pernah masuk heap utuh.
+ * `null` = tak bisa didekode (berkas rusak / format tak didukung ROM).
+ */
+private fun dekodeKecil(file: File, targetPx: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sampleSize = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= targetPx) sampleSize *= 2
+    return BitmapFactory.decodeFile(
+        file.absolutePath,
+        BitmapFactory.Options().apply { inSampleSize = sampleSize },
+    )
 }

@@ -5,6 +5,8 @@ import com.krisoft.tridjayaelektronik.data.model.AkiFormsData
 import com.krisoft.tridjayaelektronik.data.model.ApiResponse
 import com.krisoft.tridjayaelektronik.data.model.ConfirmSpkBody
 import com.krisoft.tridjayaelektronik.data.model.AssignBody
+import com.krisoft.tridjayaelektronik.data.model.ReassignBody
+import com.krisoft.tridjayaelektronik.data.model.UnassignBody
 import com.krisoft.tridjayaelektronik.data.model.BrokerListData
 import com.krisoft.tridjayaelektronik.data.model.ChecklistConfigData
 import com.krisoft.tridjayaelektronik.data.model.CreateAkiFormBody
@@ -153,6 +155,26 @@ interface DeliveryFlowApi {
         @Body body: JsonObject
     ): Response<ApiResponse<SpkEditResultDto>>
 
+    /**
+     * Isi/perbaiki LOKASI MAPS satu unit (2026-08-30).
+     *
+     * Rute SENDIRI, bukan [editJob]. Jendela sunting sales pada `editJob`
+     * tertutup DUA KALI sesudah PDI — status bergeser ke `pending_spk` (403
+     * telanjang di gerbang wewenang) dan `confirm_spk` mengisi `no_transaksi`
+     * + `finalized_at` sehingga klausa WHERE di server ikut menolak. Endpoint
+     * ini melewati ketiganya untuk SATU kolom saja.
+     *
+     * Boleh dipanggil sales PEMILIK SPK kapan pun sampai unit terkirim.
+     * 400 = isinya tak bisa dibuka driver / unit sudah `delivered`/`cancelled`;
+     * 403 = bukan pemilik. Pesannya ada di `message` server — TAMPILKAN apa
+     * adanya, itu yang mengajari bentuk yang benar.
+     */
+    @PATCH("api/inventory/delivery/{id}/map-url")
+    suspend fun setMapUrl(
+        @Path("id") id: String,
+        @Body body: JsonObject
+    ): Response<ApiResponse<SpkEditResultDto>>
+
     @POST("api/inventory/delivery")
     suspend fun create(@Body body: CreateDeliveryBody): Response<ApiResponse<DeliveryCreateResult>>
 
@@ -195,6 +217,25 @@ interface DeliveryFlowApi {
 
     @POST("api/inventory/delivery/{id}/assign")
     suspend fun assign(@Path("id") id: String, @Body body: AssignBody): Response<ApiResponse<DeliveryJobDto>>
+
+    /**
+     * BATALKAN penjadwalan — hanya selama driver BELUM berangkat. Jendelanya
+     * sempit disengaja: begitu unit `in_transit`, barangnya fisik di tangan
+     * orang dan "batal" tak punya arti operasional; jalurnya jadi [reassign].
+     */
+    @POST("api/inventory/delivery/{id}/unassign")
+    suspend fun unassign(@Path("id") id: String, @Body body: UnassignBody): Response<ApiResponse<DeliveryJobDto>>
+
+    /**
+     * PINDAHKAN ke driver lain. Berlaku juga saat unit sudah `in_transit` —
+     * motor mogok / driver sakit di tengah jalan itu kejadian nyata. Batasnya
+     * "sudah diterima konsumen", bukan "sudah berangkat".
+     *
+     * **TIDAK di-fan-out se-SPK** (beda dari [assign]) — justru itu yang membuat
+     * pemecahan satu SPK ke dua driver tetap mungkin.
+     */
+    @POST("api/inventory/delivery/{id}/reassign")
+    suspend fun reassign(@Path("id") id: String, @Body body: ReassignBody): Response<ApiResponse<DeliveryJobDto>>
 
     @POST("api/inventory/delivery/{id}/dispatch")
     suspend fun dispatch(@Path("id") id: String): Response<ApiResponse<DeliveryJobDto>>
