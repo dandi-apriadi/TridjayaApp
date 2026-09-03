@@ -46,6 +46,20 @@ interface HomeServiceApi {
         @Query("status") status: String? = null,
         @Query("jenis") jenis: String? = null,
         @Query("mine") mine: Boolean? = null,
+        /**
+         * `sayaLapor=true` — tiket yang AKU laporkan, apa pun cabang penanggung
+         * jawabnya dan siapa pun yang ditugaskan.
+         *
+         * SENGAJA terpisah dari [mine], bukan melebarkannya (server menegaskan
+         * hal yang sama): `mine` berarti "Tugas Saya", dan untuk pemegang
+         * `homeservice.task` ia DIPAKSA nyala di server — mencampur laporan
+         * pribadi ke sana akan mengotori antrian kerja teknisi. Dua pertanyaan
+         * berbeda, dua daftar berbeda.
+         *
+         * `pelapor_user_id` di server SELALU id aktor, tak pernah dari query,
+         * jadi parameter ini tak bisa dipakai mengintip laporan orang lain.
+         */
+        @Query("sayaLapor") sayaLapor: Boolean? = null,
         @Query("page") page: Int = 1,
         @Query("limit") limit: Int = 200,
     ): Response<ApiResponse<HsListData>>

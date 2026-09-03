@@ -103,28 +103,50 @@ class SpkEditFieldsTest {
     }
 
     /**
-     * Gate "Ubah Isi SPK" dilebarkan 2026-08-06: sales PEMILIK boleh menyunting
-     * selagi `pending_discount` (SPK memang sedang di tangannya sejak penolakan
-     * diskon berhenti melepas unit). Yang TIDAK boleh melebar ikut: sales lain,
-     * dan pemilik pada tahap mana pun selain `pending_discount`.
+     * Gate "Ubah Isi SPK" dilebarkan 2026-08-06 (sales PEMILIK saat
+     * `pending_discount`) lalu **DILEBARKAN LAGI 2026-08-29** ke `pending_pdi`:
+     * jendelanya kini "belum sampai PDI". SPK tanpa diskon lahir langsung di
+     * `pending_pdi`, jadi aturan lama membuat mayoritas sales tak pernah punya
+     * jendela koreksi sama sekali.
+     *
+     * Yang TIDAK ikut melebar: sales lain (kepemilikan tetap satu-satunya
+     * pagar) dan tahap SESUDAH PDI — termasuk `pending_perbaikan`, yang
+     * [spkBolehDisunting] izinkan untuk ADMIN tapi server tolak untuk sales.
      */
     @Test
-    fun `sales pemilik boleh menyunting hanya saat pending_discount`() {
+    fun `sales pemilik boleh menyunting selama belum sampai PDI`() {
         val diskon = job.copy(status = DeliveryStatusKey.PENDING_DISCOUNT, salesUserId = "U1")
+        val pdi = job.copy(status = DeliveryStatusKey.PENDING_PDI, salesUserId = "U1")
         assertTrue(bolehSuntingSpk(diskon, isAdmin = false, currentUserId = "U1"))
+        assertTrue(bolehSuntingSpk(pdi, isAdmin = false, currentUserId = "U1"))
         // Sales LAIN: 403 di server, jadi tombolnya tak boleh muncul.
         assertFalse(bolehSuntingSpk(diskon, isAdmin = false, currentUserId = "U2"))
-        // Pemilik di tahap lain yang masih boleh disunting ADMIN — tetap bukan haknya.
+        assertFalse(bolehSuntingSpk(pdi, isAdmin = false, currentUserId = "U2"))
+        // Tahap SESUDAH PDI tetap bukan haknya — `pending_perbaikan` termasuk,
+        // walau daftar tampil-tombol ADMIN memuatnya.
         assertFalse(
             bolehSuntingSpk(
-                job.copy(status = DeliveryStatusKey.PENDING_PDI, salesUserId = "U1"),
+                job.copy(status = DeliveryStatusKey.PENDING_PERBAIKAN, salesUserId = "U1"),
+                isAdmin = false, currentUserId = "U1",
+            )
+        )
+        assertFalse(
+            bolehSuntingSpk(
+                job.copy(status = DeliveryStatusKey.PENDING_SPK, salesUserId = "U1"),
                 isAdmin = false, currentUserId = "U1",
             )
         )
         // Admin tak kehilangan apa pun.
         assertTrue(bolehSuntingSpk(job.copy(status = DeliveryStatusKey.PENDING_PDI), isAdmin = true, currentUserId = ""))
+        assertTrue(
+            bolehSuntingSpk(
+                job.copy(status = DeliveryStatusKey.PENDING_PERBAIKAN),
+                isAdmin = true, currentUserId = "",
+            )
+        )
         // Sudah tercatat di GS = tertutup untuk SEMUA orang, admin sekalipun.
         assertFalse(bolehSuntingSpk(diskon.copy(noTransaksi = "INV-1"), isAdmin = true, currentUserId = "U1"))
+        assertFalse(bolehSuntingSpk(pdi.copy(noTransaksi = "INV-1"), isAdmin = false, currentUserId = "U1"))
     }
 
     /** `salesUserId` kosong + `currentUserId` kosong TIDAK boleh saling cocok —

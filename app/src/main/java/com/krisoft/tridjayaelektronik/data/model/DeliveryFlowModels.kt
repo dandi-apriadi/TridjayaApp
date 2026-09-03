@@ -1003,6 +1003,31 @@ data class AssignBody(
     val customerMapUrl: String? = null
 )
 
+/**
+ * Body PINDAH driver (`reassign_driver_handler`). Sengaja TERPISAH dari
+ * [AssignBody]: di sana `scheduledDate` WAJIB, di sini opsional — memindahkan
+ * driver tak selalu berarti mengubah tanggal kirim, dan string kosong berarti
+ * "pertahankan tanggal yang ada" (`COALESCE(NULLIF(?, ''), scheduled_date)`
+ * di SQL-nya), bukan "hapus jadwal".
+ *
+ * **Jalur ini SENGAJA tidak di-fan-out se-SPK di server**, beda dari `assign`.
+ * Justru itu yang membuat pemecahan satu SPK ke dua driver tetap mungkin:
+ * tugaskan sekali (kena semua unit), lalu pindahkan unit tertentu lewat sini.
+ */
+@Serializable
+data class ReassignBody(
+    val driverId: String,
+    val driverName: String? = null,
+    val scheduledDate: String? = null
+)
+
+/** Body BATAL penjadwalan. `reason` tak disimpan di kolom mana pun — ia masuk
+ *  teks notifikasi driver yang unitnya ditarik, dan terekam `activity_log`. */
+@Serializable
+data class UnassignBody(
+    val reason: String? = null
+)
+
 @Serializable
 data class DeliverBody(
     val photoUrl: String,

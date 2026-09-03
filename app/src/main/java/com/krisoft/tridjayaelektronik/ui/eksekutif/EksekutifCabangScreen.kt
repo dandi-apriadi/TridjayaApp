@@ -268,7 +268,13 @@ private fun KartuKaryawan(k: EksekutifKaryawanDto, detailHariKerja: Long) {
                 // akun uji, atau NIK yang terdaftar dikecualikan). Ditulis
                 // apa adanya — "0%" di sini akan terbaca sebagai pelanggaran
                 // yang tak pernah terjadi.
-                if (k.persenHadir == null && detailHariKerja > 0) {
+                if (!k.dinilai) {
+                    // Pimpinan (manager/owner/superadmin) di luar parameter
+                    // penilaian papan ini. WAJIB dibedakan dari "tidak wajib
+                    // absen": superadmin yang rajin absen tetap wajib absen —
+                    // yang tidak berlaku baginya adalah PENILAIANNYA.
+                    "tidak dinilai"
+                } else if (k.persenHadir == null && detailHariKerja > 0) {
                     // `null` HANYA boleh dibaca "tidak wajib absen" kalau
                     // rentangnya memang punya hari kerja. Pada rentang tanpa
                     // hari kerja (tanggal 1 jatuh Minggu, dsb) server juga
@@ -283,8 +289,15 @@ private fun KartuKaryawan(k: EksekutifKaryawanDto, detailHariKerja: Long) {
             )
             BarisRincian(
                 "Pakai sistem",
-                "${formatPersen(k.pemakaian.persen)} · " +
-                    "${k.pemakaian.hariAktif}/${k.pemakaian.hariKerja} hari",
+                // `hariKerja` = 0 untuk orang yang tak dinilai (penyebutnya
+                // sengaja dinolkan server), jadi "12/0 hari" adalah kalimat
+                // yang mustahil — jejak mentahnya tetap ditulis di baris bawah.
+                if (!k.dinilai) {
+                    "tidak dinilai"
+                } else {
+                    "${formatPersen(k.pemakaian.persen)} · " +
+                        "${k.pemakaian.hariAktif}/${k.pemakaian.hariKerja} hari"
+                },
             )
             Spacer(Modifier.height(2.dp))
             // Rincian jejaknya ditulis supaya angka "pakai sistem" bisa

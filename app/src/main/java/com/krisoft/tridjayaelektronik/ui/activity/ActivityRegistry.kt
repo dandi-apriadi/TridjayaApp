@@ -4,6 +4,9 @@ import com.krisoft.tridjayaelektronik.ui.acinstall.JABATAN_PETUGAS_PEMASANGAN
 import com.krisoft.tridjayaelektronik.ui.acinstall.punyaJabatanPetugasPemasangan
 import com.krisoft.tridjayaelektronik.ui.home.ALL_LOGGED_IN
 import com.krisoft.tridjayaelektronik.ui.home.CRM_MENU_ROLES
+import com.krisoft.tridjayaelektronik.ui.home.KNOWN_ROLES
+import com.krisoft.tridjayaelektronik.ui.home.SPK_BLOCKED_ROLES
+import com.krisoft.tridjayaelektronik.ui.home.GODA_SERIAL_MENU_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.SERIAL_INPUT_MENU_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.STAFF_MENU_ROLES
 import com.krisoft.tridjayaelektronik.ui.home.SPK_MENU_ROLES
@@ -78,6 +81,25 @@ enum class ActivitySource {
      *  di CABANG petugas. Server-lah yang men-scope-nya ke cabang akun
      *  (`list_opname`), bukan parameter dari app. */
     OPNAME_SESI_DRAFT,
+
+    /**
+     * `GET /goda/stok?kodeDealer=<cabang akun>` — unit sepeda listrik GODA yang
+     * SN-nya belum lengkap (`jumlahSn < stok`) di gudang petugas.
+     *
+     * **Angkanya dihitung KLIEN, bukan server**, karena modul `goda.rs` belum
+     * punya endpoint ringkasan. Konsekuensinya jujur: satu respons berisi
+     * seluruh baris stok GODA cabang itu berikut serial-nya. Itu sebabnya
+     * kartunya ber-gate `goda.serial.add` (segelintir orang — dipisah dari
+     * `goda.serial.edit` 2026-09-03), dan `kodeDealer` WAJIB — tanpa parameter
+     * itu server menjawab 13 cabang sekaligus.
+     *
+     * Cabang diambil dari profil (`DealerAlias.resolveFromBranchName`). Akun
+     * PUSAT yang tak punya cabang tidak menghasilkan panggilan sama sekali:
+     * angkanya tetap `null` (= "belum diketahui") dan kartunya tetap bisa
+     * dibuka. Menembak tanpa cabang akan menarik seluruh gudang perusahaan ke
+     * HP hanya untuk memasang satu lencana.
+     */
+    GODA_SN_BELUM_LENGKAP,
 
     /**
      * `GET /kupon-gebyar/meta` — konsumen cabang yang berhak kupon doorprize
@@ -264,29 +286,38 @@ internal val KASIR_QUEUE_ROLES = setOf("kasir", "admin", "superadmin")
  * memakai `spk.pipeline` padahal menavigasi langsung ke form input, jadi
  * manager/owner menekannya lalu dijawab 403.
  */
-internal val SPK_CREATE_ROLES: Set<String> = SPK_MENU_ROLES - "manager" - "owner"
+internal val SPK_CREATE_BLOCKED_ROLES: Set<String> = SPK_BLOCKED_ROLES + setOf("manager", "owner")
+
+internal val SPK_CREATE_ROLES: Set<String> = KNOWN_ROLES - SPK_CREATE_BLOCKED_ROLES
 
 /**
  * Cerminan `capabilities::KUPON_GEBYAR_LIHAT_ROLES` (rust-shared) — cadangan
  * OFFLINE saja; sumber utamanya kunci `kupon_gebyar.lihat` dari
  * `GET /api/me/capabilities`.
  *
- * SENGAJA lebar: programnya memang untuk "setiap karyawan di cabang terkait"
- * (arahan owner). Menyempitkannya di sini akan mengunci orang yang justru
- * diminta mengerjakannya.
+ * **DIBUKA ke SEMUA role 2026-08-29** (permintaan user "buka menu konsumen
+ * gebyar untuk semua user") — `manager`/`owner`/`superadmin`/`cs`/
+ * `admin-sales` ditambahkan di sini bersamaan dengan `KUPON_GEBYAR_LIHAT_ROLES`
+ * server, supaya offline SETUJU dengan server: sebelum ini kelimanya
+ * SENGAJA dikecualikan (pengawasan mereka cuma lewat Papan Gebyar), sekarang
+ * mereka boleh keduanya — Papan Gebyar (lintas-cabang) DAN daftar konsumen
+ * per-cabang ini.
  *
- * **`"cs"` yang ada di daftar server sengaja TIDAK ditulis di sini**, alasan
- * sama dengan [HS_LAPOR_ROLES] dulu: belum ada role literal `cs` di sistem,
- * jadi ejaan itu tak akan pernah cocok dengan role siapa pun dan cuma jadi
- * baris yang tampak seperti jaring pengaman padahal mati. Ia juga tak ada di
- * `KNOWN_ROLES`, jadi menuliskannya akan MEMERAHKAN `ActivityRegistryTest`.
- * Petugas CS sungguhan tetap lolos lewat peta kemampuan server.
+ * SENGAJA tetap memuat `karyawan`: programnya memang untuk "setiap karyawan
+ * di cabang terkait" (arahan owner). Menyempitkannya akan mengunci orang yang
+ * justru diminta mengerjakannya.
  *
  * **Daftar ini BUKAN gerbang yang sesungguhnya.** Yang menentukan siapa melihat
  * kartunya adalah vonis cabang dari server — lihat [kuponGebyarCardVisible].
  */
 internal val KUPON_GEBYAR_MENU_ROLES = setOf(
-    "kepala-cabang", "admin-sales", "karyawan", "manager", "admin", "superadmin", "owner",
+    "kepala-cabang", "admin-penjualan", "kasir", "karyawan",
+    // `admin` = alias wire `superadmin` (gateway `legacy_wire_role`), jadi ia
+    // WAJIB berpasangan seperti di 27 daftar lain berkas ini. Ketiadaannya di
+    // sisi Rust membuat super admin 403 di produksi (172 permintaan, nol
+    // berhasil) — di sini akibatnya lebih ringan tapi sekelas: menunya hilang
+    // selama peta kemampuan belum termuat.
+    "manager", "owner", "superadmin", "admin", "cs", "admin-sales",
 )
 
 /**
@@ -337,7 +368,6 @@ internal val ACTIVITY_ITEMS: List<ActivityItem> = listOf(
         backendGuard = "kinerja-service raport.rs KARYAWAN_ROLES (upsert_raport)",
         source = ActivitySource.RAPORT_TODAY,
         navKey = "aktivitas",
-        beta = true,
     ),
     ActivityItem(
         id = "buat_spk",
@@ -379,6 +409,28 @@ internal val ACTIVITY_ITEMS: List<ActivityItem> = listOf(
         backendGuard = "tanpa guard: kinerja-service home_service/handlers.rs create_ticket login-only (self-scoped)",
         source = ActivitySource.NONE,
         navKey = "hs_lapor",
+        hiddenFromActivity = true,
+    ),
+    ActivityItem(
+        id = "komplain_saya",
+        label = "Komplain Saya",
+        subtitle = "Tiket yang kamu laporkan",
+        kind = ActivityKind.AKSI,
+        // `null`, alasan SAMA dengan `lapor_komplain` di atas: `sayaLapor`
+        // adalah jalur SELF-SCOPED (server memaksa `pelapor_user_id` = id
+        // aktor, tak pernah dari query), jadi kunci apa pun di sini lebih
+        // sempit dari servernya. Siapa pun yang boleh MELAPOR harus bisa
+        // melihat laporannya sendiri — kalau tidak, tiketnya lenyap dari
+        // pandangannya begitu layar sukses ditutup.
+        capability = null,
+        allowedRoles = HS_LAPOR_ROLES,
+        backendGuard = "tanpa guard: kinerja-service home_service/service.rs list sayaLapor (self-scoped, pelapor_user_id = id aktor)",
+        source = ActivitySource.NONE,
+        navKey = "hs_saya",
+        // Disembunyikan dari Activity mengikuti `lapor_komplain`: keduanya
+        // pintu ke modul yang sama dan tinggal berdampingan di Akses Cepat.
+        // Menaruh riwayat pribadi di antrian kerja harian juga salah tempat —
+        // ia bukan sesuatu yang harus dikerjakan hari ini.
         hiddenFromActivity = true,
     ),
     ActivityItem(
@@ -637,6 +689,38 @@ internal val ACTIVITY_ITEMS: List<ActivityItem> = listOf(
         backendGuard = "inventory-service opname.rs has_admin_stok (capabilities::SERIAL_INPUT_ROLES)",
         source = ActivitySource.OPNAME_MANUAL_PENDING,
         navKey = "opname_validasi",
+    ),
+    /**
+     * SN Goda — unit sepeda listrik GODA yang belum punya serial number di
+     * gudang petugas (kinerja-service `goda.rs`).
+     *
+     * **Kenapa ANTRIAN, bukan AKSI.** Selisih `stok` vs `jumlahSn` adalah
+     * pekerjaan yang menumpuk dan bisa habis: ia turun tiap kali satu unit
+     * di-scan, dan nol berarti gudangnya beres. Ubin PINTASAN tak pernah
+     * menyatakan itu — dan tanpa angkanya, "daftarkan SN" cuma menu yang harus
+     * diingat sendiri oleh orangnya.
+     *
+     * Kunci `goda.serial.add` — PENAMBAH, bukan pembaca `goda.view` maupun
+     * penulis-ganti `goda.serial.edit` (dipisah 2026-09-03). Layar tujuannya
+     * cuma bisa menambah SN, jadi menunjukkan kartunya ke
+     * manager/owner/kepala-cabang (yang diloloskan gateway) berarti antrian
+     * yang tak bisa mereka kerjakan.
+     *
+     * Ubin "SN Goda" di Akses Cepat (`QuickAccessMenus.kt`) SENGAJA tetap ada:
+     * dua pintu ke layar yang sama, pola yang sama dengan Opname
+     * (`opname_cabang` + tile "Opname"). Yang di sini menyebut BERAPA, yang di
+     * sana selalu bisa dibuka walau angkanya nol.
+     */
+    ActivityItem(
+        id = "goda_serial",
+        label = "SN Goda",
+        subtitle = "Unit GODA belum punya serial number",
+        kind = ActivityKind.ANTRIAN,
+        capability = "goda.serial.add",
+        allowedRoles = GODA_SERIAL_MENU_ROLES,
+        backendGuard = "kinerja-service goda.rs tambah_sn + rust-shared capabilities.rs GODA_SERIAL_ADD_ROLES",
+        source = ActivitySource.GODA_SN_BELUM_LENGKAP,
+        navKey = "goda_serial",
     ),
     /**
      * Konsumen Gebyar — undangan kupon doorprize yang belum dikirim di cabang

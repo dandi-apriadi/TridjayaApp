@@ -45,6 +45,24 @@ class KpiViewModel @Inject constructor(
     private val authRepository: AuthRepository
 ) : ViewModel() {
 
+    private companion object {
+        /**
+         * Daftar "KPI Karyawan" (seluruh karyawan, muncul di sini untuk
+         * pemegang `kpi.manage`) DISEMBUNYIKAN LAGI 2026-08-28 — cerminan
+         * `kpiKaryawanVisible` di web (`frontend/src/config/featureFlags.ts`),
+         * gate KLIEN yang sama persis: Agustus 2026 dibekukan setengah dinilai
+         * + model bonus per indikator baru berjalan sebulan, jadi papan ini
+         * sengaja tak dipakai memutuskan apa pun sampai keduanya beres.
+         *
+         * Backend `kpi.manage` TAK disentuh — `&&` di bawah cuma menyempitkan
+         * di sisi klien, jadi kelak dibuka lagi cukup balikkan ke `true`,
+         * tanpa perlu deploy backend. `authRepository.capabilities()` juga
+         * ikut TIDAK dipanggil selagi `false` (Kotlin `&&` short-circuit),
+         * jadi `GET /kpi/karyawan` pun tak pernah ditembak.
+         */
+        private const val KPI_KARYAWAN_READY = false
+    }
+
     private val _state = MutableStateFlow(KpiUiState())
     val state: StateFlow<KpiUiState> = _state.asStateFlow()
 
@@ -62,7 +80,7 @@ class KpiViewModel @Inject constructor(
         if (started) return
         started = true
         viewModelScope.launch {
-            val canManage = authRepository.capabilities()?.get("kpi.manage") == true
+            val canManage = KPI_KARYAWAN_READY && authRepository.capabilities()?.get("kpi.manage") == true
             _state.update { it.copy(canManage = canManage) }
             if (canManage) loadList()
         }

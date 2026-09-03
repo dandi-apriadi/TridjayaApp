@@ -55,7 +55,7 @@ class AbsensiRepository @Inject constructor(
 
     /** Upload selfie (JPEG) → mengembalikan URL relatif untuk dikirim saat check-in/out. */
     suspend fun uploadPhoto(bytes: ByteArray, filename: String): AuthResult<String> = try {
-        val body = bytes.toRequestBody("image/jpeg".toMediaType())
+        val body = bytes.toRequestBody("image/webp".toMediaType())
         val part = MultipartBody.Part.createFormData("file", filename, body)
         val response = api.uploadPhoto(part)
         val data = response.body()?.data

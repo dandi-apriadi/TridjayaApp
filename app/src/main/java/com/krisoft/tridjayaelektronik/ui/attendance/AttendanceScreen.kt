@@ -92,6 +92,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.ExpressiveOutlinedButton
 import com.krisoft.tridjayaelektronik.ui.theme.ScrollableCenter
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
@@ -119,9 +120,16 @@ fun AttendanceScreen(
     val selfieUri = remember {
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", selfieFile)
     }
+    // Cabang `else` WAJIB ada: absensi yang gagal senyap adalah kelas kegagalan
+    // paling mahal di app ini — orangnya sudah berdiri di lokasi, mengira sudah
+    // absen, dan baru tahu tidak tercatat saat penggajian. Lihat alasan lengkap
+    // di [PESAN_KAMERA_TAK_TERSIMPAN].
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
-    ) { success -> if (success) viewModel.onSelfieCaptured(selfieFile) }
+    ) { success ->
+        if (success) viewModel.onSelfieCaptured(selfieFile)
+        else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -536,11 +544,17 @@ private fun TimePill(label: String, time: String, flag: String?, color: Color, m
 
 /**
  * Status lokasi GPS (deteksi / ditolak / error / terdeteksi). Verdict akhir tetap
- * server, tapi kalimat di sini WAJIB sesuai dengan apa yang akan dilakukan server:
- * absen MASUK di luar area DITOLAK (`pastikan_di_area_toko`, 400), absen PULANG
- * tetap tercatat. Karena itu [isCheckIn] ada di sini — sampai 2026-08-15 kedua
- * keadaan itu memakai kalimat yang sama ("absen perlu review"), yang untuk absen
- * masuk adalah janji yang tak pernah ditepati.
+ * server, tapi kalimat di sini WAJIB sesuai dengan apa yang akan dilakukan server.
+ *
+ * **Aturannya sudah berbalik dua kali — jangan menyalin kalimat lama.** Sampai
+ * 2026-08-15 kedua keadaan (masuk & pulang) memakai kalimat "absen perlu review",
+ * yang untuk absen MASUK adalah janji tak pernah ditepati: server menolak 400.
+ * Lalu keputusan user 2026-08-26 membuat server MENERIMA absen masuk di luar
+ * radius sebagai `pending_review`, jadi kalimat "belum bisa dari sini" berbalik
+ * jadi salah. Yang berlaku sekarang: **keduanya tercatat**, bedanya absen masuk
+ * dapat status Perlu Review (belum dihitung hadir sampai disetujui), absen pulang
+ * memang tak pernah dipagari area. [isCheckIn] tetap ada karena akibatnya
+ * berbeda, bukan karena yang satu ditolak.
  */
 @Composable
 private fun LocationStatus(state: AttendanceUiState, isCheckIn: Boolean, onRefresh: () -> Unit) {
@@ -554,18 +568,22 @@ private fun LocationStatus(state: AttendanceUiState, isCheckIn: Boolean, onRefre
             "Jarak ${formatDistance((state.distanceM ?: 0).toLong())} dari titik toko · " +
                 if (isCheckIn) "siap check-in." else "siap check-out."
         )
+        // Oranye (peringatan), BUKAN merah: sejak 2026-08-26 keadaan ini tidak
+        // lagi menghalangi absen sama sekali — merah untuk sesuatu yang tetap
+        // berhasil mengajari orang mengabaikan warna merah.
         state.hasLocation && state.inArea == false -> Quintet(
-            Color(0xFFF04438).copy(alpha = 0.12f), Color(0xFFF04438), Icons.Rounded.LocationOn,
+            Color(0xFFB5670C).copy(alpha = 0.12f), Color(0xFFB5670C), Icons.Rounded.LocationOn,
             "Di luar area toko",
             run {
                 val terdekat = state.geofence?.cabangNama?.takeIf { it.isNotBlank() }
                     ?.let { "Terdekat $it · " } ?: ""
                 val jarak = formatDistance((state.distanceM ?: 0).toLong())
-                // Absen MASUK: server menolaknya. Absen PULANG: tetap tercatat —
-                // sejak 2026-07-31 tak ada lagi antrian review absen pulang, jadi
-                // "perlu review" pun sudah tak benar untuk keadaan ini.
+                // Absen MASUK: tercatat `pending_review` (keputusan user
+                // 2026-08-26 — sebelumnya ditolak 400). Absen PULANG: tetap
+                // tercatat, dan sejak 2026-07-31 tak ada antrian review untuknya
+                // sehingga "perlu review" memang tak berlaku di sisi itu.
                 val akibat = if (isCheckIn) {
-                    "absen masuk belum bisa dari sini."
+                    "absen masuk tetap tercatat, tapi Perlu Review dulu."
                 } else {
                     "absen pulang tetap tercatat, jaraknya ikut tercatat juga."
                 }
@@ -644,10 +662,12 @@ private fun SelfieBox(state: AttendanceUiState, onTakeSelfie: () -> Unit) {
 private fun GeofenceLine(inGeofence: Boolean?, distanceM: Long?) {
     val (color, text) = when (inGeofence) {
         true -> Color(0xFF12B76A) to ("Dalam area toko" + (distanceM?.let { " · ${formatDistance(it)}" } ?: ""))
-        // "perlu review" DIBUANG 2026-08-15: antrian review absen sudah dihapus
-        // 2026-07-31 (tak ada lagi jalan lahir `pending_review`), jadi kalimat itu
-        // menjanjikan pemeriksaan yang tak pernah datang. Yang benar-benar terjadi
-        // pada baris begini cuma: jaraknya ikut tercatat.
+        // Baris ini SENGAJA tak menyebut "perlu review", walau sejak 2026-08-26
+        // check-in di luar radius memang lahir `pending_review`: status itu sudah
+        // dibawa `AbsensiStatusBadge(rec.status)` yang dirender berdampingan, dan
+        // dari SATU baris data kita tak bisa tahu apakah `pending_review`-nya
+        // datang dari geofence atau dari sengketa check-out warisan. Menebaknya di
+        // sini melahirkan label kedua yang bisa berselisih dengan badge-nya.
         false -> Color(0xFFB5670C) to ("Di luar area · " + (distanceM?.let { formatDistance(it) } ?: "?") + " · jarak tercatat")
         null -> MaterialTheme.colorScheme.onSurfaceVariant to "Jarak ke titik toko tidak tercatat"
     }

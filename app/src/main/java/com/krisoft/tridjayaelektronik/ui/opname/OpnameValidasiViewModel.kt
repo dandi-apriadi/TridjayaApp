@@ -37,6 +37,35 @@ internal fun fotoKey(unitId: String, slot: String) = "$unitId:$slot"
 internal fun buangUnit(items: List<ManualUnitDto>, unitId: String): List<ManualUnitDto> =
     items.filterNot { it.id == unitId }
 
+/**
+ * Rencana approve MASSAL: id unit dikelompokkan per SESI.
+ *
+ * **Pengelompokan ini wajib, bukan kerapian.** `approve-batch` di server
+ * ber-path `/opname/{id}/units/approve-batch` — satu panggilan hanya menyentuh
+ * SATU sesi, sedangkan antrian di layar ini datang dari
+ * `GET /opname/manual-units` yang lintas-sesi. Mengirim seluruh id ke satu
+ * sessionId berarti sisanya dijawab "bukan milik sesi ini" dan dilaporkan gagal.
+ *
+ * Urutan sesi mengikuti kemunculan pertamanya di daftar supaya laporan hasilnya
+ * bisa dibaca berurutan dengan yang terlihat di layar.
+ */
+internal fun rencanaApproveMassal(items: List<ManualUnitDto>): List<Pair<String, List<String>>> =
+    items.filter { it.sessionId.isNotBlank() }
+        .groupBy { it.sessionId }
+        .map { (sessionId, unit) -> sessionId to unit.map { it.id } }
+
+/**
+ * Kalimat hasil approve massal. `gagal > 0` BUKAN kegagalan operasi: server
+ * menghitung unit yang sudah diputus orang lain di sela sebagai gagal, dan itu
+ * hasil yang sah — pemutusnya perlu tahu angkanya, bukan disodori pesan error.
+ */
+internal fun ringkasHasilMassal(disetujui: Int, gagal: Int): String = when {
+    disetujui == 0 && gagal == 0 -> "Tak ada unit yang diproses."
+    gagal == 0 -> "$disetujui unit disetujui."
+    disetujui == 0 -> "$gagal unit gagal diproses — mungkin sudah diputus orang lain."
+    else -> "$disetujui unit disetujui, $gagal gagal (mungkin sudah diputus orang lain)."
+}
+
 data class OpnameValidasiUiState(
     val isLoading: Boolean = true,
     val items: List<ManualUnitDto> = emptyList(),
@@ -45,6 +74,10 @@ data class OpnameValidasiUiState(
     val photos: Map<String, FotoBukti> = emptyMap(),
     /** Id unit yang keputusannya sedang dikirim (tombolnya dinonaktifkan). */
     val submittingId: String? = null,
+    /** Approve massal sedang berjalan — tombolnya dan tombol per-baris dikunci. */
+    val massalBerjalan: Boolean = false,
+    /** Ringkasan hasil approve massal, termasuk yang sebagian gagal. */
+    val hasilMassal: String? = null,
     val actionError: String? = null,
     /**
      * `pending` (default) | `approved` | `rejected` — cerminan nilai yang
@@ -130,6 +163,55 @@ class OpnameValidasiViewModel @Inject constructor(
 
     fun setujui(unit: ManualUnitDto) =
         putuskan(unit) { repository.approveManualUnit(unit.sessionId, unit.id) }
+
+    /**
+     * Setujui SELURUH unit yang sedang tampil.
+     *
+     * Yang dikirim adalah id yang BENAR-BENAR ada di layar, bukan daftar kosong
+     * (= "semua pending sesi ini" bagi server): antrian bisa tersaring status,
+     * dan menyetujui unit yang tak pernah dilihat pemutusnya adalah persis
+     * kelas kesalahan yang tombol massal ini paling mudah menciptakan.
+     *
+     * Reject TIDAK punya padanan massal — menolak mengubah hitungan dan bisa
+     * menghapus baris item, jadi ia tetap satu-per-satu dengan alasan wajib.
+     */
+    fun setujuiSemua() {
+        val rencana = rencanaApproveMassal(_uiState.value.items)
+        if (rencana.isEmpty() || _uiState.value.massalBerjalan) return
+        _uiState.update { it.copy(massalBerjalan = true, actionError = null, hasilMassal = null) }
+        viewModelScope.launch {
+            var disetujui = 0
+            var gagal = 0
+            var pesanGagal: String? = null
+            val selesai = mutableSetOf<String>()
+            for ((sessionId, unitIds) in rencana) {
+                when (val r = repository.approveManualUnitsBatch(sessionId, unitIds)) {
+                    is AuthResult.Success -> {
+                        disetujui += r.data.disetujui
+                        gagal += r.data.gagal
+                        // Seluruh id sesi ini dibuang dari layar apa pun hasilnya:
+                        // yang `gagal` pun sudah TIDAK pending lagi (diputus orang
+                        // lain di sela), jadi menahannya di antrian menyuruh
+                        // pemutus menekan sesuatu yang sudah selesai.
+                        selesai += unitIds
+                    }
+                    // Sesi yang gagal TIDAK dibuang — unitnya masih pending dan
+                    // pemutusnya harus bisa mencoba lagi.
+                    is AuthResult.Failure -> pesanGagal = r.message
+                }
+            }
+            _uiState.update {
+                it.copy(
+                    massalBerjalan = false,
+                    items = it.items.filterNot { u -> u.id in selesai },
+                    hasilMassal = if (disetujui > 0 || gagal > 0) ringkasHasilMassal(disetujui, gagal) else null,
+                    actionError = pesanGagal,
+                )
+            }
+        }
+    }
+
+    fun clearHasilMassal() = _uiState.update { it.copy(hasilMassal = null) }
 
     fun tolak(unit: ManualUnitDto, alasan: String) =
         putuskan(unit) { repository.rejectManualUnit(unit.sessionId, unit.id, alasan) }

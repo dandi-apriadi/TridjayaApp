@@ -43,7 +43,7 @@ class ActivityRegistryTest {
     }
 
     @Test
-    fun `hanya tiga item yang boleh tanpa kunci kemampuan`() {
+    fun `hanya empat item yang boleh tanpa kunci kemampuan`() {
         // raport: hak `upsert_raport` belum punya kunci di /api/me/capabilities.
         // inventory/cari_semua PINDAH ke QUICK_ACCESS_MENUS 2026-07-30 (lihat
         // MenuAccessGateTest.kt) — bukan lagi milik registri ini.
@@ -55,9 +55,14 @@ class ActivityRegistryTest {
         // membuatnya — `tugas-saya` self-scoped, dan anggota tim dipilih
         // per-ORANG sehingga tak ada daftar role yang benar untuk "petugas
         // pemasangan". Yang menyempitkan tampilannya `jabatan`, bukan role.
-        // Ketiganya WAJIB menyebutkan alasannya di `backendGuard`.
+        // `komplain_saya` menyusul 2026-08-28, alasannya SAMA PERSIS dengan
+        // `lapor_komplain` dan memang pasangannya: `sayaLapor` self-scoped —
+        // server memaksa `pelapor_user_id` = id aktor dan tak pernah membacanya
+        // dari query, jadi kunci apa pun di klien lebih SEMPIT dari servernya.
+        // Siapa pun yang boleh melapor harus bisa melihat laporannya sendiri.
+        // Keempatnya WAJIB menyebutkan alasannya di `backendGuard`.
         val tanpaKunci = ACTIVITY_ITEMS.filter { it.capability == null }.map { it.id }
-        assertEquals(listOf("aktivitas", "lapor_komplain", "pemasangan_ac"), tanpaKunci)
+        assertEquals(listOf("aktivitas", "lapor_komplain", "komplain_saya", "pemasangan_ac"), tanpaKunci)
     }
 
     // ── Gate JABATAN (bukan role) ────────────────────────────────────────────
@@ -233,6 +238,63 @@ class ActivityRegistryTest {
         // kartunya harus ikut aturan yang kedua, kalau tidak owner menekan
         // Setuju lalu dijawab 403.
         assertFalse("aktivitas_review" in visibleActivityItems(setOf("owner"), null).map { it.id })
+    }
+
+    // ── SN Goda ──────────────────────────────────────────────────────────────
+
+    /**
+     * Kartu "SN Goda" mengikuti PENAMBAH registry (`goda.serial.add`, dipisah
+     * dari `goda.serial.edit` 2026-09-03), bukan pembacanya (`goda.view`).
+     *
+     * Bedanya bukan kerapian: gateway `require_goda_access` meloloskan seluruh
+     * pembaca (manager/owner/kepala-cabang) ke rute `/api/goda/...`, dan yang
+     * menolak penulisan adalah service. Kartu yang meniru gerbang gateway
+     * karena itu akan memberi mereka ANTRIAN yang tak bisa mereka kerjakan —
+     * pekerjaan orang lain yang menumpuk di layar sendiri. **`kepala-cabang`
+     * PINDAH KUBU 2026-09-03**: bersama `admin-penjualan`/`kasir` ia kini juga
+     * penambah — tiga role itu diperiksa terpisah di bawah, bukan lagi masuk
+     * daftar pembaca murni.
+     */
+    @Test
+    fun `kartu SN Goda hanya untuk penulis registry`() {
+        val stok = visibleActivityItems(setOf("karyawan", "admin-stok"), null).map { it.id }
+        assertTrue("goda_serial" in stok)
+
+        // Staf gudang: divisi `staf-gudang` naik jadi slug ber-akses 2026-09-01.
+        // Role PRIMARY-nya tetap `karyawan`, jadi kalau cadangan offline ini
+        // tertinggal, merekalah yang kehilangan kartunya — bukan admin-stok.
+        val stafGudang = visibleActivityItems(setOf("karyawan", "staf-gudang"), null).map { it.id }
+        assertTrue("goda_serial" in stafGudang)
+
+        for (pembacaMurni in listOf("manager", "owner")) {
+            assertFalse(
+                "`$pembacaMurni` cuma boleh MEMBACA List Goda — kartu antrian ini menulis",
+                "goda_serial" in visibleActivityItems(setOf(pembacaMurni), null).map { it.id },
+            )
+        }
+
+        // 2026-09-03 (permintaan user): ketiga role ini kini boleh MENAMBAH,
+        // jadi kartunya tampil — walau tetap tak boleh MENGGANTI.
+        for (penambahBaru in listOf("kepala-cabang", "admin-penjualan", "kasir")) {
+            assertTrue(
+                "`$penambahBaru` harus punya kartu SN Goda sejak 2026-09-03",
+                "goda_serial" in visibleActivityItems(setOf(penambahBaru), null).map { it.id },
+            )
+        }
+
+        // Peta kemampuan server tetap yang memutuskan saat ia ada, dua arah.
+        assertFalse(
+            "goda_serial" in visibleActivityItems(
+                setOf("admin-stok"),
+                mapOf("goda.serial.add" to false),
+            ).map { it.id },
+        )
+        assertTrue(
+            "goda_serial" in visibleActivityItems(
+                setOf("karyawan"),
+                mapOf("goda.serial.add" to true),
+            ).map { it.id },
+        )
     }
 
     // ── Komplain / Home Service ──────────────────────────────────────────────
@@ -548,17 +610,28 @@ class ActivityRegistryTest {
     }
 
     /**
-     * Daftar cadangan offline SENGAJA tak memuat `"cs"` walau server memuatnya
-     * (`KUPON_GEBYAR_LIHAT_ROLES`): belum ada role literal `cs` di sistem, jadi
-     * ejaan itu tak akan pernah cocok dengan siapa pun dan cuma jadi baris yang
-     * tampak seperti jaring pengaman padahal mati. Petugas CS sungguhan tetap
-     * lolos lewat peta kemampuan server, yang memang sumber utamanya.
+     * **Dibuka ke SEMUA role 2026-08-29** (permintaan user) — `KUPON_GEBYAR_MENU_ROLES`
+     * kini mencerminkan `KUPON_GEBYAR_LIHAT_ROLES` server persis, termasuk `"cs"`.
+     * Berbeda dari asumsi sebelumnya, `"cs"` BUKAN baris mati: ia token divisi
+     * turunan yang sudah terbukti hidup di `AC_INSTALL_SCHEDULE_ROLES`/
+     * `VERTEL_ROLES` (`QuickAccessMenus.kt`) — petugas CS memang bisa datang
+     * dengan token role tambahan itu, bukan hanya lewat peta kemampuan server.
      */
     @Test
-    fun `daftar cadangan gebyar tidak memuat role yang tak pernah ada`() {
-        assertFalse("cs" in KUPON_GEBYAR_MENU_ROLES)
+    fun `daftar cadangan gebyar mencerminkan server persis`() {
+        assertTrue("cs" in KUPON_GEBYAR_MENU_ROLES)
+        assertTrue("manager" in KUPON_GEBYAR_MENU_ROLES)
+        assertTrue("owner" in KUPON_GEBYAR_MENU_ROLES)
+        assertTrue("superadmin" in KUPON_GEBYAR_MENU_ROLES)
+        assertTrue("admin-sales" in KUPON_GEBYAR_MENU_ROLES)
         assertTrue("karyawan" in KUPON_GEBYAR_MENU_ROLES)
         assertTrue("kepala-cabang" in KUPON_GEBYAR_MENU_ROLES)
+        // Alias wire `superadmin` (2026-08-31). Diuji BERPASANGAN dengan
+        // `superadmin` di atas karena yang salah bukan "kurang satu slug"
+        // melainkan daftar yang menyebut sebuah peran lalu melewatkan cara
+        // peran itu benar-benar tiba — di sisi server bentuknya 403 untuk akun
+        // `Administrator`, di sini menu yang hilang saat peta belum termuat.
+        assertTrue("admin" in KUPON_GEBYAR_MENU_ROLES)
     }
 
     /**

@@ -104,4 +104,17 @@ class FileProviderPathsTest {
             "serial" in deklarasi("cache-path"),
         )
     }
+
+    @Test
+    fun `direktori media-compress terdaftar — cegah regresi FileProvider video`() {
+        // Sama pola dengan tes `serial` di atas: `VideoTranscoder` menulis keluaran
+        // transcode ke `cacheDir/media-compress/` (`util/VideoTranscoder.kt`,
+        // dipanggil dari `AktivitasViewModel.kirimVideo`) — kalau entrinya hilang,
+        // pemakaian FileProvider berikutnya atas direktori ini akan menutup app
+        // tanpa gejala di kompilasi/lint, kelas kegagalan yang sama seperti `serial`.
+        assertTrue(
+            "cache-path 'media-compress/' hilang — regresi FileProvider VideoTranscoder",
+            "media-compress" in deklarasi("cache-path"),
+        )
+    }
 }

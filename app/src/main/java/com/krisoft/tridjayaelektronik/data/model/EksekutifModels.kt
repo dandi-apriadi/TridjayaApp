@@ -98,9 +98,25 @@ data class EksekutifKaryawanDto(
     val role: String = "",
     val divisi: String = "",
     val penjualan: EksekutifPenjualanDto = EksekutifPenjualanDto(),
+    /**
+     * `false` = orang ini SENGAJA di luar parameter penilaian papan (manager,
+     * owner, superadmin — arahan user 2026-08-28).
+     *
+     * **Jangan tertukar dengan [EksekutifKecocokanDto.dinilai]**, yang berupa
+     * JUMLAH SPK yang ikut dinilai. Yang ini boolean tentang ORANGNYA.
+     *
+     * Default `true` supaya server LAMA (yang belum mengirim field ini) tidak
+     * membuat seluruh baris terbaca "tidak dinilai" — fail-open ke perilaku
+     * sebelumnya, bukan ke vonis baru atas semua orang.
+     */
+    val dinilai: Boolean = true,
     val hadir: Long = 0,
     val offHari: Long = 0,
-    /** `null` = orang ini tidak diwajibkan absen (manager/akun uji/dikecualikan). */
+    /**
+     * `null` punya DUA arti dan [dinilai] yang membedakannya: `dinilai=true` =
+     * tidak diwajibkan absen (manager/akun uji/NIK dikecualikan);
+     * `dinilai=false` = tidak dinilai sama sekali.
+     */
     val persenHadir: Double? = null,
     val spkVsGs: EksekutifKecocokanDto = EksekutifKecocokanDto(),
     val pemakaian: EksekutifPemakaianDto = EksekutifPemakaianDto(),

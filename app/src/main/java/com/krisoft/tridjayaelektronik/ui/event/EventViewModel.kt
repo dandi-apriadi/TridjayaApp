@@ -1,14 +1,13 @@
 package com.krisoft.tridjayaelektronik.ui.event
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
-import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.krisoft.tridjayaelektronik.data.AuthResult
 import com.krisoft.tridjayaelektronik.data.EventRepository
 import com.krisoft.tridjayaelektronik.data.model.EventDto
+import com.krisoft.tridjayaelektronik.ui.aktivitas.pesanGagalDekode
+import com.krisoft.tridjayaelektronik.util.ImagePixelPipeline
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,15 +16,26 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.File
 import javax.inject.Inject
-import kotlin.math.max
 
 /** KTP harus tetap TERBACA — server pun menyimpannya pada 2400px/q88, jadi jangan turunkan lagi. */
 private const val KTP_MAX_DIMENSION = 2000
-private const val KTP_MAX_BYTES = 1_500_000
+private const val KTP_MAX_BYTES = 1_500_000L
+
+// WebP, bukan lagi JPEG (2026-08-29) — `event::foto_ktp_sah` server SUDAH menerima `.webp`
+// (`upload_ktp` memvalidasi lewat magic byte + SELALU re-encode ke webp sendiri, mengabaikan
+// bytes/filename/content-type klien), jadi migrasi ini murni mengecilkan payload upload, nol
+// risiko kompat — dikonfirmasi baca `services/kinerja-service/src/event/upload.rs` langsung.
+@Suppress("DEPRECATION")
+private val KTP_PARAMS = ImagePixelPipeline.Params(
+    maxDimension = KTP_MAX_DIMENSION,
+    format = Bitmap.CompressFormat.WEBP,
+    startQuality = 88,
+    minQuality = 50,
+    step = 12,
+    maxBytes = KTP_MAX_BYTES,
+)
 
 data class EventUiState(
     val loading: Boolean = true,
@@ -122,7 +132,7 @@ class EventViewModel @Inject constructor(
      * Dikompres dulu di HP: server menolak >5MB, dan foto kamera full-res HP baru rutin
      * melewatinya — sales di lapangan cuma akan melihat "gagal unggah" tanpa sebab.
      */
-    fun unggahKtp(file: File) {
+    fun unggahKtp(file: File, dariGaleri: Boolean = false) {
         if (_uiState.value.mengunggahKtp) return
         _uiState.update { it.copy(mengunggahKtp = true, pesanError = null, pesanSukses = null) }
         viewModelScope.launch {
@@ -131,13 +141,22 @@ class EventViewModel @Inject constructor(
             // ini, dan cache Android tak punya masa kedaluwarsa yang bisa diandalkan.
             // Kamera/galeri membuat ulang berkasnya pada pemilihan berikutnya (FileProvider
             // membuka mode "w" = CREATE), jadi menghapus di sini tidak mematikan tombolnya.
-            val siap = withContext(Dispatchers.Default) { siapkanKtpJpeg(file).also { file.delete() } }
+            val siap = siapkanKtpJpeg(file).also { file.delete() }
             if (siap == null) {
-                _uiState.update { it.copy(mengunggahKtp = false, pesanError = "Foto tidak terbaca, coba ambil ulang.") }
+                // "Coba ambil ulang" hanya benar untuk KAMERA. Foto galeri yang
+                // gagal didekode di HP Android 7/8 (HEIC dari iPhone, masuk
+                // lewat Bluetooth/kartu SD — `BitmapFactory` baru bisa HEIF di
+                // API 28 sedangkan minSdk 24) akan gagal lagi setiap kali,
+                // jadi kalimat itu menyuruh mengulang hal yang mustahil.
+                // Kalimat per-sumber dipinjam dari `pesanGagalDekode` (jalur
+                // raport), bukan ditulis ulang.
+                _uiState.update {
+                    it.copy(mengunggahKtp = false, pesanError = pesanGagalDekode(dariGaleri))
+                }
                 return@launch
             }
             val (bytes, bitmap) = siap
-            when (val res = repository.unggahKtp(bytes, "ktp_${System.currentTimeMillis()}.jpg")) {
+            when (val res = repository.unggahKtp(bytes, "ktp_${System.currentTimeMillis()}.webp")) {
                 is AuthResult.Failure ->
                     _uiState.update { it.copy(mengunggahKtp = false, pesanError = res.message) }
                 is AuthResult.Success -> _uiState.update {
@@ -178,64 +197,23 @@ class EventViewModel @Inject constructor(
 }
 
 /**
- * Downscale ke [KTP_MAX_DIMENSION], bakar rotasi EXIF ke piksel, lalu JPEG-kompres di bawah
- * [KTP_MAX_BYTES]. `null` = berkas rusak/tak terbaca.
+ * Downscale ke [KTP_MAX_DIMENSION], bakar rotasi EXIF ke piksel, lalu WebP-kompres di bawah
+ * [KTP_MAX_BYTES]. `null` = berkas rusak/tak terbaca. Nama fungsi TETAP "Jpeg" walau isinya kini
+ * WebP — lihat komentar [KTP_PARAMS]. Mekanismenya kini lewat `util.ImagePixelPipeline`, dipakai
+ * bersama `PhotoWatermark`/`IndentCreateViewModel`/`AddLeadViewModel` (rotasi EXIF WAJIB dibakar
+ * di sana: re-encode membuang EXIF, dan KTP yang tersimpan miring 90° praktis tak terbaca
+ * petugas yang memeriksanya nanti). Selalu return hasil apa adanya kalau masih di atas
+ * [KTP_MAX_BYTES] di kualitas terendah (fail-soft, BEDA dari `AddLeadViewModel.siapkanJpeg` yang
+ * menolak — KTP best-effort, tak pernah `null` kecuali gagal didekode).
  *
- * Rotasi WAJIB dibakar: re-encode membuang EXIF, dan KTP yang tersimpan miring 90° praktis
- * tak terbaca petugas yang memeriksanya nanti.
- *
- * ponytail: nyaris kembar dengan `IndentCreateViewModel.compressImage` dan
- * `PhotoWatermark.prepareWatermarkedJpeg` — keduanya tak bisa dipakai ulang apa adanya (yang
- * pertama `private`, yang kedua SELALU mencap watermark yang justru menutupi bagian KTP dan
- * memotong resolusi ke 1600px). Satukan ke `util/` saat ada yang menyentuh salah satu dari
- * ketiganya; menyatukannya sekarang berarti mengubah dua alur foto yang sedang dipakai
- * lapangan demi fitur yang belum pernah jalan.
+ * `suspend` + `withContext(Dispatchers.Default)` membungkus SELURUH badan (termasuk baca berkas)
+ * supaya `ImagePixelPipeline.compress` dipanggil di fungsi yang sama dengan pemindahan
+ * dispatcher-nya — dijaga `ImagePixelPipelineGuardTest`. `unggahKtp` dulu membungkus PANGGILAN ke
+ * fungsi ini dengan `withContext(Dispatchers.Default) { siapkanKtpJpeg(file)... }`; utasnya sama
+ * persis, cuma baris `withContext`-nya kini di dalam.
  */
-private fun siapkanKtpJpeg(file: File): Pair<ByteArray, Bitmap>? {
-    val raw = runCatching { file.readBytes() }.getOrNull() ?: return null
-    if (raw.isEmpty()) return null
-
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-
-    var sampleSize = 1
-    while (max(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= KTP_MAX_DIMENSION) sampleSize *= 2
-    var bitmap = BitmapFactory.decodeByteArray(raw, 0, raw.size, BitmapFactory.Options().apply {
-        inSampleSize = sampleSize
-    }) ?: return null
-
-    val maxSide = max(bitmap.width, bitmap.height)
-    if (maxSide > KTP_MAX_DIMENSION) {
-        val scale = KTP_MAX_DIMENSION.toFloat() / maxSide
-        bitmap = Bitmap.createScaledBitmap(
-            bitmap,
-            (bitmap.width * scale).toInt().coerceAtLeast(1),
-            (bitmap.height * scale).toInt().coerceAtLeast(1),
-            true,
-        )
-    }
-
-    val orientation = runCatching {
-        ExifInterface(ByteArrayInputStream(raw))
-            .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-    }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
-    val degrees = when (orientation) {
-        ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-        ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-        ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-        else -> 0f
-    }
-    if (degrees != 0f) {
-        val matrix = Matrix().apply { postRotate(degrees) }
-        bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-    }
-
-    var quality = 88
-    var out = ByteArrayOutputStream().apply { bitmap.compress(Bitmap.CompressFormat.JPEG, quality, this) }.toByteArray()
-    while (out.size > KTP_MAX_BYTES && quality > 50) {
-        quality -= 12
-        out = ByteArrayOutputStream().apply { bitmap.compress(Bitmap.CompressFormat.JPEG, quality, this) }.toByteArray()
-    }
-    return out to bitmap
+private suspend fun siapkanKtpJpeg(file: File): Pair<ByteArray, Bitmap>? = withContext(Dispatchers.Default) {
+    val raw = runCatching { file.readBytes() }.getOrNull() ?: return@withContext null
+    if (raw.isEmpty()) return@withContext null
+    ImagePixelPipeline.compress(raw, KTP_PARAMS)
 }

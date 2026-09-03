@@ -5,6 +5,8 @@ import com.krisoft.tridjayaelektronik.data.local.OpnameUnitEntity
 import com.krisoft.tridjayaelektronik.data.model.InTransitHintDto
 import com.krisoft.tridjayaelektronik.data.model.TandaiNihilRequest
 import com.krisoft.tridjayaelektronik.data.model.ApiResponse
+import com.krisoft.tridjayaelektronik.data.model.ApproveBatchData
+import com.krisoft.tridjayaelektronik.data.model.ApproveBatchRequest
 import com.krisoft.tridjayaelektronik.data.model.CreateIndentRequest
 import com.krisoft.tridjayaelektronik.data.model.CreateOpnameRequest
 import com.krisoft.tridjayaelektronik.data.model.CreateOpnameUnitsData
@@ -877,6 +879,9 @@ internal open class StubInventoryApi : InventoryApi {
 
     override suspend fun approveManualUnit(id: String, unitId: String):
         Response<ApiResponse<OpnameDetailDto>> = nope()
+
+    override suspend fun approveManualUnitsBatch(id: String, body: ApproveBatchRequest):
+        Response<ApiResponse<ApproveBatchData>> = nope()
 
     override suspend fun rejectManualUnit(id: String, unitId: String, body: RejectUnitBody):
         Response<ApiResponse<OpnameDetailDto>> = nope()

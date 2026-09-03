@@ -182,11 +182,31 @@ class UpdateManager @Inject constructor(
             // menyimpannya, sedangkan sertifikatnya justru yang harus tetap.
             // Ketidakcocokan = berkas DIHAPUS, bukan sekadar ditolak — supaya
             // percobaan berikutnya tidak menemukannya lagi.
-            if (!ditandatanganiKitaSendiri(file)) {
-                file.delete()
-                return@withContext Result.failure(
-                    IOException("Berkas update DITOLAK: tanda tangannya bukan milik aplikasi ini. Berkas sudah dihapus — unduh ulang lewat aplikasi, jangan pasang APK dari sumber lain.")
-                )
+            when (periksaTandaTangan(file)) {
+                HasilPeriksaTanda.COCOK -> Unit
+                HasilPeriksaTanda.TIDAK_COCOK -> {
+                    // Sertifikat TERBACA dan memang berbeda — inilah kasus yang
+                    // audit maksud. Berkasnya dihapus supaya percobaan
+                    // berikutnya tak menemukannya lagi.
+                    file.delete()
+                    return@withContext Result.failure(
+                        IOException("Berkas update DITOLAK: tanda tangannya bukan milik aplikasi ini. Berkas sudah dihapus — unduh ulang lewat aplikasi, jangan pasang APK dari sumber lain.")
+                    )
+                }
+                HasilPeriksaTanda.TAK_TERBACA -> {
+                    // HP ini tak bisa membaca sertifikat dari berkas APK lepas.
+                    // Itu keterbatasan sistem, BUKAN bukti berkasnya jahat —
+                    // jadi jangan menuduh, dan JANGAN hapus berkasnya: ia masih
+                    // bisa dipasang manual lewat pengelola berkas, dan itu satu-
+                    // satunya jalan keluar yang tersisa buat orang ini.
+                    return@withContext Result.failure(
+                        IOException(
+                            "HP ini tak bisa memeriksa tanda tangan berkas update, jadi pemasangan " +
+                                "otomatis dihentikan demi keamanan. Berkasnya TIDAK dihapus — minta " +
+                                "APK dikirim manual, atau hubungi IT."
+                        )
+                    )
+                }
             }
             Result.success(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file))
         } catch (e: Exception) {
@@ -207,11 +227,22 @@ class UpdateManager @Inject constructor(
      * kesamaan persis akan menolak update yang sah tepat pada rilis rotasi —
      * kegagalan yang baru ketahuan saat semua orang sudah tak bisa update.
      *
-     * Gagal baca = `false` (fail-closed). Satu-satunya akibatnya update lewat
-     * app berhenti dan APK bisa dikirim manual; kebalikannya berarti memasang
-     * APK yang tak bisa dibuktikan asalnya.
+     * Keduanya menolak pemasangan (fail-closed), tapi [HasilPeriksaTanda]
+     * MEMBEDAKAN "tak terbaca" dari "tidak cocok" — dan pembedaan itu dibayar
+     * mahal pada 2026-08-28. Sampai hari itu keduanya menghasilkan satu kalimat
+     * yang sama, "tanda tangannya bukan milik aplikasi ini", plus penghapusan
+     * berkas. Padahal penyebab nyatanya bukan penyusup melainkan APK kita
+     * sendiri yang tak ber-v1: `getPackageArchiveInfo` atas berkas LEPAS di
+     * banyak ROM hanya membaca JAR signature, jadi APK v2-saja menghasilkan
+     * himpunan KOSONG. Tuduhan itu mengirim seluruh cabang memburu "APK dari
+     * sumber lain" yang tak pernah ada, sementara satu-satunya jalur update
+     * mati total. Akar masalahnya ditutup di `build.gradle.kts`
+     * (`enableV1Signing = true`); ini jaring pengaman kalau ROM lain
+     * berperilaku sama lagi.
      */
-    private fun ditandatanganiKitaSendiri(file: File): Boolean {
+    private enum class HasilPeriksaTanda { COCOK, TIDAK_COCOK, TAK_TERBACA }
+
+    private fun periksaTandaTangan(file: File): HasilPeriksaTanda {
         val pm = context.packageManager
         val flag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             PackageManager.GET_SIGNING_CERTIFICATES
@@ -220,13 +251,18 @@ class UpdateManager @Inject constructor(
             PackageManager.GET_SIGNATURES
         }
         return try {
-            val unduhan = pm.getPackageArchiveInfo(file.absolutePath, flag) ?: return false
+            val unduhan = pm.getPackageArchiveInfo(file.absolutePath, flag)
+                ?: return HasilPeriksaTanda.TAK_TERBACA
             val diri = pm.getPackageInfo(context.packageName, flag)
             val sidikUnduhan = sidikSertifikat(unduhan)
             val sidikDiri = sidikSertifikat(diri)
-            sidikUnduhan.isNotEmpty() && sidikDiri.isNotEmpty() && sidikUnduhan.any { it in sidikDiri }
+            // Himpunan kosong BUKAN ketidakcocokan — ia berarti API-nya tak
+            // memberi tahu apa pun. Menyamakan keduanya adalah bug aslinya.
+            if (sidikUnduhan.isEmpty() || sidikDiri.isEmpty()) return HasilPeriksaTanda.TAK_TERBACA
+            if (sidikUnduhan.any { it in sidikDiri }) HasilPeriksaTanda.COCOK
+            else HasilPeriksaTanda.TIDAK_COCOK
         } catch (e: Exception) {
-            false
+            HasilPeriksaTanda.TAK_TERBACA
         }
     }
 

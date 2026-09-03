@@ -3,8 +3,10 @@ package com.krisoft.tridjayaelektronik.ui.kupongebyar
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,6 +45,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,7 +64,33 @@ import com.krisoft.tridjayaelektronik.ui.theme.ScrollableCenter
 import com.krisoft.tridjayaelektronik.ui.theme.SkeletonCard
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+
+/** Tag logcat layar ini — dipakai untuk menelusuri kegagalan siapkan-foto. */
+private const val TAG_GEBYAR = "KuponGebyar"
+
+/**
+ * Pembungkus yang MEMISAHKAN dua kegagalan yang kebetulan memakai kelas
+ * exception yang sama.
+ *
+ * `contentResolver.openInputStream()` dan `File.outputStream()` sama-sama
+ * melempar [java.io.FileNotFoundException], padahal artinya berlawanan: yang
+ * pertama "foto sumbernya tak bisa dibuka", yang kedua "penyimpanan HP kita
+ * bermasalah". Lebih menyesatkan lagi, Android memetakan SELURUH `ErrnoException`
+ * ke `FileNotFoundException` — jadi penyimpanan penuh (ENOSPC) pun muncul dengan
+ * nama kelas yang berbunyi "berkas tidak ditemukan".
+ *
+ * Selama keduanya menyatu dalam satu penangkap, pesan ke sales selalu
+ * menyalahkan fotonya, dan orang yang penyimpanannya penuh diberi saran yang
+ * tak mungkin menolongnya. Dilaporkan dari lapangan 2026-08-28 20:40.
+ */
+private class GagalBacaSumber(cause: Throwable) : Exception(cause)
+
+private class GagalTulisCache(cause: Throwable) : Exception(cause)
 
 /**
  * "Konsumen Gebyar" — daftar konsumen cabang yang berhak kupon doorprize, dan
@@ -83,6 +112,7 @@ fun KuponGebyarScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) { viewModel.muat() }
 
@@ -105,25 +135,133 @@ fun KuponGebyarScreen(
     val kamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val kode = buktiUntuk
         val baris = state.items.firstOrNull { it.kodeRekanan == kode }
-        if (ok && baris != null) viewModel.unggahBukti(baris, fileFoto, catatan = null)
         buktiUntuk = null
+        when {
+            ok && baris != null -> viewModel.unggahBukti(baris, fileFoto, catatan = null)
+            // DULU: `if (ok && baris != null)` tanpa cabang lain — jadi kamera
+            // yang gagal menulis TIDAK menghasilkan apa pun. Nol toast, nol
+            // unggahan, nol jejak. Sales melihat app kamera terbuka dan rana
+            // bekerja, lalu kembali ke daftar yang tampak normal, dan menyangka
+            // buktinya terkirim. Itulah kenapa "Kamera berfungsi" TIDAK PERNAH
+            // bisa dipakai sebagai bukti bahwa penyimpanannya sehat — dan
+            // kenapa laporan "hanya 1 yang terupload, sisanya tidak" bisa
+            // muncul tanpa satu pun pesan galat.
+            //
+            // `ok == false` di sini berarti app kamera tak jadi menyimpan:
+            // dibatalkan, ATAU gagal menulis ke `cacheDir/kupon-gebyar/`
+            // (direktori sudah dibersihkan sistem / penyimpanan penuh).
+            // Keduanya tak bisa dibedakan dari sini — kontrak `TakePicture`
+            // cuma memberi Boolean — jadi kalimatnya menyebut keduanya.
+            !ok && baris != null ->
+                Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+        }
     }
 
     // Kamera ATAU galeri — keduanya bermuara ke `fileFoto` yang sama supaya
-    // jalur unggahnya (watermark + POST) cuma satu implementasi. `GetContent()`
-    // = Android Photo Picker, tak butuh izin penyimpanan (lihat SpkItemCard.kt).
-    val galeri = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    // jalur unggahnya (watermark + POST) cuma satu implementasi.
+    //
+    // Picker-nya `PickVisualMedia` (Photo Picker) dan **tidak butuh izin apa
+    // pun**; di bawah Android 11/13 ia turun sendiri ke SAF. JANGAN ditambal
+    // dengan `READ_MEDIA_*`/`READ_EXTERNAL_STORAGE` — pola yang sama sudah
+    // ditulis di `AktivitasScreen.kt`.
+    //
+    // Sampai 2026-08-28 baris ini memakai `GetContent()` sambil menuliskan
+    // komentar "GetContent() = Android Photo Picker". Itu KELIRU dan bukan
+    // sekadar salah istilah: `GetContent()` memicu `ACTION_GET_CONTENT`
+    // (pemilih dokumen lama) yang diarahkan ke aplikasi galeri bawaan HP, dan
+    // URI yang dikembalikannya tidak selalu bisa dibuka — foto yang masih di
+    // cloud dan belum terunduh, atau hibah izin URI yang hilang saat proses
+    // app sempat dimatikan sistem. Photo Picker menyerahkan URI ber-hibah baca
+    // yang stabil. Dilaporkan dari lapangan: sales Haurgeulis gagal 17:33 lalu
+    // berhasil 17:41 di versi app yang SAMA — gejala sesaat, bukan blokir.
+    val galeri = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
         val kode = buktiUntuk
         val baris = state.items.firstOrNull { it.kodeRekanan == kode }
         buktiUntuk = null
         if (uri == null || baris == null) return@rememberLauncherForActivityResult
-        val tersalin = runCatching {
-            context.contentResolver.openInputStream(uri)!!.use { input ->
-                fileFoto.outputStream().use { output -> input.copyTo(output) }
-            }
-        }.isSuccess
-        if (tersalin) viewModel.unggahBukti(baris, fileFoto, catatan = null)
-        else Toast.makeText(context, "Gagal membaca foto dari galeri.", Toast.LENGTH_SHORT).show()
+        // `runCatching { ... }.isSuccess` DULU membuang exception-nya, jadi
+        // keempat sebab di atas menghasilkan satu pesan identik dan tak ada
+        // yang bisa tahu mana yang kena — termasuk saat menyelidiki laporan
+        // nyata. Sebabnya sekarang dibawa sampai ke layar.
+        // `openInputStream` SENDIRI yang melempar (SecurityException saat hibah
+        // URI hilang, FileNotFoundException saat berkasnya di cloud), jadi ia
+        // WAJIB ada DI DALAM `runCatching`. Menaruhnya di luar membuat
+        // kegagalan yang sedang kita tangani ini justru menutup app.
+        //
+        // Penyalinannya di `Dispatchers.IO`, BUKAN di badan callback. Callback
+        // picker dipanggil di main thread, dan justru foto yang jadi keluhan
+        // di sini — yang masih di cloud — membuat `openInputStream` MENGUNDUH
+        // dulu dari jaringan sebelum byte pertama keluar. Menyalinnya di main
+        // thread berarti layar membeku selama unduhan itu, dan pada berkas
+        // besar/sinyal jelek berujung ANR: "aplikasi tidak merespons" alih-alih
+        // pesan yang bisa dikerjakan. Pola `withContext` ini sudah dipakai enam
+        // pemanggil `PhotoWatermark` lain (mis. `HomeServiceLaporViewModel`).
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    // `mkdirs()` DI SINI, bukan cuma di `remember{}` yang membuat
+                    // `fileFoto`. Blok `remember` jalan SEKALI saat layar pertama
+                    // disusun; Android boleh mengosongkan `cacheDir` kapan saja
+                    // saat penyimpanan menipis — termasuk SELAGI layar ini
+                    // terbuka dan pemilih foto sedang menutupinya. Kalau itu
+                    // terjadi, direktorinya lenyap dan `outputStream()` melempar
+                    // **FileNotFoundException (ENOENT)** — exception yang SAMA
+                    // dengan kegagalan membaca foto sumber, sehingga pesannya
+                    // menyalahkan "fotonya masih di cloud" padahal yang hilang
+                    // justru direktori milik kita sendiri. Pola per-tulis ini
+                    // sudah dipakai `AktivitasScreen.kt:145` dan
+                    // `SpkItemCard.kt:522,618`; layar ini ketinggalan.
+                    fileFoto.parentFile?.mkdirs()
+                    // BACA dan TULIS dipisah tegas, dan itu bukan kerapian:
+                    // `openInputStream` DAN `outputStream()` sama-sama melempar
+                    // `FileNotFoundException`, jadi satu penangkap membuat dua
+                    // sebab yang berlawanan arah tampil identik — "foto sumber
+                    // tak terbaca" vs "penyimpanan HP kita bermasalah". Selama
+                    // keduanya menyatu, kalimat ke sales SELALU menyalahkan
+                    // fotonya, dan saran "buka dulu di galeri" tak akan pernah
+                    // menolong orang yang penyimpanannya penuh.
+                    val masuk = try {
+                        context.contentResolver.openInputStream(uri)
+                            ?: error("galeri tak memberi isi berkas")
+                    } catch (e: Exception) {
+                        throw GagalBacaSumber(e)
+                    }
+                    masuk.use { input ->
+                        try {
+                            fileFoto.outputStream().use { output -> input.copyTo(output) }
+                        } catch (e: Exception) {
+                            throw GagalTulisCache(e)
+                        }
+                    }
+                }
+            }.fold(
+                onSuccess = { viewModel.unggahBukti(baris, fileFoto, catatan = null, dariGaleri = true) },
+                onFailure = { e ->
+                    // `e.message` IKUT dicatat ke logcat. Ia memuat path + string
+                    // errno ("ENOSPC (No space left on device)", "ENOENT (No such
+                    // file or directory)") — satu-satunya hal yang memisahkan
+                    // penyimpanan penuh dari direktori hilang. Membuangnya adalah
+                    // kelemahan yang sama seperti `.isSuccess` dulu, satu tingkat
+                    // lebih dalam: dulu exception-nya yang hilang, lalu pesannya.
+                    Log.w(TAG_GEBYAR, "gagal menyiapkan foto galeri", e)
+                    val pesan = when (e) {
+                        is GagalTulisCache ->
+                            "Foto gagal disimpan di HP — kemungkinan besar penyimpanan penuh. " +
+                                "Kosongkan sedikit ruang lalu coba lagi."
+                        is GagalBacaSumber ->
+                            "Foto itu tidak bisa dibaca (${e.cause?.javaClass?.simpleName ?: "?"}). " +
+                                "Kalau fotonya masih di cloud dan belum terunduh, buka dulu di galeri " +
+                                "sampai tampil penuh, lalu pilih lagi — atau ambil ulang lewat Kamera."
+                        else ->
+                            "Foto gagal disiapkan (${e.javaClass.simpleName}). Coba ulangi, " +
+                                "atau ambil ulang lewat Kamera."
+                    }
+                    Toast.makeText(context, pesan, Toast.LENGTH_LONG).show()
+                },
+            )
+        }
     }
 
     // Snackbar penuh butuh Scaffold yang layar ini tak punya (header kolaps
@@ -215,11 +353,21 @@ fun KuponGebyarScreen(
                                     tertunda = state.buktiTertunda.containsKey(baris.kodeRekanan),
                                     onKirimKamera = {
                                         buktiUntuk = baris.kodeRekanan
+                                        // Sama seperti jalur galeri: direktori cache bisa
+                                        // sudah dibersihkan sistem sejak layar dibuka, dan
+                                        // app kamera menulis lewat FileProvider yang TIDAK
+                                        // membuat direktori induk sendiri — hasilnya foto
+                                        // gagal tersimpan tanpa sebab yang jelas.
+                                        fileFoto.parentFile?.mkdirs()
                                         kamera.launch(uriFoto)
                                     },
                                     onKirimGaleri = {
                                         buktiUntuk = baris.kodeRekanan
-                                        galeri.launch("image/*")
+                                        galeri.launch(
+                                            PickVisualMediaRequest(
+                                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                                            )
+                                        )
                                     },
                                     onSimpanUlang = {
                                         viewModel.simpanUlang(baris.kodeRekanan, catatan = null)

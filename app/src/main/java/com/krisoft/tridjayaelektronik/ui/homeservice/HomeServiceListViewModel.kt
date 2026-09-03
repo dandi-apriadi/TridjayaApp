@@ -26,6 +26,8 @@ enum class HsMode(
     /** `mine=true` = hanya tugas milik akun ini. */
     val mine: Boolean?,
     val statusAktif: Set<String>,
+    /** `sayaLapor=true` = tiket yang AKU laporkan, bukan yang ditugaskan padaku. */
+    val sayaLapor: Boolean? = null,
 ) {
     /** Papan CS: tiket menunggu keputusan triase. */
     TRIASE("Komplain Masuk", null, null, HS_STATUS_TRIASE),
@@ -38,6 +40,21 @@ enum class HsMode(
 
     /** Driver: unit yang ditugaskan padanya dan belum diambil. */
     DRIVER("Tugas Tarik Unit", HS_JENIS_TARIK_UNIT, true, setOf(HS_TARIK_DITUGASKAN)),
+
+    /**
+     * Riwayat komplain yang DIA laporkan sendiri — satu-satunya mode yang bukan
+     * antrian kerja.
+     *
+     * Tiga hal membedakannya dari empat mode di atas, dan ketiganya disengaja:
+     * - `mine = null` sementara `sayaLapor = true`. Server memaksa `mine` nyala
+     *   untuk pemegang `homeservice.task`; kalau keduanya dikirim bersama,
+     *   teknisi yang melapor akan melihat irisan "tugasku DAN laporanku" alih-alih
+     *   laporannya. Server sendiri mematikan penyaring tugas saat `sayaLapor`.
+     * - [HS_STATUS_SEMUA], bukan himpunan aktif: ini RIWAYAT, dan pelapor justru
+     *   paling ingin tahu tiketnya sudah `selesai`/`eskalasi`.
+     * - `jenis = null`: komplain yang berujung penarikan unit tetap laporannya.
+     */
+    SAYA_LAPOR("Komplain Saya", null, null, HS_STATUS_SEMUA, sayaLapor = true),
 }
 
 data class HsListUiState(
@@ -68,6 +85,7 @@ class HomeServiceListViewModel @Inject constructor(
                     status = null,
                     jenis = mode.jenis,
                     mine = mode.mine,
+                    sayaLapor = mode.sayaLapor,
                 )
             ) {
                 is AuthResult.Success -> _state.update {

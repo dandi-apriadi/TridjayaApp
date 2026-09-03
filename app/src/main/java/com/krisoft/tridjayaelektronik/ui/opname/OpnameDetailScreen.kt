@@ -1,5 +1,6 @@
 package com.krisoft.tridjayaelektronik.ui.opname
 
+import android.widget.Toast
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.BackHandler
@@ -79,6 +80,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.SkeletonCard
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
 import com.krisoft.tridjayaelektronik.util.kunciUnik
+import com.krisoft.tridjayaelektronik.util.PESAN_KAMERA_TAK_TERSIMPAN
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -1366,7 +1368,12 @@ private fun SerialPhotoField(
     }
     val cam = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.TakePicture()
-    ) { ok -> if (ok) onCapture(file, kind) }
+    ) { ok ->
+        // `ok == false` tak lagi ditelan: kegagalan simpan foto kamera dulu
+        // menghasilkan nol pesan, jadi petugas menyangka buktinya terkirim.
+        // Lihat [PESAN_KAMERA_TAK_TERSIMPAN].
+        if (ok) onCapture(file, kind) else Toast.makeText(context, PESAN_KAMERA_TAK_TERSIMPAN, Toast.LENGTH_LONG).show()
+    }
 
     Surface(
         onClick = { if (enabled) cam.launch(uri) },

@@ -8,6 +8,7 @@ import com.krisoft.tridjayaelektronik.data.model.LeaderboardBranchItemDto
 import com.krisoft.tridjayaelektronik.data.model.LeaderboardReportDto
 import com.krisoft.tridjayaelektronik.data.model.LeaderboardSalesItemDto
 import com.krisoft.tridjayaelektronik.data.model.OmsetRowDto
+import com.krisoft.tridjayaelektronik.data.model.PapanLapanganDto
 import com.krisoft.tridjayaelektronik.data.model.TransactionPageDto
 import com.krisoft.tridjayaelektronik.data.remote.SalesApi
 import kotlinx.coroutines.Dispatchers
@@ -203,6 +204,63 @@ class SalesRepository @Inject constructor(
         }
     }
 
+    /**
+     * Papan kerja lapangan (driver/PDI). Cache Room + TTL yang SAMA dengan
+     * klasemen penjualan, berikut fallback ke salinan basi saat jaringan mati —
+     * pola itu sudah teruji untuk sinyal cabang yang jelek, dan orang lapangan
+     * justru yang paling sering kehilangan sinyal.
+     *
+     * Peringkatnya TIDAK dihitung ulang di sini: server sudah mengirim `rank`.
+     */
+    suspend fun papanLapangan(
+        peran: String,
+        periode: String,
+        forceRefresh: Boolean = false,
+    ): AuthResult<PapanLapanganDto> {
+        val cacheKey = "papan_lapangan_${peran}_$periode"
+        val serializer = PapanLapanganDto.serializer()
+        if (!forceRefresh) {
+            val cached = dashboardCacheDao.get(cacheKey)
+            val isFresh = cached != null &&
+                System.currentTimeMillis() - cached.cachedAtMillis < DASHBOARD_CACHE_TTL_MILLIS
+            if (isFresh) {
+                val parsed = withContext(Dispatchers.Default) {
+                    runCatching { json.decodeFromString(serializer, cached!!.jsonPayload) }.getOrNull()
+                }
+                if (parsed != null) return AuthResult.Success(parsed)
+            }
+        }
+        return try {
+            // `when` atas slug, bukan `@Path` — lihat alasannya di `SalesApi`.
+            val response = when (peran) {
+                "pdi" -> api.papanPdi(periode)
+                else -> api.papanDriver(periode)
+            }
+            val papan = response.body()?.data
+            if (response.isSuccessful && papan != null) {
+                val payload = withContext(Dispatchers.Default) { json.encodeToString(serializer, papan) }
+                dashboardCacheDao.upsert(
+                    DashboardCacheEntity(
+                        key = cacheKey,
+                        jsonPayload = payload,
+                        cachedAtMillis = System.currentTimeMillis()
+                    )
+                )
+                AuthResult.Success(papan)
+            } else {
+                parseError(response)
+            }
+        } catch (e: Exception) {
+            val stale = dashboardCacheDao.get(cacheKey)?.let {
+                withContext(Dispatchers.Default) {
+                    runCatching { json.decodeFromString(serializer, it.jsonPayload) }.getOrNull()
+                }
+            }
+            if (stale != null) AuthResult.Success(stale)
+            else AuthResult.Failure("network_error", e.message ?: "Tidak bisa terhubung ke server")
+        }
+    }
+
     /** Individual sales transactions behind a sales person's ranking number, month-to-date. */
     suspend fun salesTransactions(kodePegawai: String, page: Int, limit: Int = 20): AuthResult<TransactionPageDto> {
         val range = monthToDateRange()
@@ -254,7 +312,12 @@ class SalesRepository @Inject constructor(
         }
         return AuthResult.Failure(
             parsed?.code ?: "http_${response.code()}",
-            parsed?.message ?: "Terjadi kesalahan (${response.code()})"
+            parsed?.message ?: "Terjadi kesalahan (${response.code()})",
+            // `httpStatus` diisi supaya pemanggil bisa membedakan penolakan
+            // PERMANEN (403 — orangnya memang tak berhak) dari gangguan
+            // sementara. Menebaknya dari `code` tak bisa: gateway memakai satu
+            // kode untuk beberapa status sekaligus (lihat doc `AuthResult`).
+            response.code()
         )
     }
 

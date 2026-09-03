@@ -22,6 +22,7 @@ import com.krisoft.tridjayaelektronik.data.model.DeliveryNoteBody
 import com.krisoft.tridjayaelektronik.data.model.PdiBody
 import com.krisoft.tridjayaelektronik.data.model.PdiChecklistItemBody
 import com.krisoft.tridjayaelektronik.domain.sales.KlasemenStandings
+import com.krisoft.tridjayaelektronik.ui.aktivitas.pesanGagalDekode
 import com.krisoft.tridjayaelektronik.ui.attendance.LocationProvider
 import com.krisoft.tridjayaelektronik.util.PhotoWatermark
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -834,10 +835,36 @@ class DeliveryFlowViewModel @Inject constructor(
     // menghindari 2 footgun yang sempat ketemu di sini: (a) race kalau UI flip "foto siap" sebelum
     // watermark async selesai, (b) Coil meng-cache bitmap mentah berbasis path file yang isinya
     // berubah-ubah (file capture ditulis ulang tiap retake, key cache Coil tidak tahu itu).
+    /**
+     * **Kegagalan olah piksel WAJIB bersuara sejak 2026-08-29.** Sebelumnya
+     * `prepared == null` hanya menulis `null` ke state, tanpa satu pun pesan.
+     * Itu masih bisa ditolerir selagi foto PDI opsional: tombol Simpan tetap
+     * hidup dan PDI tersimpan tanpa foto. Begitu [DeliveryFlowScreens] mulai
+     * MEWAJIBKAN fotonya, diamnya berubah sifat — tombol Simpan mati bertulis
+     * "Foto unit siap dulu" persis sesudah petugas memotret, dan satu-satunya
+     * penjelasan yang tersedia baginya adalah menyalahkan dirinya sendiri.
+     *
+     * Jalur `null`-nya nyata dan tak jarang: `prepareWatermarkedJpeg`
+     * mengembalikan `null` untuk berkas 0 byte (kamera OEM yang tetap menjawab
+     * `ok == true`), gambar yang tak terdekode, dan `OutOfMemoryError` yang
+     * ditelan `runCatching`. Toast `PESAN_KAMERA_TAK_TERSIMPAN` di layar TIDAK
+     * menangkap satu pun dari itu — ia hanya menyala saat `ok == false`.
+     *
+     * Kalimatnya memakai [pesanGagalDekode] yang sudah dipakai
+     * [uploadBuktiAccPhoto] untuk kegagalan yang persis sama. `dariGaleri =
+     * false` karena titik ini kamera-saja, jadi "coba jepret ulang" memang
+     * jalan keluar yang benar di sini.
+     */
     fun onPdiPhotoCaptured(file: File) = viewModelScope.launch {
         val prepared = watermarked(file, "TRIDJAYA · PDI")
         pdiPhotoBytes = prepared?.first
-        _state.update { it.copy(pdiPhoto = prepared?.second, pdiPhotoConfirmed = false) }
+        _state.update {
+            it.copy(
+                pdiPhoto = prepared?.second,
+                pdiPhotoConfirmed = false,
+                actionError = if (prepared == null) pesanGagalDekode(dariGaleri = false) else it.actionError,
+            )
+        }
     }
 
     fun hasPdiPhoto(): Boolean = pdiPhotoBytes != null
@@ -893,20 +920,42 @@ class DeliveryFlowViewModel @Inject constructor(
      *  SPK belum ada saat ini). */
     suspend fun uploadPoPhoto(file: File): String? {
         val prepared = watermarked(file, "TRIDJAYA · NO PO") ?: return null
-        return when (val up = repository.uploadPhoto(prepared.first, "po_${System.currentTimeMillis()}.jpg")) {
+        return when (val up = repository.uploadPhoto(prepared.first, "po_${System.currentTimeMillis()}.webp")) {
             is AuthResult.Success -> up.data
             is AuthResult.Failure -> null
         }
     }
 
     /** Foto bukti acc diskon (2026-08-01) — pola sama [uploadPoPhoto]:
-     *  watermark lalu unggah ke endpoint foto delivery yang sama. Return
-     *  `null` kalau gagal. */
-    suspend fun uploadBuktiAccPhoto(file: File): String? {
-        val prepared = watermarked(file, "TRIDJAYA · ACC DISKON") ?: return null
-        return when (val up = repository.uploadPhoto(prepared.first, "acc_diskon_${System.currentTimeMillis()}.jpg")) {
-            is AuthResult.Success -> up.data
-            is AuthResult.Failure -> null
+     *  watermark lalu unggah ke endpoint foto delivery yang sama.
+     *
+     *  **Mengembalikan [AuthResult], bukan `String?`** (2026-08-28): dua
+     *  kegagalan yang berbeda jauh dulu sama-sama jadi `null` dan dilaporkan
+     *  layar sebagai "Gagal unggah bukti acc" — padahal foto yang gagal
+     *  DIDEKODE tak pernah sampai ke jaringan sama sekali. Kalimat itu
+     *  menyuruh admin mencoba ulang unggahan yang tak pernah terjadi, dan
+     *  menyembunyikan satu-satunya jalan keluar yang benar (ganti formatnya /
+     *  pakai Kamera). [dariGaleri] memilih kalimatnya lewat `pesanGagalDekode`
+     *  — HEIC yang gagal di API 24-27 akan gagal lagi selamanya, jadi
+     *  "jepret ulang" hanya benar untuk kamera.
+     *
+     *  **[dariGaleri] juga memilih JUDUL watermark-nya (2026-08-29).** Ini
+     *  satu-satunya titik unggah di alur delivery yang memang boleh memilih
+     *  dari galeri, dan sampai hari ini hasilnya dicap kalimat yang persis
+     *  sama dengan hasil kamera. Stempel jam di bar watermark adalah jam
+     *  PROSES, bukan jam foto diambil — jadi tanpa pembeda, tangkapan layar
+     *  persetujuan dari chat bulan lalu terlihat identik dengan foto yang
+     *  baru dijepret di depan approver. Approver yang memeriksa bukti diskon
+     *  tak punya cara lain mengetahuinya. Polanya diambil dari
+     *  `AktivitasBuktiPlan.watermarkTitleBukti`, yang sudah menempuh
+     *  persoalan yang sama untuk bukti aktivitas. Aturannya sendiri hidup di
+     *  [watermarkTitleBuktiAcc] (fungsi murni, diuji). */
+    suspend fun uploadBuktiAccPhoto(file: File, dariGaleri: Boolean): AuthResult<String> {
+        val prepared = watermarked(file, watermarkTitleBuktiAcc(dariGaleri))
+            ?: return AuthResult.Failure("dekode_gagal", pesanGagalDekode(dariGaleri))
+        return when (val up = repository.uploadPhoto(prepared.first, "acc_diskon_${System.currentTimeMillis()}.webp")) {
+            is AuthResult.Success -> AuthResult.Success(up.data)
+            is AuthResult.Failure -> up
         }
     }
 
@@ -914,7 +963,7 @@ class DeliveryFlowViewModel @Inject constructor(
      *  pola sama [uploadPoPhoto]. Return `null` kalau gagal. */
     suspend fun uploadAkiPhoto(file: File): String? {
         val prepared = watermarked(file, "TRIDJAYA · BUKTI AKI") ?: return null
-        return when (val up = repository.uploadPhoto(prepared.first, "aki_${System.currentTimeMillis()}.jpg")) {
+        return when (val up = repository.uploadPhoto(prepared.first, "aki_${System.currentTimeMillis()}.webp")) {
             is AuthResult.Success -> up.data
             is AuthResult.Failure -> null
         }
@@ -1031,7 +1080,7 @@ class DeliveryFlowViewModel @Inject constructor(
 
     fun submitPdi(id: String, serial: String, engine: String, checklist: List<PdiChecklistItemBody>, onDone: () -> Unit) = action {
         val photoUrl = pdiPhotoBytes?.let { bytes ->
-            when (val up = repository.uploadPhoto(bytes, "pdi_${System.currentTimeMillis()}.jpg")) {
+            when (val up = repository.uploadPhoto(bytes, "pdi_${System.currentTimeMillis()}.webp")) {
                 is AuthResult.Success -> up.data
                 is AuthResult.Failure -> return@action up
             }
@@ -1237,7 +1286,7 @@ class DeliveryFlowViewModel @Inject constructor(
         if (kiriman.isEmpty()) return@action AuthResult.Failure("validation", "Tak ada barang yang menunggu setoran")
         val bytes = deliverPhotoBytes ?: return@action AuthResult.Failure("validation", "Foto bukti wajib diambil")
         val photoUrl = setoranPhotoUrl
-            ?: when (val up = repository.uploadPhoto(bytes, "setoran_${System.currentTimeMillis()}.jpg")) {
+            ?: when (val up = repository.uploadPhoto(bytes, "setoran_${System.currentTimeMillis()}.webp")) {
                 is AuthResult.Success -> up.data.also { setoranPhotoUrl = it }
                 is AuthResult.Failure -> return@action up
             }
@@ -1271,6 +1320,36 @@ class DeliveryFlowViewModel @Inject constructor(
     fun assign(id: String, driverId: String, driverName: String, scheduledDate: String, customerMapUrl: String?, onDone: () -> Unit) = action {
         repository.assign(id, AssignBody(driverId = driverId.trim(), driverName = driverName.trim().ifBlank { null }, scheduledDate = scheduledDate.trim(), customerMapUrl = customerMapUrl))
             .mapOk { onDone() }
+    }
+
+    /**
+     * BATALKAN penjadwalan — hanya selama driver belum berangkat (server yang
+     * menegakkan; kalau sudah `in_transit` ia menjawab validasi, dan jalurnya
+     * memang [reassign]).
+     *
+     * TIDAK di-fan-out se-SPK, sama seperti server: unit lain di SPK yang sama
+     * bisa saja sudah berangkat, dan menariknya sekaligus akan membatalkan
+     * pekerjaan yang sedang berjalan.
+     */
+    fun unassign(id: String, reason: String, onDone: () -> Unit) = action {
+        repository.unassign(id, reason).mapOk { onDone() }
+    }
+
+    /**
+     * PINDAHKAN unit ini ke driver lain. [scheduledDate] kosong = pertahankan
+     * tanggal yang ada (server: `COALESCE(NULLIF(?, ''), scheduled_date)`).
+     *
+     * Inilah satu-satunya jalur yang bisa MEMECAH satu SPK ke dua driver —
+     * `assign` di-fan-out se-SPK, `reassign` sengaja tidak.
+     */
+    fun reassign(
+        id: String,
+        driverId: String,
+        driverName: String,
+        scheduledDate: String,
+        onDone: () -> Unit,
+    ) = action {
+        repository.reassign(id, driverId, driverName, scheduledDate).mapOk { onDone() }
     }
 
     fun dispatch(id: String, onDone: () -> Unit) = action { repository.dispatch(id).mapOk { onDone() } }
@@ -1310,6 +1389,32 @@ class DeliveryFlowViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Simpan lokasi maps satu unit.
+     *
+     * Pola sama [editJob] dan bukan [jobUpdate]: `onDone` hanya dipanggil saat
+     * SUKSES supaya dialog yang gagal tetap terbuka dengan isian utuh — link
+     * maps panjang dan mengetik ulangnya adalah hukuman untuk kesalahan server.
+     *
+     * Galat server DITERUSKAN apa adanya ke `actionError`; pesannya yang
+     * mengajari bentuk yang benar ("Isi tautan lokasi ... atau koordinat"),
+     * dan menggantinya dengan teks generik membuang satu-satunya petunjuk.
+     */
+    fun setMapUrl(id: String, mapUrl: String, onDone: () -> Unit) {
+        if (_state.value.submitting) return
+        _state.update { it.copy(submitting = true, actionError = null) }
+        viewModelScope.launch {
+            when (val res = repository.setMapUrl(id, mapUrl)) {
+                is AuthResult.Success -> {
+                    _state.update { it.copy(submitting = false, detail = res.data.job) }
+                    onDone()
+                }
+                is AuthResult.Failure ->
+                    _state.update { it.copy(submitting = false, actionError = res.message) }
+            }
+        }
+    }
+
     fun claimPdi(id: String) = jobUpdate { repository.claimPdi(id) }
 
     fun releasePdiClaim(id: String) = jobUpdate { repository.releasePdiClaim(id) }
@@ -1330,13 +1435,13 @@ class DeliveryFlowViewModel @Inject constructor(
 
     fun deliver(id: String, rating: Int, comment: String, checklist: List<PdiChecklistItemBody>, onDone: () -> Unit) = action {
         val bytes = deliverPhotoBytes ?: return@action AuthResult.Failure("validation", "Foto serah terima wajib diambil")
-        val photoUrl = when (val up = repository.uploadPhoto(bytes, "deliver_${System.currentTimeMillis()}.jpg")) {
+        val photoUrl = when (val up = repository.uploadPhoto(bytes, "deliver_${System.currentTimeMillis()}.webp")) {
             is AuthResult.Success -> up.data
             is AuthResult.Failure -> return@action up
         }
         // Foto uang (088) — hanya di-upload bila diambil; gate wajib ada di UI + backend.
         val cashUrl = cashPhotoBytes?.let { cb ->
-            when (val up = repository.uploadPhoto(cb, "cash_${System.currentTimeMillis()}.jpg")) {
+            when (val up = repository.uploadPhoto(cb, "cash_${System.currentTimeMillis()}.webp")) {
                 is AuthResult.Success -> up.data
                 is AuthResult.Failure -> return@action up
             }
@@ -1372,7 +1477,7 @@ class DeliveryFlowViewModel @Inject constructor(
      *  `deliver` di `in_transit`, tak pernah sama job di saat sama). */
     fun selfPickupComplete(id: String, rating: Int, comment: String, onDone: () -> Unit) = action {
         val bytes = deliverPhotoBytes ?: return@action AuthResult.Failure("validation", "Foto wajib diambil")
-        val photoUrl = when (val up = repository.uploadPhoto(bytes, "selfpickup_${System.currentTimeMillis()}.jpg")) {
+        val photoUrl = when (val up = repository.uploadPhoto(bytes, "selfpickup_${System.currentTimeMillis()}.webp")) {
             is AuthResult.Success -> up.data
             is AuthResult.Failure -> return@action up
         }

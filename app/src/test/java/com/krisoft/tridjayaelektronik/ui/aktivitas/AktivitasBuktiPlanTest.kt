@@ -133,16 +133,52 @@ class AktivitasBuktiPlanTest {
     }
 
     @Test
-    fun `video di atas 30MB ditolak sebelum menyentuh jaringan`() {
+    fun `video sampai MAX_VIDEO_BUKTI_BYTES lolos gerbang tanpa syarat`() {
         // Angkanya ditulis literal sebagai penjaga terhadap MAX_EVIDENCE_BYTES
-        // di kinerja-service/src/raport.rs:14.
+        // di kinerja-service/src/raport.rs:14 — ini budget SERVER, ditegakkan
+        // dua kali (lihat KDoc MAX_VIDEO_BUKTI_BYTES): sekali di sini sebagai
+        // ambang "boleh lolos tanpa kompresi", sekali lagi oleh
+        // AktivitasViewModel.kirimVideo SETELAH kompresi dicoba.
         assertEquals(30L * 1024 * 1024, MAX_VIDEO_BUKTI_BYTES)
-
-        val gate = gateKirimBukti(0, adaVideo = true, ukuranVideoBytes = MAX_VIDEO_BUKTI_BYTES + 1)
-        assertFalse(gate.ok)
-        assertTrue(gate.alasan!!.contains("30 MB"))
-
         assertTrue(gateKirimBukti(0, adaVideo = true, ukuranVideoBytes = MAX_VIDEO_BUKTI_BYTES).ok)
+    }
+
+    /**
+     * INTI perubahan 2026-08-29 (kompresi video otomatis): video di atas
+     * 30 MB TIDAK LAGI ditolak seketika di titik seleksi — ia diberi
+     * kesempatan dikompres dulu oleh `AktivitasViewModel.kirimVideo`. Gerbang
+     * di sini hanya menahan yang jelas MUSTAHIL, bukan yang cuma di atas
+     * budget server.
+     */
+    @Test
+    fun `video di atas 30MB tapi di bawah ambang masukan tetap lolos gerbang — kesempatan dikompres`() {
+        assertTrue(
+            "video sedikit di atas budget server harus tetap lolos, bukan ditolak seketika",
+            gateKirimBukti(0, adaVideo = true, ukuranVideoBytes = MAX_VIDEO_BUKTI_BYTES + 1).ok,
+        )
+        assertTrue(
+            "tepat di ambang masukan masih harus lolos",
+            gateKirimBukti(0, adaVideo = true, ukuranVideoBytes = MAX_VIDEO_INPUT_BYTES).ok,
+        )
+    }
+
+    @Test
+    fun `video di atas ambang MASUKAN ditolak sebelum menyentuh jaringan`() {
+        assertEquals(150L * 1024 * 1024, MAX_VIDEO_INPUT_BYTES)
+
+        val gate = gateKirimBukti(0, adaVideo = true, ukuranVideoBytes = MAX_VIDEO_INPUT_BYTES + 1)
+        assertFalse(gate.ok)
+        assertTrue(gate.alasan!!.contains("150 MB"))
+    }
+
+    @Test
+    fun `pesan gagal kompresi memakai teks lama persis, bukan kalimat baru`() {
+        // TEKS PERSIS pesan lama sebelum kompresi otomatis ada — supaya
+        // kegagalan kompresi jatuh ke pesan yang sudah dikenal user.
+        assertEquals(
+            "Video terlalu besar (maks 30 MB). Potong videonya atau turunkan kualitas perekam ke 720p.",
+            pesanVideoTerlaluBesarSetelahKompresi(),
+        )
     }
 
     @Test
@@ -188,15 +224,15 @@ class AktivitasBuktiPlanTest {
     // ── Penamaan & watermark ─────────────────────────────────────────────────
 
     @Test
-    fun `gambar hasil watermark selalu jpg apa pun sumbernya`() {
-        // prepareWatermarkedJpeg selalu meng-encode JPEG, termasuk untuk PNG/WEBP
-        // dari galeri — ekstensi yang meleset ditolak server.
-        assertTrue(namaBerkasGambar(2, 1L).endsWith(".jpg"))
-        assertEquals("raport_1700000000000_0.jpg", namaBerkasGambar(0, 1_700_000_000_000L))
+    fun `gambar hasil watermark selalu webp apa pun sumbernya`() {
+        // prepareWatermarkedJpeg selalu meng-encode WebP (2026-08-28), termasuk
+        // untuk PNG/JPEG dari galeri — ekstensi yang meleset ditolak server.
+        assertTrue(namaBerkasGambar(2, 1L).endsWith(".webp"))
+        assertEquals("raport_1700000000000_0.webp", namaBerkasGambar(0, 1_700_000_000_000L))
     }
 
     @Test
-    fun `nama berkas video memakai ekstensi aslinya, bukan jpg`() {
+    fun `nama berkas video memakai ekstensi aslinya, bukan webp`() {
         assertEquals("raport_1700000000000.mov", namaBerkasVideo("mov", 1_700_000_000_000L))
         assertEquals("raport_1.webm", namaBerkasVideo("webm", 1L))
     }
@@ -223,6 +259,81 @@ class AktivitasBuktiPlanTest {
         assertFalse("saran 'jepret ulang' tak nyambung untuk berkas galeri", galeri.contains("jepret"))
 
         assertTrue(pesanGagalDekode(dariGaleri = false).contains("jepret"))
+    }
+
+    @Test
+    fun `sebab dekode ditempelkan kalau ada, tanpa merusak kalimat aslinya`() {
+        val tanpa = pesanGagalDekode(dariGaleri = true)
+        assertEquals(tanpa, pesanGagalDekode(dariGaleri = true, sebab = null))
+        assertEquals(tanpa, pesanGagalDekode(dariGaleri = true, sebab = "  "))
+
+        val dengan = pesanGagalDekode(dariGaleri = true, sebab = "FileNotFoundException")
+        assertTrue(dengan, dengan.startsWith(tanpa))
+        assertTrue(dengan, dengan.endsWith("(FileNotFoundException)"))
+    }
+
+    // ── Sebab gambar diabaikan (dipisah per penghitung, vc117) ───────────────
+
+    @Test
+    fun `tanpa yang diabaikan tak ada pesan sama sekali`() {
+        assertNull(pesanGambarDiabaikan(takMuat = 0, terlaluBesar = 0, takTerbaca = 0))
+    }
+
+    /**
+     * INTI perbaikannya: gambar yang tak terbaca TIDAK BOLEH dijelaskan sebagai
+     * kuota penuh. Seseorang yang memilih 2 dari 10 lalu dibilang "maksimal 10"
+     * bisa membantahnya di depan matanya sendiri — dan sesudah itu ia tak
+     * mempercayai pesan berikutnya juga.
+     */
+    @Test
+    fun `gagal baca tidak dijelaskan sebagai kuota penuh`() {
+        val pesan = pesanGambarDiabaikan(
+            takMuat = 0,
+            terlaluBesar = 0,
+            takTerbaca = 2,
+            sebabTakTerbaca = "FileNotFoundException",
+        )!!
+        assertFalse("kuota disebut padahal sebabnya bukan kuota", pesan.contains("maksimal"))
+        assertFalse(pesan.contains("$MAX_GAMBAR gambar per aktivitas"))
+        assertTrue(pesan, pesan.contains("2 gambar tidak bisa dibaca"))
+        assertTrue("sebab aslinya harus ikut", pesan.contains("FileNotFoundException"))
+        // Kalimat HEIC dipakai ULANG, bukan ditulis baru di ViewModel.
+        assertTrue(pesan, pesan.contains("HEIC"))
+    }
+
+    @Test
+    fun `kuota penuh tetap menyebut kuota`() {
+        val pesan = pesanGambarDiabaikan(takMuat = 3, terlaluBesar = 0, takTerbaca = 0)!!
+        assertTrue(pesan, pesan.contains("3 gambar"))
+        assertTrue(pesan, pesan.contains("maksimal $MAX_GAMBAR"))
+        assertFalse("tak ada sebab lain yang disebut", pesan.contains("HEIC"))
+    }
+
+    @Test
+    fun `terlalu besar menyebut ambangnya, bukan kuota`() {
+        val pesan = pesanGambarDiabaikan(takMuat = 0, terlaluBesar = 1, takTerbaca = 0)!!
+        assertTrue(pesan, pesan.contains(formatUkuranBerkas(MAX_GAMBAR_INPUT_BYTES)))
+        assertFalse(pesan.contains("maksimal $MAX_GAMBAR"))
+        assertFalse(pesan.contains("HEIC"))
+    }
+
+    /**
+     * Satu pemilihan bisa memuat ketiga sebab sekaligus. Menjumlahkannya jadi
+     * satu angka (perilaku sampai vc116) membuang justru keterangan yang
+     * menentukan langkah berikutnya.
+     */
+    @Test
+    fun `tiga sebab sekaligus tetap terbaca sebagai tiga hal`() {
+        val pesan = pesanGambarDiabaikan(
+            takMuat = 1,
+            terlaluBesar = 2,
+            takTerbaca = 3,
+            sebabTakTerbaca = "IOException",
+        )!!
+        assertTrue(pesan, pesan.contains("1 gambar tidak ditambahkan"))
+        assertTrue(pesan, pesan.contains("2 gambar dilewati"))
+        assertTrue(pesan, pesan.contains("3 gambar tidak bisa dibaca"))
+        assertTrue(pesan, pesan.contains("IOException"))
     }
 
     @Test
@@ -293,5 +404,164 @@ class AktivitasBuktiPlanTest {
         // siapa" — tanpa itu ia mengira aplikasinya rusak.
         assertTrue(PESAN_TERKUNCI_PIC.contains("PIC Aktivitas"))
         assertTrue(PESAN_TERKUNCI_PIC.contains("Menunggu"))
+    }
+
+    // ── Butir CHAT trainee (vc123) ───────────────────────────────────────────
+    //
+    // Yang diuji di sini SATU-SATUNYA yang bisa diuji tanpa perangkat, dan
+    // kebetulan yang paling gampang salah: PREDIKAT butirnya dan ARAH
+    // fail-open-nya. Penegakan sesungguhnya di `service::upsert` sisi server;
+    // fungsi-fungsi ini cuma mendahulukan kabarnya.
+
+    @Test
+    fun `butir chat dikenali dari PREFIKS, bukan dari kata yang kebetulan ada`() {
+        assertTrue(butirChat("CHAT 200 WA"))
+        assertTrue(butirChat("CHAT 100 WA"))
+        assertTrue("trim + case-insensitive, sama seperti Rust", butirChat("  chat 100 wa  "))
+        assertTrue(butirChat("Chat 50 Konsumen"))
+
+        // `contains("chat")` akan menyambar keempatnya, lalu menuntut video
+        // atas pekerjaan yang tak pernah dimaksudkan. Konvensi PREFIKS-nya
+        // sudah dilembagakan migrasi 231 (`JSON_SEARCH(@v,'one','CHAT %')`).
+        assertFalse("kata di belakang bukan butir chat", butirChat("WA CHAT"))
+        assertFalse(butirChat("Kirim Prospek"))
+        assertFalse(butirChat("FOLLOW UP CHAT KONSUMEN"))
+        assertFalse("prefiks tanpa spasi bukan butir chat", butirChat("CHATTING HARIAN"))
+        assertFalse(butirChat(""))
+        assertFalse(butirChat("   "))
+    }
+
+    /**
+     * Kotak angka SENGAJA muncul lebih longgar daripada gerbangnya. Kotak yang
+     * berlebih tak menahan siapa pun (server mengabaikan `jumlah` untuk butir
+     * non-chat); kotak yang HILANG dari butir yang benar-benar ditagih membuat
+     * orangnya mustahil memenuhi gerbang absen pulang dari HP.
+     */
+    @Test
+    fun `kotak angka muncul dari teks master ATAU nomor butir dari server`() {
+        // `ambang = 150` sengaja BEDA dari angka di label ("CHAT 100 WA") —
+        // keadaan produksi sejak 2026-08-31. Predikat ini mencocokkan PREFIKS
+        // dan nomor butir, tak pernah angka di dalam labelnya.
+        val chat = AmbangChatTrainee(aktivitasIndex = 3, ambang = 150)
+
+        assertTrue("teks masternya sendiri", tampilkanJumlahChat(chat, index = 0, teks = "CHAT 100 WA"))
+        assertTrue("nomor butir dari server", tampilkanJumlahChat(chat, index = 3, teks = "Kirim Prospek"))
+        assertFalse("tak ada satu pun sumber", tampilkanJumlahChat(chat, index = 1, teks = "Kirim Prospek"))
+    }
+
+    /**
+     * INTI arah fail-open: `chatTrainee` null (bukan trainee, saklar mati,
+     * setelan rusak, server lama, permintaan gagal) = NOL perubahan perilaku
+     * bagi 154 karyawan lain.
+     */
+    @Test
+    fun `tanpa blok chatTrainee tak ada kotak dan tak ada gerbang`() {
+        assertFalse(tampilkanJumlahChat(null, index = 0, teks = "CHAT 200 WA"))
+        assertFalse(gerbangChatBerlaku(null, "CHAT 200 WA"))
+    }
+
+    /**
+     * Gerbang yang MENAHAN sengaja lebih sempit dari yang menampilkan: nomor
+     * butir dari server bisa basi (master berubah sesudah blok itu dihitung),
+     * dan menahan baris yang server sendiri akan terima = mengunci orangnya
+     * atas aturan yang tak pernah berlaku untuk baris itu.
+     */
+    @Test
+    fun `gerbang hanya percaya teks master, tidak nomor butir dari server`() {
+        val chat = AmbangChatTrainee(aktivitasIndex = 3, ambang = 200)
+        assertTrue(gerbangChatBerlaku(chat, "CHAT 200 WA"))
+        assertFalse(
+            "baris non-chat tak boleh tertahan hanya karena nomornya kebetulan cocok",
+            gerbangChatBerlaku(chat, "Kirim Prospek"),
+        )
+    }
+
+    @Test
+    fun `ambang nol atau negatif meloloskan semuanya`() {
+        // Ambang yang tak bisa dihitung TIDAK BOLEH mengunci siapa pun —
+        // doktrin fail-open modul ini, lahir dari insiden 31 Juli 2026 (39
+        // karyawan) dan 17 Agustus (285 dari 291 hari).
+        assertTrue(gateJumlahChat(jumlah = null, ambang = 0, adaVideo = false).ok)
+        assertTrue(gateJumlahChat(jumlah = null, ambang = -1, adaVideo = false).ok)
+    }
+
+    @Test
+    fun `angka kosong ditolak dan pesannya menyebut ambangnya`() {
+        val gate = gateJumlahChat(jumlah = null, ambang = 200, adaVideo = true)
+        assertFalse(gate.ok)
+        assertTrue(gate.alasan!!, gate.alasan!!.contains("200"))
+    }
+
+    @Test
+    fun `angka kurang ditolak dan pesannya menyebut DUA angka plus sisanya`() {
+        // "142 dari 200" cuma bisa dibaca di layar ini. Kalimat gerbang absen
+        // pulang berbunyi "kurang N butir" — orang yang cuma membaca itu tak
+        // pernah tahu berapa chat lagi yang kurang.
+        val gate = gateJumlahChat(jumlah = 142, ambang = 200, adaVideo = true)
+        assertFalse(gate.ok)
+        assertTrue(gate.alasan!!, gate.alasan!!.contains("142"))
+        assertTrue(gate.alasan!!, gate.alasan!!.contains("200"))
+        assertTrue("sisa yang kurang disebut", gate.alasan!!.contains("58"))
+    }
+
+    @Test
+    fun `tepat di ambang lolos, bukan ditolak`() {
+        // Penjaga off-by-one: `<` vs `<=` di sini adalah selisih antara "200
+        // cukup" dan "200 kurang", dan keduanya hijau di test yang cuma
+        // menguji angka jauh di bawah target.
+        assertTrue(gateJumlahChat(jumlah = 200, ambang = 200, adaVideo = true).ok)
+        assertTrue(gateJumlahChat(jumlah = 201, ambang = 200, adaVideo = true).ok)
+    }
+
+    @Test
+    fun `rentang angka sama dengan validator server`() {
+        assertEquals(1, MIN_JUMLAH_CHAT)
+        assertEquals(100_000, MAX_JUMLAH_CHAT)
+
+        // 0 adalah KLAIM ("saya chat nol orang"), bukan "belum diisi" — dan
+        // klaim itu tak pernah mencapai ambang mana pun.
+        assertFalse(gateJumlahChat(jumlah = 0, ambang = 100, adaVideo = true).ok)
+        assertFalse(gateJumlahChat(jumlah = -5, ambang = 100, adaVideo = true).ok)
+        assertFalse(gateJumlahChat(jumlah = MAX_JUMLAH_CHAT + 1, ambang = 100, adaVideo = true).ok)
+        assertTrue(gateJumlahChat(jumlah = MAX_JUMLAH_CHAT, ambang = 100, adaVideo = true).ok)
+    }
+
+    /**
+     * CELAH UTAMA yang ditutup rilis ini. Hari ini butir apa pun bisa
+     * dipuaskan dengan `mode="none"` + alasan 10 karakter, dan baris itu
+     * LANGSUNG menaikkan hitungan `terisi` di gerbang absen pulang — tanpa satu
+     * pun chat benar-benar terjadi.
+     */
+    @Test
+    fun `angka cukup tapi tanpa video tetap ditolak`() {
+        val gate = gateJumlahChat(jumlah = 250, ambang = 200, adaVideo = false)
+        assertFalse("angka saja tidak cukup — itu justru celahnya", gate.ok)
+        assertTrue(gate.alasan!!, gate.alasan!!.contains("VIDEO"))
+    }
+
+    @Test
+    fun `angka cukup dan ada video baru lolos`() {
+        val gate = gateJumlahChat(jumlah = 100, ambang = 100, adaVideo = true)
+        assertTrue(gate.alasan ?: "", gate.ok)
+        assertNull(gate.alasan)
+    }
+
+    @Test
+    fun `trainee sales ditagih 200 dan non-sales 150 dari angka SERVER, bukan label`() {
+        // Ambang datang dari `app_settings.aktivitas_chat_trainee` lewat blok
+        // `chatTrainee`, BUKAN dari teks butir.
+        //
+        // Sejak 2026-08-31 keduanya memang berselisih dan LABELNYA yang salah:
+        // ambang non-sales naik 100 -> 150 sementara 15 dari 18 divisi masih
+        // berlabel "CHAT 100 WA" (migrasi 231, data master). Jadi label kini
+        // lebih LONGGAR dari gerbang — klien yang mem-parse label memajang 100,
+        // pengirimnya kena 400, lalu ikut tertahan absen pulang karena butirnya
+        // tak jadi lahir. Baris pertama di bawah adalah persis kasus itu.
+        assertFalse(
+            "100 (angka di label) TIDAK cukup untuk ambang non-sales 150",
+            gateJumlahChat(jumlah = 100, ambang = 150, adaVideo = true).ok,
+        )
+        assertTrue(gateJumlahChat(jumlah = 150, ambang = 150, adaVideo = true).ok)
+        assertFalse(gateJumlahChat(jumlah = 150, ambang = 200, adaVideo = true).ok)
     }
 }

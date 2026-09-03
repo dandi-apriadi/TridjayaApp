@@ -303,6 +303,9 @@ private fun activityVisual(id: String): Pair<ImageVector, Color> = when (id) {
     // sebagai dua fitur berbeda.
     "opname_cabang" -> Icons.Rounded.FactCheck to Color(0xFF0BA5EC)
     "opname_validasi" -> Icons.Rounded.FactCheck to Color(0xFFB5670C)
+    // Ikon & warna SAMA dengan ubin "SN Goda" di grid Akses Cepat
+    // (HomeScreen.kt) — alasan yang sama dengan pasangan opname di atas.
+    "goda_serial" -> Icons.Rounded.ElectricBike to Color(0xFF12B76A)
     "aki_saya", "aki_approval" -> Icons.Rounded.BatteryChargingFull to Color(0xFF9C27B0)
     "antrian_kasir" -> Icons.Rounded.PointOfSale to Color(0xFF0086C9)
     "surat_jalan" -> Icons.Rounded.Receipt to Color(0xFF0E9384)
