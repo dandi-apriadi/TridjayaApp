@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Sell
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material.icons.rounded.TableChart
@@ -61,6 +62,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SelectableChipColors
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
@@ -89,6 +91,7 @@ import androidx.paging.compose.itemKey
 import coil.compose.AsyncImage
 import com.krisoft.tridjayaelektronik.data.ProductImageUrl
 import com.krisoft.tridjayaelektronik.data.export.InventoryXlsxExporter
+import com.krisoft.tridjayaelektronik.data.export.PricetagImageExporter
 import com.krisoft.tridjayaelektronik.data.local.BranchStockEntity
 import com.krisoft.tridjayaelektronik.data.local.DealerAlias
 import com.krisoft.tridjayaelektronik.data.local.ProductAggregate
@@ -123,6 +126,7 @@ fun InventoryScreen(
     var showSortSheet by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showExportSheet by remember { mutableStateOf(false) }
+    var showPricetagSheet by remember { mutableStateOf(false) }
 
     TridjayaCollapsibleHeader(
         title = "Semua Barang",
@@ -142,6 +146,10 @@ fun InventoryScreen(
             Spacer(modifier = Modifier.width(8.dp))
             ExpressiveFilledIconButton(onClick = { showExportSheet = true }) {
                 Icon(Icons.Rounded.Share, contentDescription = "Export inventaris")
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            ExpressiveFilledIconButton(onClick = { showPricetagSheet = true }) {
+                Icon(Icons.Rounded.Sell, contentDescription = "Cetak label harga")
             }
         }
     ) { contentModifier ->
@@ -367,6 +375,226 @@ fun InventoryScreen(
             loadItems = { viewModel.exportProducts() },
             onDismiss = { showExportSheet = false }
         )
+    }
+
+    if (showPricetagSheet) {
+        InventoryPricetagSheet(
+            filters = state.filters,
+            loadItems = { viewModel.exportProducts() },
+            onDismiss = { showPricetagSheet = false }
+        )
+    }
+}
+
+private suspend fun exportAndSharePricetags(
+    context: Context,
+    products: List<ProductAggregate>,
+    markup: Boolean,
+    filePrefix: String
+) {
+    val uri = PricetagImageExporter.export(context, products, markup, filePrefix)
+    // Satu barang -> PNG tunggal; banyak barang -> ZIP berisi satu PNG per barang.
+    // MIME diambil dari ekstensi berkas lewat FileProvider, bukan ditebak di sini.
+    val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = mimeType
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Bagikan Label Harga"))
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun InventoryPricetagSheet(
+    filters: InventoryFilters,
+    loadItems: suspend () -> List<ProductAggregate>,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var items by remember { mutableStateOf<List<ProductAggregate>?>(null) }
+    var isExporting by remember { mutableStateOf(false) }
+    var loadError by remember { mutableStateOf(false) }
+    var markup by remember { mutableStateOf(true) }
+    val filterSummary = remember(filters) { buildFilterSummary(filters) }
+
+    LaunchedEffect(Unit) {
+        runCatching { withContext(Dispatchers.IO) { loadItems() } }
+            .onSuccess { items = it; loadError = false }
+            .onFailure {
+                items = emptyList()
+                loadError = true
+                Toast.makeText(context, "Gagal memuat produk untuk label harga", Toast.LENGTH_LONG).show()
+            }
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = ExpressiveShapes.Squircle,
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Box(modifier = Modifier.padding(14.dp), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.Sell,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column {
+                    Text(
+                        text = "Cetak Label Harga",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Foto (.png) per barang, dikemas .zip kalau lebih dari satu",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            ClayCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Total Barang",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            val count = items?.size
+                            if (count == null) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text(
+                                    text = "$count item",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Surface(
+                            shape = ExpressiveShapes.Squircle,
+                            color = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            Box(modifier = Modifier.padding(10.dp)) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Inventory2,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                    }
+                    if (filterSummary != null) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Rounded.FilterAlt,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = filterSummary,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            ClayCard(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Naikkan harga otomatis",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (markup) {
+                                "Harga besar = harga sistem + Rp 300.000, harga coret = harga sistem"
+                            } else {
+                                "Harga besar = harga sistem apa adanya, tanpa coret"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(checked = markup, onCheckedChange = { markup = it })
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            ExpressiveFilledButton(
+                onClick = {
+                    val list = items ?: return@ExpressiveFilledButton
+                    if (list.isEmpty()) {
+                        Toast.makeText(context, "Tidak ada barang untuk dicetak", Toast.LENGTH_SHORT).show()
+                        return@ExpressiveFilledButton
+                    }
+                    isExporting = true
+                    scope.launch {
+                        try {
+                            exportAndSharePricetags(context, list, markup, buildExportPrefix(filters))
+                            onDismiss()
+                        } catch (t: Throwable) {
+                            // `Throwable`, bukan `Exception` — pola sama `InventoryExportSheet`
+                            // (lihat catatan di sana soal `NoClassDefFoundError`/`NoSuchMethodError`).
+                            Toast.makeText(context, "Gagal membuat file: ${t.message ?: "kesalahan tak terduga"}", Toast.LENGTH_LONG).show()
+                        } finally {
+                            isExporting = false
+                        }
+                    }
+                },
+                enabled = !isExporting && items != null && !loadError,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isExporting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Membuat foto...")
+                } else {
+                    Icon(Icons.Rounded.Sell, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (markup) "Buat Foto (+Rp 300.000)" else "Buat Foto (Harga Asli)")
+                }
+            }
+        }
     }
 }
 
