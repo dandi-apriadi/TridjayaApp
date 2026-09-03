@@ -8,6 +8,7 @@ import android.graphics.RectF
 import android.text.TextPaint
 import com.krisoft.tridjayaelektronik.data.local.ProductAggregate
 import com.krisoft.tridjayaelektronik.data.pricing.hitungHargaPricetag
+import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -35,10 +36,13 @@ internal object PricetagRenderer {
     private val RED = Color.parseColor("#E30613")
     private val TEAL = Color.parseColor("#0E6E6E")
 
-    fun rupiah(nilai: Double): String {
+    fun rupiah(nilai: Double): String = "Rp. ${rupiahAngka(nilai)}"
+
+    /** Angka berpemisah ribuan SAJA, tanpa prefix "Rp." — dipakai saat "Rp."
+     *  dicetak terpisah dengan gaya/ukuran sendiri (lihat kotak harga besar). */
+    fun rupiahAngka(nilai: Double): String {
         val bulat = nilai.toLong()
-        val angka = bulat.toString().reversed().chunked(3).joinToString(".").reversed()
-        return "Rp. $angka"
+        return bulat.toString().reversed().chunked(3).joinToString(".").reversed()
     }
 
     private fun truncate(text: String, paint: Paint, maxWidth: Float): String {
@@ -127,42 +131,68 @@ internal object PricetagRenderer {
         canvas.drawRoundRect(tagRect, tagRect.height() * 0.3f, tagRect.height() * 0.3f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = RED })
         canvas.drawText(tagText, tagRect.left + infoH * 0.08f, tagRect.top + tagRect.height() * 0.68f, tagPaint)
 
+        // Harga coret TIDAK lagi di baris ini (referensi terbaru tak menaruhnya
+        // di sebelah nama toko) — sekarang masuk ke area kosong di ATAS "Rp."
+        // di dalam kotak harga besar, lihat di bawah.
+        y = infoRect.bottom + rect.height() * 0.025f
+
+        // Kotak harga besar (putih, garis navy). "Rp." dicetak FLUSH KIRI dengan
+        // gaya tetap (ukuran & posisi baseline diambil dari pengukuran piksel
+        // referensi: tinggi glyph ~52% tinggi kotak, baseline ~88% dari atas),
+        // angka mengikuti persis di sebelah kanannya pada baseline yang SAMA —
+        // supaya terbaca sebagai satu angka utuh "Rp. 1.399.000", bukan dua
+        // elemen terpisah yang kebetulan bersebelahan. Harga coret (kalau ada)
+        // mengisi ruang kosong di atasnya, rata kanan.
+        val priceH = rect.height() * 0.25f
+        val priceRect = RectF(padX, y, padRight, y + priceH)
+        canvas.drawRoundRect(priceRect, priceH * 0.08f, priceH * 0.08f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(242, 242, 241) })
+        canvas.drawRoundRect(
+            priceRect, priceH * 0.08f, priceH * 0.08f,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = RED; style = Paint.Style.STROKE; strokeWidth = strokeW * 0.9f }
+        )
+
+        val priceInsetLeft = priceRect.left + rect.width() * 0.012f
+        val priceInsetRight = priceRect.right - rect.width() * 0.02f
+        val baselineY = priceRect.top + priceH * 0.88f
+
         if (harga.hargaCoret != null) {
             val coretText = rupiah(harga.hargaCoret)
             val coretPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = NAVY; textSize = infoH * 0.30f; isFakeBoldText = true; textAlign = Paint.Align.RIGHT
+                color = RED; textSize = priceH * 0.16f; isFakeBoldText = true; textAlign = Paint.Align.RIGHT
             }
-            val ty = infoRect.centerY() + coretPaint.textSize * 0.35f
-            canvas.drawText(coretText, padRight, ty, coretPaint)
+            val coretY = priceRect.top + priceH * 0.26f
+            canvas.drawText(coretText, priceInsetRight, coretY, coretPaint)
             val tw = coretPaint.measureText(coretText)
             canvas.drawLine(
-                padRight - tw, ty - coretPaint.textSize * 0.32f,
-                padRight, ty - coretPaint.textSize * 0.32f,
-                Paint().apply { color = RED; strokeWidth = strokeW }
+                priceInsetRight - tw, coretY - coretPaint.textSize * 0.34f,
+                priceInsetRight, coretY - coretPaint.textSize * 0.34f,
+                Paint().apply { color = RED; strokeWidth = strokeW * 0.8f }
             )
         }
-        y = infoRect.bottom + rect.height() * 0.025f
 
-        // Kotak harga besar (putih, garis navy) — tak berubah dari sebelumnya.
-        val priceH = rect.height() * 0.25f
-        val priceRect = RectF(padX, y, padRight, y + priceH)
-        canvas.drawRoundRect(priceRect, priceH * 0.08f, priceH * 0.08f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
-        canvas.drawRoundRect(
-            priceRect, priceH * 0.08f, priceH * 0.08f,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = NAVY; style = Paint.Style.STROKE; strokeWidth = strokeW * 0.9f }
-        )
-        val priceText = rupiah(harga.hargaBesar)
-        val pricePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = RED; isFakeBoldText = true; textAlign = Paint.Align.CENTER
+        val rpPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = RED; isFakeBoldText = true; textSize = priceH * 0.52f; textAlign = Paint.Align.LEFT
         }
-        var priceSize = priceH * 0.55f
-        pricePaint.textSize = priceSize
-        val priceMaxWidth = priceRect.width() - rect.width() * 0.05f
-        while (pricePaint.measureText(priceText) > priceMaxWidth && priceSize > priceH * 0.1f) {
-            priceSize -= priceH * 0.01f
-            pricePaint.textSize = priceSize
+        canvas.drawText("Rp.", priceInsetLeft, baselineY, rpPaint)
+        val rpWidth = rpPaint.measureText("Rp.")
+
+        val angkaText = rupiahAngka(harga.hargaBesar)
+        val angkaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = RED; isFakeBoldText = true; textAlign = Paint.Align.LEFT
         }
-        canvas.drawText(priceText, priceRect.centerX(), priceRect.centerY() + priceSize * 0.35f, pricePaint)
+        val angkaX = priceInsetLeft + rpWidth + rect.width() * 0.02f
+        var angkaSize = priceH * 0.58f
+        angkaPaint.textSize = angkaSize
+        val angkaMaxWidth = priceInsetRight - angkaX
+        while (angkaPaint.measureText(angkaText) > angkaMaxWidth && angkaSize > priceH * 0.15f) {
+            angkaSize -= priceH * 0.01f
+            angkaPaint.textSize = angkaSize
+        }
+        // Baseline angka diturunkan sedikit dibanding "Rp." supaya dasar KEDUANYA
+        // rata (font besar duduk lebih rendah dari font kecil pada baseline yang
+        // sama secara matematis, tapi optically angka besar terasa "mengambang"
+        // kalau dipaksa baseline identik — offset kecil ini mengoreksinya).
+        canvas.drawText(angkaText, angkaX, baselineY + priceH * 0.02f, angkaPaint)
         y = priceRect.bottom + rect.height() * 0.022f
 
         // Bar NAVY: merek (pengganti logo) di kiri, nama/kode produk di kanan —
@@ -230,42 +260,84 @@ internal object PricetagRenderer {
             Triple("GRATIS", "PEMASANGAN", NAVY),
             Triple("HADIAH", "MENARIK", RED)
         )
-        val colW = w * 0.155f
-        val iconSize = min(h * 0.42f, colW * 0.6f)
-        val labelPaintTop = TextPaint(Paint.ANTI_ALIAS_FLAG)
-        val labelPaintBottom = TextPaint(Paint.ANTI_ALIAS_FLAG)
+
+        // Kontak (kanan) diukur DULU supaya sisa lebar untuk 3 kolom ikon
+        // (kiri) pasti akurat — dulu kolom ikon pakai lebar TETAP (15,5%
+        // layar) tanpa peduli kata "PEMASANGAN" yang lebih panjang dari itu,
+        // jadi "HADIAH MENARIK" numpuk di atasnya. Sekarang tiap kolom ikon
+        // selebar teks dua barisnya SENDIRI (diukur, bukan ditebak), dan
+        // seluruh footer diciutkan bareng kalau totalnya masih kelebihan.
+        var labelSize = h * 0.22f
+        val iconSizeFrac = 0.42f
+        var phoneSize = h * 0.30f
+        var contactLabelSize = h * 0.19f
+
+        fun measure(): Triple<List<Float>, Float, Float> {
+            val labelPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { isFakeBoldText = true; textSize = labelSize }
+            val iconSize = h * iconSizeFrac
+            val colWidths = iconColNavy.map { (l1, l2, _) ->
+                iconSize * 0.75f + w * 0.018f + max(labelPaint.measureText(l1), labelPaint.measureText(l2))
+            }
+            val phonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFakeBoldText = true; textSize = phoneSize }
+            val contactPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFakeBoldText = true; textSize = contactLabelSize }
+            val phoneW = phonePaint.measureText(KONTAK_KONSULTASI)
+            val contactLabelW = max(contactPaint.measureText("Konsultasi"), contactPaint.measureText("Pembelian"))
+            val contactBlockW = phoneW + w * 0.02f + contactLabelW
+            return Triple(colWidths, phoneW, contactBlockW)
+        }
+
+        // Ciutkan ukuran font (label kolom, nomor telepon, label kontak) bareng
+        // sampai total lebar muat — jaring pengaman kalau nama merek/nomor
+        // WA berubah jadi lebih panjang di kemudian hari.
+        var (colWidths, phoneW, contactW) = measure()
+        val gap = w * 0.02f
+        var totalNeeded = colWidths.sum() + gap * iconColNavy.size + contactW
+        var guard = 0
+        while (totalNeeded > w && guard < 40) {
+            labelSize *= 0.96f
+            phoneSize *= 0.96f
+            contactLabelSize *= 0.96f
+            val m = measure()
+            colWidths = m.first; phoneW = m.second; contactW = m.third
+            totalNeeded = colWidths.sum() + gap * iconColNavy.size + contactW
+            guard++
+        }
+
+        val iconSize = h * iconSizeFrac
+        val labelPaintTop = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { isFakeBoldText = true; textSize = labelSize; textAlign = Paint.Align.LEFT }
+        val labelPaintBottom = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { isFakeBoldText = true; textSize = labelSize; textAlign = Paint.Align.LEFT }
 
         var colX = r.left
         iconColNavy.forEachIndexed { index, (line1, line2, color) ->
-            val iconCx = colX + iconSize * 0.55f
+            val colW = colWidths[index]
+            val iconCx = colX + iconSize * 0.42f
             val iconCy = r.top + h * 0.38f
             when (index) {
                 0 -> drawTruckIcon(canvas, iconCx, iconCy, iconSize, color)
                 1 -> drawToolsIcon(canvas, iconCx, iconCy, iconSize, color)
                 else -> drawGiftIcon(canvas, iconCx, iconCy, iconSize, color)
             }
-            val textX = colX
+            val textX = colX + iconSize * 0.75f + w * 0.018f
             val textTop = r.top + h * 0.72f
-            labelPaintTop.apply { this.color = color; isFakeBoldText = true; textSize = h * 0.22f; textAlign = Paint.Align.LEFT }
-            labelPaintBottom.apply { this.color = color; isFakeBoldText = true; textSize = h * 0.22f; textAlign = Paint.Align.LEFT }
+            labelPaintTop.color = color
+            labelPaintBottom.color = color
             canvas.drawText(line1, textX, textTop, labelPaintTop)
             canvas.drawText(line2, textX, textTop + h * 0.26f, labelPaintBottom)
 
-            colX += colW
+            colX += colW + gap
             if (index < iconColNavy.lastIndex) {
-                canvas.drawLine(colX - colW * 0.06f, r.top + h * 0.15f, colX - colW * 0.06f, r.bottom - h * 0.15f, Paint().apply { this.color = Color.LTGRAY; strokeWidth = h * 0.025f })
+                canvas.drawLine(colX - gap * 0.5f, r.top + h * 0.15f, colX - gap * 0.5f, r.bottom - h * 0.15f, Paint().apply { this.color = Color.LTGRAY; strokeWidth = h * 0.025f })
             }
         }
 
         // Kontak — dua baris label merah + nomor tebal hitam, rata kanan.
         val phonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK; isFakeBoldText = true; textSize = h * 0.30f; textAlign = Paint.Align.RIGHT
+            color = Color.BLACK; isFakeBoldText = true; textSize = phoneSize; textAlign = Paint.Align.RIGHT
         }
         val phoneY = r.top + h * 0.58f
         canvas.drawText(KONTAK_KONSULTASI, r.right, phoneY, phonePaint)
-        val phoneW = phonePaint.measureText(KONTAK_KONSULTASI)
         val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = RED; isFakeBoldText = true; textSize = h * 0.19f; textAlign = Paint.Align.RIGHT
+            color = RED; isFakeBoldText = true; textSize = contactLabelSize; textAlign = Paint.Align.RIGHT
         }
         val labelX = r.right - phoneW - w * 0.02f
         canvas.drawText("Konsultasi", labelX, r.top + h * 0.40f, labelPaint)
