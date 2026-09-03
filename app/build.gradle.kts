@@ -290,8 +290,96 @@ dependencies {
 // Dilewati saat flag aktif; FCM lalu inert (DeviceRepository.fetchFcmToken sudah
 // menangani Firebase tak ter-inisialisasi), yang memang benar untuk varian uji:
 // ia tak boleh ikut menerima push yang ditujukan ke app produksi.
-if (rootProject.file("app/google-services.json").exists() && !project.hasProperty("localApi")) {
+val berkasGoogleServices = rootProject.file("app/google-services.json")
+val firebaseSengajaDilewati = project.hasProperty("localApi")
+if (berkasGoogleServices.exists() && !firebaseSengajaDilewati) {
     apply(plugin = "com.google.gms.google-services")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GERBANG KERAS — build RILIS MENOLAK jalan tanpa google-services.json
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// "Dilewati diam-diam" di atas BENAR untuk build debug dan SALAH TOTAL untuk
+// rilis. Tanpa berkas itu plugin tak pernah diterapkan, jadi APK terbit tanpa
+// satu pun string konfigurasi Firebase — sementara pustaka `firebase-messaging`
+// tetap ikut ter-bundle. Hasilnya app yang KELIHATAN utuh:
+// `DeviceRepository.fetchFcmToken` menangkap kegagalan init lalu mengembalikan
+// null, `registerCurrentToken` menulis satu `Log.w` ke logcat HP, dan
+// `POST /absensi/register-device` TIDAK PERNAH LAHIR. Server tak menyimpan jejak
+// percobaan gagal karena memang tak ada percobaan — nol error di kedua sisi.
+//
+// INSIDEN YANG DITUTUPNYA (forensik 2026-09-01, diukur di APK produksi + DB):
+// laptop di-instal ulang 2026-08-08. `keystore.properties` dan
+// `release-keystore.jks` dipulihkan manual dari arsip (keduanya bertanggal
+// 2026-08-08 22:02:59); `google-services.json` TIDAK — ia gitignored persis
+// seperti keystore, tapi tak masuk daftar pemulihan. Sejak rilis berikutnya
+// (vc72/73, 9–10 Agustus) SETIAP APK release terbit tanpa Firebase, ~52 versi
+// berturut-turut. Yang terukur 26 hari kemudian:
+//   • APK vc123/3.12 yang BEREDAR: `google_app_id`, `gcm_defaultSenderId`,
+//     `project_id`, `google_api_key` = NOL semuanya dari 93 string resource
+//     (APK vc10 yang sehat masih memuat project_id `tridjayaelektronik-35068`).
+//   • Token FCM terakhir yang pernah terdaftar: 2026-08-06 21:46:37. Nol baris
+//     baru sesudahnya.
+//   • 51 dari 122 pengguna APK aktif (41,8%) tanpa device token; log
+//     kinerja-service mencatat 3.395 "push DIBUANG: akun aktif belum punya
+//     device token" dalam 7 hari, menyentuh 80 nama unik.
+// Empat dari sepuluh karyawan berhenti menerima notifikasi approval/pengiriman
+// selama 26 hari dan tak satu pun sinyal menyebutkannya. Build sukses, app
+// jalan, notifikasi diam — itulah kenapa penjaganya harus di sini, bukan di
+// runbook yang bergantung pada ingatan orang setelah instal ulang berikutnya.
+//
+// Debug SENGAJA tidak ikut diwajibkan: mesin pengembangan harus tetap bisa
+// membangun tanpa Firebase.
+//
+// **`-PlocalApi` TIDAK mengecualikan gerbang ini** (koreksi review PR — draf
+// pertama menyamakannya dengan pengecualian debug di atas, dan itu salah).
+// `-PlocalApi` hanya mengubah `applicationIdSuffix` di build type `debug`
+// (lihat blok `debug {}` di bawah); ia TIDAK PUNYA efek apa pun pada build
+// type `release`. Jadi `./gradlew assembleRelease -PlocalApi` sebelumnya
+// menghasilkan APK PRODUKSI asli (applicationId `com.krisoft.tridjayaelektronik`,
+// release-signed) tanpa Firebase — mereproduksi PERSIS insiden yang gerbang
+// ini dibuat untuk mencegah, lewat kombinasi flag yang tak ada yang menahannya.
+//
+// Daftar tugasnya EKSAK, bukan pola "berakhiran Release": `:app:generateBaselineProfile`
+// membangun varian `nonMinifiedRelease` yang tak pernah dibagikan ke siapa pun,
+// dan pola longgar akan ikut menghentikannya.
+//
+// **Diperiksa lewat `gradle.taskGraph.whenReady`, BUKAN daftar nama task CLI
+// literal (`startParameter.taskNames`)** — koreksi review PR kedua. Bentuk itu
+// cuma berisi nama task yang DIKETIK di CLI secara literal — `./gradlew build`
+// atau `./gradlew assemble` menjalankan
+// `assembleRelease` secara TRANSITIF (task itu mendepend padanya) tanpa string
+// "assembleRelease" pernah muncul di `taskNames`, jadi gerbang lama tak pernah
+// menyala untuk keduanya. Task graph yang SUDAH DIRESOLVE (`allTasks`) memuat
+// task transitif ini. `whenReady` tetap menyala SEBELUM eksekusi task mana pun
+// (bukan `doFirst`), jadi gagalnya tetap dalam hitungan detik, bukan setelah R8
+// selesai ~44 menit.
+val tugasWajibFirebase = setOf("assembleRelease", "bundleRelease", "installRelease")
+gradle.taskGraph.whenReady {
+    val mintaBuildRilis = allTasks.any { it.name in tugasWajibFirebase }
+    if (mintaBuildRilis && !berkasGoogleServices.exists()) {
+        throw GradleException(
+            "google-services.json TIDAK ADA — build RILIS dihentikan.\n" +
+                "\n" +
+                "Taruh berkasnya PERSIS di: ${berkasGoogleServices.path}\n" +
+                "\n" +
+                "Ambilnya: Firebase console → proyek `tridjayaelektronik-35068` → Project settings → " +
+                "Your apps → Android app `com.krisoft.tridjayaelektronik` → Download " +
+                "google-services.json. Hanya PEMILIK akun Firebase yang bisa mengunduhnya, jadi ini " +
+                "tak bisa diselesaikan sendiri oleh sesi mana pun tanpa dia.\n" +
+                "\n" +
+                "Berkas ini ter-gitignore (mobile/.gitignore `app/google-services.json`), jadi ia TIDAK " +
+                "ikut clone/checkout dan TIDAK ikut dipulihkan bersama keystore setelah instal ulang. " +
+                "Tanpa dia APK terbit tanpa konfigurasi Firebase dan pendaftaran token FCM mati total " +
+                "di semua HP: terukur 2026-09-01 → 41,8% pengguna APK aktif tanpa device token, nol " +
+                "pendaftaran baru selama 26 hari, ~52 versi rusak berturut-turut sejak vc72 (9 Agt 2026).\n" +
+                "\n" +
+                "Build variant DEBUG (dengan atau tanpa `-PlocalApi`) tidak menuntut berkas ini — " +
+                "pakai itu untuk pengembangan lokal. Build RILIS TIDAK PUNYA jalan keluar lewat " +
+                "flag apa pun, termasuk `-PlocalApi`.",
+        )
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
