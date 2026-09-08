@@ -53,7 +53,7 @@ import com.krisoft.tridjayaelektronik.ui.theme.ScrollableCenter
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaCollapsibleHeader
 import com.krisoft.tridjayaelektronik.ui.theme.TridjayaPullRefresh
 
-private val STATUS_TABS: List<Pair<String?, String>> = listOf(
+internal val STATUS_TABS: List<Pair<String?, String>> = listOf(
     null to "Semua",
     "pending" to "Menunggu",
     "approved" to "Disetujui",
@@ -150,7 +150,7 @@ fun DiskonHistoryScreen(
 }
 
 @Composable
-private fun HistorySpkCard(
+internal fun HistorySpkCard(
     kode: String,
     pengajuan: List<com.krisoft.tridjayaelektronik.data.model.DiscountRequestDto>,
     onDetail: () -> Unit,
@@ -194,7 +194,7 @@ private fun HistorySpkCard(
 }
 
 @Composable
-private fun HistoryBaris(d: com.krisoft.tridjayaelektronik.data.model.DiscountRequestDto) {
+internal fun HistoryBaris(d: com.krisoft.tridjayaelektronik.data.model.DiscountRequestDto) {
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.Top) {
             Text(d.baris?.toString() ?: "\u00b7", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(18.dp))
@@ -230,7 +230,7 @@ private fun HistoryBaris(d: com.krisoft.tridjayaelektronik.data.model.DiscountRe
 }
 
 @Composable
-private fun HistoryStatusChip(status: String) {
+internal fun HistoryStatusChip(status: String) {
     val warna = when {
         barisTuntas(status) -> MaterialTheme.colorScheme.primary
         status == "rejected" -> MaterialTheme.colorScheme.error

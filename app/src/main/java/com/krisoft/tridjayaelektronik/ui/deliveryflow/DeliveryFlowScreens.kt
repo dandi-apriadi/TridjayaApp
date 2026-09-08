@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -51,6 +52,8 @@ import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -4045,10 +4048,14 @@ fun DiscountApprovalScreen(
     // bawah chip: approver yang melihat 0 tahu daftarnya sedang TERSARING, bukan
     // habis. Kalau ada laporan "pengajuan diskon hilang", cek chip ini dulu.
     var periode by remember { mutableStateOf(PeriodeSpk.HARI_INI) }
+    // Tab dalam layar Approval Diskon itu sendiri: Menunggu (aksi) vs Riwayat.
+    var tabMenunggu by remember { mutableStateOf(true) }
+    var historiStatus by remember { mutableStateOf<String?>(null) }
     val rentang = rentangPeriode(periode)
-    // Status "pending" TETAP — periode menyaring tanggal, bukan tahap keputusan.
-    LaunchedEffect(rentang) { viewModel.loadDiscounts("pending", rentang.dari, rentang.sampai) }
-    val muatUlang = { viewModel.loadDiscounts("pending", rentang.dari, rentang.sampai) }
+    // Status ikut tab: Menunggu = "pending" TETAP; Riwayat = pilihan chip status.
+    val statusAktif: String? = if (tabMenunggu) "pending" else historiStatus
+    LaunchedEffect(statusAktif, rentang) { viewModel.loadDiscounts(statusAktif, rentang.dari, rentang.sampai) }
+    val muatUlang = { viewModel.loadDiscounts(statusAktif, rentang.dari, rentang.sampai) }
     // Id PENGAJUAN yang sedang ditolak — bukan lagi "anchor" se-SPK: sejak
     // 2026-08-07 penolakan cuma mengenai barang yang ditunjuk.
     var rejectId by remember { mutableStateOf<String?>(null) }
@@ -4073,6 +4080,46 @@ fun DiscountApprovalScreen(
               // Chip + baris jumlah DI LUAR `when` di bawah: keduanya harus tetap
               // terlihat saat daftar kosong/gagal/loading, kalau tidak approver
               // yang tersaring ke "Hari ini" kehilangan jalan kembali ke "Semua".
+              Row(
+                  modifier = Modifier.horizontalScroll(rememberScrollState())
+                      .padding(horizontal = 16.dp, vertical = 6.dp),
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+              ) {
+                  listOf(true to "Menunggu", false to "Riwayat").forEach { (v, label) ->
+                      val aktif = v == tabMenunggu
+                      FilterChip(
+                          selected = aktif,
+                          onClick = { tabMenunggu = v },
+                          label = { Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = if (aktif) FontWeight.Bold else FontWeight.Medium) },
+                          colors = FilterChipDefaults.filterChipColors(
+                              selectedContainerColor = MaterialTheme.colorScheme.primary,
+                              selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                          ),
+                      )
+                  }
+              }
+              // Riwayat: saring status keputusan. Tanpa ini riwayat = semua status
+              // campur tanpa cara melihat "yang ditolak saja".
+              if (!tabMenunggu) {
+                  Row(
+                      modifier = Modifier.horizontalScroll(rememberScrollState())
+                          .padding(horizontal = 16.dp, vertical = 2.dp),
+                      horizontalArrangement = Arrangement.spacedBy(8.dp),
+                  ) {
+                      STATUS_TABS.forEach { (v, label) ->
+                          val aktif = v == historiStatus
+                          FilterChip(
+                              selected = aktif,
+                              onClick = { historiStatus = v },
+                              label = { Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = if (aktif) FontWeight.Bold else FontWeight.Medium) },
+                              colors = FilterChipDefaults.filterChipColors(
+                                  selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                  selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                              ),
+                          )
+                      }
+                  }
+              }
               PeriodeFilterRow(dipilih = periode, onPilih = { periode = it })
               if (!(state.loading && state.discounts.isEmpty())) {
                   // `total` server, bukan `discounts.size`: responsnya BERHALAMAN
@@ -4104,7 +4151,8 @@ fun DiscountApprovalScreen(
                             // Sudah diputus ≠ tersaring keluar. Menyamakan keduanya
                             // membuat approver menutup layar padahal tunggakan
                             // kemarin masih menunggu di periode lain.
-                            subtitle = "Tidak ada pengajuan pending pada ${periode.keterangan}. Ganti periode di atas untuk melihat yang lebih lama."
+                            subtitle = if (tabMenunggu) "Tidak ada pengajuan pending pada ${periode.keterangan}. Ganti periode di atas untuk melihat yang lebih lama."
+                            else "Tidak ada riwayat pada ${periode.keterangan}" + (historiStatus?.let { " dengan status $it" } ?: "") + "."
                         )
                     }
                 else -> LazyColumn(
@@ -4124,15 +4172,24 @@ fun DiscountApprovalScreen(
                         // Urut baris: server mengirim `created_at DESC`, jadi
                         // barang ke-3 bisa tampil di atas barang ke-1.
                         val urut = urutPengajuanSpk(pengajuan)
-                        DiscountSpkCard(
-                            kode = kode,
-                            pengajuan = urut,
-                            submitting = state.diskonSubmitting,
-                            buktiFoto = state.diskonBuktiPhotos,
-                            onApprove = { id -> approveId = id },
-                            onReject = { id -> rejectId = id },
-                            onDetail = { onDetailSpk(kode) },
-                        )
+                        if (tabMenunggu) {
+                            DiscountSpkCard(
+                                kode = kode,
+                                pengajuan = urut,
+                                submitting = state.diskonSubmitting,
+                                buktiFoto = state.diskonBuktiPhotos,
+                                onApprove = { id -> approveId = id },
+                                onReject = { id -> rejectId = id },
+                                onDetail = { onDetailSpk(kode) },
+                            )
+                        } else {
+                            // Riwayat: read-only, tanpa tombol keputusan.
+                            HistorySpkCard(
+                                kode = kode,
+                                pengajuan = urut,
+                                onDetail = { onDetailSpk(kode) },
+                            )
+                        }
                     }
                 }
                 }
