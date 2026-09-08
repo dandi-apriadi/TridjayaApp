@@ -194,6 +194,13 @@ internal val HS_LAPOR_ROLES = ALL_LOGGED_IN
 internal val HS_TASK_ROLES = setOf("pdi", "admin", "superadmin")
 
 /**
+ * `chat_deteksi` (kinerja-service, 2026-08-31) — login-only, self-scoped:
+ * `identity_from_headers` + `info_untuk_submisi`, tanpa peran istimewa,
+ * setiap karyawan submit datanya sendiri. Pola sama [HS_LAPOR_ROLES].
+ */
+internal val CHAT_DETEKSI_ROLES = ALL_LOGGED_IN
+
+/**
  * Dua menu VERIFIKATOR (divisi `verificator-dan-reporting`, slug `cs`).
  *
  * Cerminan `AC_INSTALL_SCHEDULE_ROLES` dan `VERTEL_ROLES` di
@@ -409,6 +416,13 @@ internal val QUICK_ACCESS_MENUS: List<QuickAccessMenu> = listOf(
         label = "Tugas Home Service",
         allowedRoles = HS_TASK_ROLES,
         backendGuard = "rust-shared capabilities.rs HOMESERVICE_TASK_ROLES (= PDI_ROLES)",
+    ),
+    QuickAccessMenu(
+        id = "chat_deteksi",
+        capability = null,
+        label = "Deteksi Chat",
+        allowedRoles = CHAT_DETEKSI_ROLES,
+        backendGuard = "tanpa guard: kinerja-service chat_deteksi/handlers.rs submit login-only (self-scoped)",
     ),
     /**
      * Sisi VERIFIKATOR pemasangan AC — menjadwalkan dan menugaskan tim.

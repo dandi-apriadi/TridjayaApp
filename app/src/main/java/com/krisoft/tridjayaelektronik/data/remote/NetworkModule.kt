@@ -225,6 +225,31 @@ object NetworkModule {
             .create(AktivitasUploadApi::class.java)
     }
 
+    fun createChatDeteksiApi(tokenStore: TokenStore): ChatDeteksiApi =
+        authenticatedRetrofit(tokenStore).create(ChatDeteksiApi::class.java)
+
+    /**
+     * Client unggah video chat-deteksi: batasnya 20 MB (`chat_deteksi::handlers::
+     * MAX_VIDEO_BYTES`, lebih kecil dari raport/prospek), tapi tetap jauh di atas
+     * 20 detik client bersama di jaringan cabang. Timeout disamakan
+     * [createProspekUploadApi] (kelas ukuran yang sama), BUKAN
+     * [createAktivitasUploadApi] (30 MB) — video di sini pendek (screen-recording
+     * scroll daftar chat), bukan rekaman panjang.
+     */
+    fun createChatDeteksiUploadApi(tokenStore: TokenStore): ChatDeteksiUploadApi {
+        val base = authenticatedRetrofit(tokenStore)
+        val uploadClient = (base.callFactory() as OkHttpClient).newBuilder()
+            .writeTimeout(120, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.SECONDS)
+            .apply { interceptors().removeAll { it is HttpLoggingInterceptor } }
+            .build()
+        return base.newBuilder()
+            .client(uploadClient)
+            .build()
+            .create(ChatDeteksiUploadApi::class.java)
+    }
+
     fun createHomeServiceApi(tokenStore: TokenStore): HomeServiceApi =
         authenticatedRetrofit(tokenStore).create(HomeServiceApi::class.java)
 

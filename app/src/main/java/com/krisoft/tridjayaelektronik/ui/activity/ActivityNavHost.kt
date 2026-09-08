@@ -34,6 +34,7 @@ import com.krisoft.tridjayaelektronik.ui.deliveryflow.AkiListScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.CreateSpkScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.DiscountApprovalScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.DiskonHistoryScreen
+import com.krisoft.tridjayaelektronik.ui.chatdeteksi.ChatDeteksiScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.SpkDiskonDetailScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.DeliveryJobDetailScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.DeliveryQueueScreen
@@ -95,6 +96,7 @@ private const val ROUTE_AKTIVITAS_RIWAYAT = "home_aktivitas_riwayat"
 // route-nya tetap terpisah supaya deep-link notif bisa menunjuk antrian yang
 // tepat dan tombol back tiap peran tak saling menimpa.
 private const val ROUTE_HS_LAPOR = "home_hs_lapor"
+private const val ROUTE_CHAT_DETEKSI = "home_chat_deteksi"
 private const val ROUTE_HS_TRIASE = "home_hs_triase"
 private const val ROUTE_HS_TEKNISI = "home_hs_teknisi"
 private const val ROUTE_HS_TARIK = "home_hs_tarik"
@@ -354,6 +356,7 @@ fun ActivityNavHost(
                 onKomplainLapor = { navController.navigate(ROUTE_HS_LAPOR) { launchSingleTop = true } },
                 onKomplainSaya = { navController.navigate(ROUTE_HS_SAYA) { launchSingleTop = true } },
                 onKomplainTugas = { navController.navigate(ROUTE_HS_TEKNISI) { launchSingleTop = true } },
+                onChatDeteksi = { navController.navigate(ROUTE_CHAT_DETEKSI) { launchSingleTop = true } },
                 onPemasanganAcKontrol = {
                     navController.navigate(ROUTE_PEMASANGAN_AC_KONTROL) { launchSingleTop = true }
                 },
@@ -440,6 +443,9 @@ fun ActivityNavHost(
         }
         composable(ROUTE_AKTIVITAS_REVIEW) {
             AktivitasReviewScreen(onBack = { navController.popBackStack() })
+        }
+        composable(ROUTE_CHAT_DETEKSI) {
+            ChatDeteksiScreen(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_HS_LAPOR) {
             HomeServiceLaporScreen(
