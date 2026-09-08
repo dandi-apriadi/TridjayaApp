@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.ElectricBike
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.Chat
 import androidx.compose.material.icons.rounded.FactCheck
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Flag
@@ -135,6 +136,7 @@ fun HomeScreen(
     onKomplainTugas: () -> Unit = {},
     onPemasanganAcKontrol: () -> Unit = {},
     onVertel: () -> Unit = {},
+    onChatDeteksi: () -> Unit = {},
     onKlasemenLapangan: () -> Unit = {},
     /** Buka satu menu alur SPK berdasarkan key: input/diskon/kasir/pdi/kontrol/driver. */
     onSpkMenu: (String) -> Unit = {},
@@ -235,7 +237,7 @@ fun HomeScreen(
                                     onQuickAccessSerialInput, onQuickAccessGodaSerial,
                                     onQuickAccessDeadstock, onQuickAccessMutasiHistori,
                                     onKomplainLapor, onKomplainSaya, onKomplainTugas,
-                                    onPemasanganAcKontrol, onVertel, onKlasemenLapangan,
+                                    onPemasanganAcKontrol, onVertel, onChatDeteksi, onKlasemenLapangan,
                                     onSpkMenu
                                 )
                             }
@@ -274,6 +276,7 @@ private fun LazyListScope.homeSection(
     onKomplainTugas: () -> Unit,
     onPemasanganAcKontrol: () -> Unit,
     onVertel: () -> Unit,
+    onChatDeteksi: () -> Unit,
     onKlasemenLapangan: () -> Unit,
     onSpkMenu: (String) -> Unit
 ) {
@@ -313,6 +316,7 @@ private fun LazyListScope.homeSection(
                     onKomplainTugas = onKomplainTugas,
                     onPemasanganAcKontrol = onPemasanganAcKontrol,
                     onVertel = onVertel,
+                    onChatDeteksi = onChatDeteksi,
                     onKlasemenLapangan = onKlasemenLapangan,
                     onSpkMenu = onSpkMenu,
                 )
@@ -649,6 +653,7 @@ private fun QuickAccessRow(
     onKomplainTugas: () -> Unit,
     onPemasanganAcKontrol: () -> Unit,
     onVertel: () -> Unit,
+    onChatDeteksi: () -> Unit,
     onKlasemenLapangan: () -> Unit,
     onSpkMenu: (String) -> Unit,
 ) {
@@ -692,6 +697,7 @@ private fun QuickAccessRow(
                         "komplain_tugas" -> onKomplainTugas()
                         "pemasangan_ac_kontrol" -> onPemasanganAcKontrol()
                         "vertel" -> onVertel()
+                        "chat_deteksi" -> onChatDeteksi()
                     }
                 },
                 modifier = Modifier.width(86.dp)
@@ -732,6 +738,7 @@ private fun quickAccessVisual(id: String): Pair<androidx.compose.ui.graphics.vec
     // ia dibuka (alasan yang sama dipakai dua ubin komplain di atas).
     "pemasangan_ac_kontrol" -> Pair(Icons.Rounded.AcUnit, Color(0xFF0BA5EC))
     "vertel" -> Pair(Icons.Rounded.PhoneInTalk, Color(0xFF0E9384))
+    "chat_deteksi" -> Pair(Icons.Rounded.Chat, Color(0xFF12B76A))
     else -> Pair(Icons.Rounded.Bolt, MaterialTheme.colorScheme.primary)
 }
 

@@ -357,7 +357,7 @@ class CapabilityDrivenMenuTest {
         // laporan orang lain DAN tak punya kunci yang bisa dicerminkan.
         val tanpaKunci = QUICK_ACCESS_MENUS.filter { it.capability == null }.map { it.id }
         assertEquals(
-            listOf("kpi", "inventory", "cari_semua", "komplain_lapor", "komplain_saya"),
+            listOf("kpi", "inventory", "cari_semua", "komplain_lapor", "komplain_saya", "chat_deteksi"),
             tanpaKunci,
         )
     }
