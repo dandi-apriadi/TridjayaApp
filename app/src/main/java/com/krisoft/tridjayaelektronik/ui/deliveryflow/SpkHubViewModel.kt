@@ -96,6 +96,7 @@ object SpkAccessPolicy {
             // mengizinkan. Aman dilebarkan karena pemanggilnya SELALU
             // memasangkan ini dengan `assignedDriverId == currentUserId`.
             driverAction = admin || hasRole("driver") || canCreateSpk(roles),
+            riwayatDiskon = true,
         )
     }
 }
@@ -112,6 +113,7 @@ data class SpkHubAccess(
     val input: Boolean,
     val history: Boolean,
     val diskon: Boolean,
+    val riwayatDiskon: Boolean,
     val pdi: Boolean,
     val aki: Boolean,
     val kasir: Boolean,
