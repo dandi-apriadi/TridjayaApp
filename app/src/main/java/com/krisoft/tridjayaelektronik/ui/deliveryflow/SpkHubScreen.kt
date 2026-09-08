@@ -50,7 +50,7 @@ fun SpkHubScreen(
 ) {
     val a = viewModel.access
     // Header "Antrian per tahap" hanya tampil bila ada minimal satu entri tahap.
-    val anyStage = a.diskon || a.pdi || a.aki || a.kasir || a.note || a.jadwal || a.driver
+    val anyStage = a.diskon || a.riwayatDiskon || a.pdi || a.aki || a.kasir || a.note || a.jadwal || a.driver
     TridjayaCollapsibleHeader(title = "SPK & Pengiriman", onBack = onBack) { contentModifier ->
         Column(
             contentModifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -63,6 +63,7 @@ fun SpkHubScreen(
                 Text("Antrian per tahap", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (a.diskon) HubEntry(Icons.Rounded.Discount, "Approval Diskon", "Setujui/tolak pengajuan diskon", Color(0xFFB5670C)) { onNavigate("diskon") }
+            if (a.riwayatDiskon) HubEntry(Icons.Rounded.History, "Riwayat Diskon", "Semua pengajuan & keputusannya", Color(0xFF667085)) { onNavigate("riwayat_diskon") }
             if (a.pdi) HubEntry(Icons.Rounded.FactCheck, "PDI", "Inspeksi unit sebelum kirim", Color(0xFF6941C6)) { onNavigate("pdi") }
             if (a.aki) HubEntry(Icons.Rounded.BatteryChargingFull, "Pengambilan Aki", "Daftar form aki + tandai dikembalikan", Color(0xFF9C27B0)) { onNavigate("aki") }
             if (a.kasir) HubEntry(Icons.Rounded.PointOfSale, "Kasir SPK", "Konfirmasi SPK ke GS", Color(0xFF0086C9)) { onNavigate("kasir") }

@@ -33,6 +33,7 @@ import com.krisoft.tridjayaelektronik.data.model.KontrolSaringan
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.AkiListScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.CreateSpkScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.DiscountApprovalScreen
+import com.krisoft.tridjayaelektronik.ui.deliveryflow.DiskonHistoryScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.SpkDiskonDetailScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.DeliveryJobDetailScreen
 import com.krisoft.tridjayaelektronik.ui.deliveryflow.DeliveryQueueScreen
@@ -153,6 +154,7 @@ private const val ROUTE_DLV_DETAIL = "home_dlv_detail/{id}"
 // berbeda: yang itu id job, yang ini kode batch SPK.
 private const val ROUTE_DLV_DISKON_DETAIL = "home_dlv_diskon_detail/{kode}"
 const val ROUTE_DLV_HISTORY = "home_dlv_history"
+const val ROUTE_DLV_DISKON_RIWAYAT = "home_dlv_diskon_riwayat"
 const val ROUTE_DLV_PENDING_PAYMENT = "home_dlv_pending_payment"
 const val ROUTE_SPK_HUB = "home_spk_hub"
 
@@ -177,6 +179,7 @@ private fun salesTransactionsRoute(kodePegawai: String, salesName: String) =
  */
 private fun deliveryStageRoute(key: String): String? = when (key) {
     "diskon" -> ROUTE_DLV_DISKON
+    "riwayat_diskon" -> ROUTE_DLV_DISKON_RIWAYAT
     "pdi" -> ROUTE_DLV_PDI
     "aki" -> ROUTE_DLV_AKI
     "kasir" -> ROUTE_DLV_KASIR
@@ -522,6 +525,7 @@ fun ActivityNavHost(
                 val route = when (key) {
                     "input" -> ROUTE_DLV_CREATE
                     "diskon" -> ROUTE_DLV_DISKON
+                    "riwayat_diskon" -> ROUTE_DLV_DISKON_RIWAYAT
                     "pdi" -> ROUTE_DLV_PDI
                     "aki" -> ROUTE_DLV_AKI
                     "kasir" -> ROUTE_DLV_KASIR
@@ -548,6 +552,14 @@ fun ActivityNavHost(
         }
         composable(ROUTE_DLV_DISKON) {
             DiscountApprovalScreen(
+                onBack = { navController.popBackStack() },
+                onDetailSpk = { kode ->
+                    navController.navigate(dlvDiskonDetailRoute(kode)) { launchSingleTop = true }
+                },
+            )
+        }
+        composable(ROUTE_DLV_DISKON_RIWAYAT) {
+            DiskonHistoryScreen(
                 onBack = { navController.popBackStack() },
                 onDetailSpk = { kode ->
                     navController.navigate(dlvDiskonDetailRoute(kode)) { launchSingleTop = true }
