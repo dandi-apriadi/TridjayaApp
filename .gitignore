@@ -32,3 +32,4 @@ serve.log
 # dan yang beredar tersimpan di VPS (services/user-service/uploads/apk).
 # Menyimpan biner ~5 MB per rilis di git menempel di riwayat selamanya.
 releases/
+.hermes.md

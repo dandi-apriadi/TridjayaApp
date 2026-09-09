@@ -52,7 +52,7 @@ object PricetagImageExporter {
         val tmpDir = File(dir, "pricetags_tmp_$timestamp").apply { mkdirs() }
         val resultFile = try {
             products.forEachIndexed { index, product ->
-                val bitmap = renderBitmap(baseBitmap, product.harga, markup, priceTypeface)
+                val bitmap = renderBitmap(baseBitmap, product, markup, priceTypeface)
                 val file = File(tmpDir, "${index}_${sanitize(product.kode)}_${sanitize(product.kodeCabang)}.png")
                 FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
                 bitmap.recycle()
@@ -88,10 +88,10 @@ object PricetagImageExporter {
     private fun sanitize(value: String): String =
         value.replace(Regex("[^A-Za-z0-9-]+"), "-").trim('-').ifBlank { "x" }
 
-    private fun renderBitmap(baseBitmap: Bitmap, hargaAsli: Double, markup: Boolean, priceTypeface: Typeface): Bitmap {
+    private fun renderBitmap(baseBitmap: Bitmap, product: ProductAggregate, markup: Boolean, priceTypeface: Typeface): Bitmap {
         val bitmap = Bitmap.createBitmap(baseBitmap.width, baseBitmap.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        PricetagRenderer.draw(canvas, baseBitmap, hargaAsli, markup, priceTypeface)
+        PricetagRenderer.draw(canvas, baseBitmap, product.harga, markup, priceTypeface, product.merk, product.kategori, product.nama)
         return bitmap
     }
 }

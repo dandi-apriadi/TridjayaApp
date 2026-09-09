@@ -21,13 +21,10 @@ import com.krisoft.tridjayaelektronik.data.pricing.hitungHargaPricetag
  * piksel saat implementasi). Font sistem (bold sintetis) terlihat "aneh"
  * bersebelahan dengan "Rp." bergaya Anton yang jauh lebih tebal & padat.
  *
- * SENGAJA TIDAK generik per produk (keputusan user 2026-09-04): merek/nama/
- * kode barang di gambar (mis. "AQUA", "MESIN CUCI 2 TABUNG 7 KG") ikut
- * TERCETAK PERMANEN di `base_template.png` dan TIDAK diganti sesuai barang
- * yang sedang dibuka — hanya harga yang dinamis. Kalau kelak butuh templat
- * per-merek/kategori, gantinya bukan menambah teks di sini, melainkan
- * menyediakan beberapa `base_template_<slug>.png` dan memilihnya di
- * pemanggil (lihat [PricetagImageExporter]).
+ * Zona merek (tiga baris di atas foto, contoh "AQUA / MESIN CUCI")
+ * DIGAMBAR ULANG per barang dari [merk]/[kategori]/[nama] — contoh di
+ * `base_template.png` ditutup cat biru panel dulu. Zona tipe/badge promo di
+ * tengah (panel biru) generik dan dibiarkan apa adanya.
  */
 internal object PricetagRenderer {
 
@@ -40,9 +37,26 @@ internal object PricetagRenderer {
     private const val BOX_TOP_F = 572f / 1055f
     private const val BOX_HEIGHT_F = (824f - 572f) / 1055f
     private const val RP_RIGHT_F = 289f / 1491f          // tepi kanan glyph "Rp." tercetak
-    private const val BASELINE_F = 814f / 1055f            // dasar glyph "Rp." (dari atas gambar)
+    private const val BASELINE_F = 800f / 1055f            // dasar glyph "Rp." (dari atas gambar) — naik ~14px dari 814 agar angka tak mepet garis bawah
     private const val PRICE_RIGHT_INSET_F = 1413f / 1491f  // tepi kanan area harga (dalam garis kotak)
     private const val CORET_BASELINE_F = 638f / 1055f      // baseline harga coret, area kosong di atas "Rp."
+
+    // Zona merek: tiga baris contoh di y140-300 (diukur: baris1 151-203,
+    // baris2 BESAR 204-259, baris3 260-281; tepi x100-1400). Latar foto terang
+    // ditutup cat biru panel selebar zona, lalu tiga baris ditulis ulang dari
+    // data barang. Baseline = bottom tiap baris contoh.
+    private const val HEADER_TOP_F = 140f / 1055f
+    private const val HEADER_BOTTOM_F = 300f / 1055f
+    private const val HEADER_LEFT_F = 60f / 1491f
+    private const val HEADER_RIGHT_F = 1430f / 1491f
+    private const val HEADER_B1_F = 203f / 1055f
+    private const val HEADER_B2_F = 259f / 1055f
+    private const val HEADER_B3_F = 281f / 1055f
+    // Biru panel promo (1,49,132) — zona merek diseragamkan dengan panel
+    // tengah supaya label satu rupa; teksnya putih di atasnya.
+    private const val HEADER_BG_R = 1
+    private const val HEADER_BG_G = 49
+    private const val HEADER_BG_B = 132
 
     fun rupiah(nilai: Double): String = "Rp. ${rupiahAngka(nilai)}"
 
@@ -53,8 +67,10 @@ internal object PricetagRenderer {
         return bulat.toString().reversed().chunked(3).joinToString(".").reversed()
     }
 
-    fun draw(canvas: Canvas, baseBitmap: Bitmap, hargaAsli: Double, markup: Boolean, priceTypeface: Typeface) {
+    fun draw(canvas: Canvas, baseBitmap: Bitmap, hargaAsli: Double, markup: Boolean, priceTypeface: Typeface, merk: String = "", kategori: String = "", nama: String = "") {
         canvas.drawBitmap(baseBitmap, 0f, 0f, null)
+
+        drawHeader(canvas, baseBitmap, merk, kategori, nama, priceTypeface)
 
         val harga = hitungHargaPricetag(hargaAsli, markup)
         val w = baseBitmap.width.toFloat()
@@ -92,8 +108,53 @@ internal object PricetagRenderer {
             angkaSize -= boxHeight * 0.01f
             angkaPaint.textSize = angkaSize
         }
-        // "Rp." di gambar dasar sedikit lebih kecil dari angka yang menyusul —
-        // offset kecil ini menyamakan kesan dasar baris supaya tak "mengambang".
-        canvas.drawText(angkaText, angkaX, baselineY + boxHeight * 0.02f, angkaPaint)
+        canvas.drawText(angkaText, angkaX, baselineY, angkaPaint)
+    }
+
+    /**
+     * Tulis ulang tiga baris merek sesuai barang. Contoh di templat
+     * ("AQUA / MESIN CUCI ...") permanen di gambar, jadi DITUTUP cat biru panel
+     * dulu selebar zona — kalau tidak, huruf contoh mengintip di balik teks
+     * baru yang lebih pendek.
+     *
+     * Ukuran mengikuti contoh: baris2 (merk) paling besar, baris1 (kategori)
+     * sedang, baris3 (nama) kecil. Masing-masing shrink-fit ke lebar zona;
+     * yang tak muat di lebar minimum dipotong dengan "…" (lebih jujur
+     * daripada mengecil sampai tak terbaca).
+     */
+    private fun drawHeader(canvas: Canvas, baseBitmap: Bitmap, merk: String, kategori: String, nama: String, typeface: Typeface) {
+        val w = baseBitmap.width.toFloat()
+        val h = baseBitmap.height.toFloat()
+        val left = HEADER_LEFT_F * w
+        val right = HEADER_RIGHT_F * w
+        val cx = (left + right) / 2f
+        val maxWidth = right - left
+        // Tutup contoh permanen.
+        canvas.drawRect(left, HEADER_TOP_F * h, right, HEADER_BOTTOM_F * h, android.graphics.Paint().apply {
+            color = Color.rgb(HEADER_BG_R, HEADER_BG_G, HEADER_BG_B); style = android.graphics.Paint.Style.FILL
+        })
+        // Baris kosong = baris itu dibiarkan biru (tak ada yang ditulis).
+        drawHeaderLine(canvas, kategori.uppercase().trim(), HEADER_B1_F * h, 56f / 1055f * h, maxWidth, cx, typeface)
+        drawHeaderLine(canvas, merk.uppercase().trim(), HEADER_B2_F * h, 64f / 1055f * h, maxWidth, cx, typeface)
+        drawHeaderLine(canvas, nama.trim(), HEADER_B3_F * h, 30f / 1055f * h, maxWidth, cx, typeface)
+    }
+
+    private fun drawHeaderLine(canvas: Canvas, text: String, baselineY: Float, startSize: Float, maxWidth: Float, cx: Float, typeface: Typeface) {
+        if (text.isBlank()) return
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE; this.typeface = typeface; textAlign = Paint.Align.CENTER
+        }
+        var size = startSize
+        var label = text
+        paint.textSize = size
+        while (paint.measureText(label) > maxWidth && size > startSize * 0.4f) {
+            size *= 0.95f
+            paint.textSize = size
+        }
+        while (paint.measureText(label) > maxWidth && label.length > 4) {
+            label = label.dropLast(2) + "…"
+            // ukur ulang setelah potong (paint sama, tak perlu set ulang)
+        }
+        canvas.drawText(label, cx, baselineY, paint)
     }
 }
