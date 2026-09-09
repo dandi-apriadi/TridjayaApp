@@ -21,10 +21,11 @@ import com.krisoft.tridjayaelektronik.data.pricing.hitungHargaPricetag
  * piksel saat implementasi). Font sistem (bold sintetis) terlihat "aneh"
  * bersebelahan dengan "Rp." bergaya Anton yang jauh lebih tebal & padat.
  *
- * Zona merek (tiga baris di atas foto, contoh "AQUA / MESIN CUCI")
- * DIGAMBAR ULANG per barang dari [merk]/[kategori]/[nama] — contoh di
- * `base_template.png` ditutup cat biru panel dulu. Zona tipe/badge promo di
- * tengah (panel biru) generik dan dibiarkan apa adanya.
+ * Zona merek contoh di atas foto ("AQUA / ...") DITUTUP putih polos, dan
+ * merek+tipe barang DIGAMBAR ULANG di bawah kotak harga (di atas putih
+ * footer) dari [merk]/[nama] — pembaca melihat nama barang tepat di bawah
+ * harganya, bukan jauh di atas. Zona tipe/badge promo di tengah (panel
+ * biru) generik dan dibiarkan apa adanya.
  */
 internal object PricetagRenderer {
 
@@ -41,22 +42,20 @@ internal object PricetagRenderer {
     private const val PRICE_RIGHT_INSET_F = 1413f / 1491f  // tepi kanan area harga (dalam garis kotak)
     private const val CORET_BASELINE_F = 638f / 1055f      // baseline harga coret, area kosong di atas "Rp."
 
-    // Zona merek: tiga baris contoh di y140-300 (diukur: baris1 151-203,
-    // baris2 BESAR 204-259, baris3 260-281; tepi x100-1400). Latar foto terang
-    // ditutup cat biru panel selebar zona, lalu tiga baris ditulis ulang dari
-    // data barang. Baseline = bottom tiap baris contoh.
+    // Zona merek contoh di y140-300 (tepi x60-1430) DITUTUP putih polos —
+    // merek+tipe pindah ke bawah kotak harga (lihat SUB_*). Putih (246)
+    // menyatu dengan latar foto terang di sekitarnya.
     private const val HEADER_TOP_F = 140f / 1055f
     private const val HEADER_BOTTOM_F = 300f / 1055f
     private const val HEADER_LEFT_F = 60f / 1491f
     private const val HEADER_RIGHT_F = 1430f / 1491f
-    private const val HEADER_B1_F = 203f / 1055f
-    private const val HEADER_B2_F = 259f / 1055f
-    private const val HEADER_B3_F = 281f / 1055f
-    // Biru panel promo (1,49,132) — zona merek diseragamkan dengan panel
-    // tengah supaya label satu rupa; teksnya putih di atasnya.
-    private const val HEADER_BG_R = 1
-    private const val HEADER_BG_G = 49
-    private const val HEADER_BG_B = 132
+    // Merek+tipe di bawah harga: ruang putih y835-930 antara garis bawah
+    // kotak (823) dan footer ikon (934). Dua baris: merk merah besar di
+    // atas, nama gelap kecil di bawah. Baseline = bottom tiap baris.
+    private const val SUB_LEFT_F = 120f / 1491f
+    private const val SUB_RIGHT_F = 1370f / 1491f
+    private const val SUB_MERK_F = 878f / 1055f
+    private const val SUB_NAMA_F = 918f / 1055f
 
     fun rupiah(nilai: Double): String = "Rp. ${rupiahAngka(nilai)}"
 
@@ -112,37 +111,33 @@ internal object PricetagRenderer {
     }
 
     /**
-     * Tulis ulang tiga baris merek sesuai barang. Contoh di templat
-     * ("AQUA / MESIN CUCI ...") permanen di gambar, jadi DITUTUP cat biru panel
-     * dulu selebar zona — kalau tidak, huruf contoh mengintip di balik teks
-     * baru yang lebih pendek.
-     *
-     * Ukuran mengikuti contoh: baris2 (merk) paling besar, baris1 (kategori)
-     * sedang, baris3 (nama) kecil. Masing-masing shrink-fit ke lebar zona;
-     * yang tak muat di lebar minimum dipotong dengan "…" (lebih jujur
-     * daripada mengecil sampai tak terbaca).
+     * Contoh merek di templat ("AQUA / ...") permanen di gambar, jadi DITUTUP
+     * putih polos — kalau tidak, huruf contoh mengintip. Merek+tipe barang
+     * ditulis di BAWAH kotak harga ([SUB_MERK_F]/[SUB_NAMA_F]): merk merah
+     * besar, nama gelap kecil. Masing-masing shrink-fit ke lebar zona; yang
+     * tak muat dipotong "…" (lebih jujur daripada mengecil tak terbaca).
      */
     private fun drawHeader(canvas: Canvas, baseBitmap: Bitmap, merk: String, kategori: String, nama: String, typeface: Typeface) {
         val w = baseBitmap.width.toFloat()
         val h = baseBitmap.height.toFloat()
-        val left = HEADER_LEFT_F * w
-        val right = HEADER_RIGHT_F * w
+        // Tutup contoh permanen dengan putih polos.
+        canvas.drawRect(HEADER_LEFT_F * w, HEADER_TOP_F * h, HEADER_RIGHT_F * w, HEADER_BOTTOM_F * h, android.graphics.Paint().apply {
+            color = Color.rgb(246, 246, 246); style = android.graphics.Paint.Style.FILL
+        })
+        val left = SUB_LEFT_F * w
+        val right = SUB_RIGHT_F * w
         val cx = (left + right) / 2f
         val maxWidth = right - left
-        // Tutup contoh permanen.
-        canvas.drawRect(left, HEADER_TOP_F * h, right, HEADER_BOTTOM_F * h, android.graphics.Paint().apply {
-            color = Color.rgb(HEADER_BG_R, HEADER_BG_G, HEADER_BG_B); style = android.graphics.Paint.Style.FILL
-        })
-        // Baris kosong = baris itu dibiarkan biru (tak ada yang ditulis).
-        drawHeaderLine(canvas, kategori.uppercase().trim(), HEADER_B1_F * h, 56f / 1055f * h, maxWidth, cx, typeface)
-        drawHeaderLine(canvas, merk.uppercase().trim(), HEADER_B2_F * h, 64f / 1055f * h, maxWidth, cx, typeface)
-        drawHeaderLine(canvas, nama.trim(), HEADER_B3_F * h, 30f / 1055f * h, maxWidth, cx, typeface)
+        // Kategori digabung ke nama bila ada ("KATEGORI — Nama").
+        val subNama = listOf(kategori.trim(), nama.trim()).filter { it.isNotBlank() }.joinToString(" — ")
+        drawSubLine(canvas, merk.uppercase().trim(), SUB_MERK_F * h, 46f / 1055f * h, maxWidth, cx, typeface, RED)
+        drawSubLine(canvas, subNama, SUB_NAMA_F * h, 26f / 1055f * h, maxWidth, cx, typeface, Color.rgb(34, 34, 34))
     }
 
-    private fun drawHeaderLine(canvas: Canvas, text: String, baselineY: Float, startSize: Float, maxWidth: Float, cx: Float, typeface: Typeface) {
+    private fun drawSubLine(canvas: Canvas, text: String, baselineY: Float, startSize: Float, maxWidth: Float, cx: Float, typeface: Typeface, color: Int) {
         if (text.isBlank()) return
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE; this.typeface = typeface; textAlign = Paint.Align.CENTER
+            this.color = color; this.typeface = typeface; textAlign = Paint.Align.CENTER
         }
         var size = startSize
         var label = text
