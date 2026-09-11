@@ -56,6 +56,7 @@ import androidx.compose.material.icons.rounded.Numbers
 import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.PlaylistAddCheck
 import androidx.compose.material.icons.rounded.PriceChange
+import androidx.compose.material.icons.rounded.Sell
 import androidx.compose.material.icons.rounded.Receipt
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -127,6 +128,7 @@ fun HomeScreen(
     onQuickAccessGaji: () -> Unit = {},
     onQuickAccessKpi: () -> Unit = {},
     onQuickAccessHargaGs: () -> Unit = {},
+    onQuickAccessCekHarga: () -> Unit = {},
     onQuickAccessSerialInput: () -> Unit = {},
     onQuickAccessGodaSerial: () -> Unit = {},
     onQuickAccessDeadstock: () -> Unit = {},
@@ -233,7 +235,7 @@ fun HomeScreen(
                                     section, state, onViewMoreBranches, onViewMoreSales, onBranchClick, onSalesClick,
                                     onQuickAccessInventory, onQuickAccessSearch, onQuickAccessLeads, onQuickAccessIndent, onQuickAccessSales,
                                     onQuickAccessOpname, onQuickAccessAbsen, onQuickAccessGaji, onQuickAccessKpi,
-                                    onQuickAccessHargaGs,
+                                    onQuickAccessHargaGs, onQuickAccessCekHarga,
                                     onQuickAccessSerialInput, onQuickAccessGodaSerial,
                                     onQuickAccessDeadstock, onQuickAccessMutasiHistori,
                                     onKomplainLapor, onKomplainSaya, onKomplainTugas,
@@ -267,6 +269,7 @@ private fun LazyListScope.homeSection(
     onQuickAccessGaji: () -> Unit,
     onQuickAccessKpi: () -> Unit,
     onQuickAccessHargaGs: () -> Unit,
+    onQuickAccessCekHarga: () -> Unit,
     onQuickAccessSerialInput: () -> Unit,
     onQuickAccessGodaSerial: () -> Unit,
     onQuickAccessDeadstock: () -> Unit,
@@ -307,6 +310,7 @@ private fun LazyListScope.homeSection(
                     onGaji = onQuickAccessGaji,
                     onKpi = onQuickAccessKpi,
                     onHargaGs = onQuickAccessHargaGs,
+                    onCekHarga = onQuickAccessCekHarga,
                     onSerialInput = onQuickAccessSerialInput,
                     onGodaSerial = onQuickAccessGodaSerial,
                     onDeadstock = onQuickAccessDeadstock,
@@ -644,6 +648,7 @@ private fun QuickAccessRow(
     onGaji: () -> Unit,
     onKpi: () -> Unit,
     onHargaGs: () -> Unit,
+    onCekHarga: () -> Unit,
     onSerialInput: () -> Unit,
     onGodaSerial: () -> Unit,
     onDeadstock: () -> Unit,
@@ -688,6 +693,7 @@ private fun QuickAccessRow(
                         "klasemen_lapangan" -> onKlasemenLapangan()
                         "opname" -> onOpname()
                         "harga_gs" -> onHargaGs()
+                        "cek_harga" -> onCekHarga()
                         "serial_input" -> onSerialInput()
                         "goda_serial" -> onGodaSerial()
                         "deadstock" -> onDeadstock()
@@ -723,6 +729,7 @@ private fun quickAccessVisual(id: String): Pair<androidx.compose.ui.graphics.vec
     "klasemen_lapangan" -> Pair(Icons.Rounded.EmojiEvents, Color(0xFFF79009))
     "opname" -> Pair(Icons.Rounded.FactCheck, Color(0xFF0BA5EC))
     "harga_gs" -> Pair(Icons.Rounded.PriceChange, Color(0xFFF79009))
+    "cek_harga" -> Pair(Icons.Rounded.Sell, Color(0xFF12B76A))
     "serial_input" -> Pair(Icons.Rounded.Numbers, Color(0xFF667085))
     "goda_serial" -> Pair(Icons.Rounded.ElectricBike, Color(0xFF12B76A))
     "deadstock" -> Pair(Icons.Rounded.Inventory2, Color(0xFFB54708))

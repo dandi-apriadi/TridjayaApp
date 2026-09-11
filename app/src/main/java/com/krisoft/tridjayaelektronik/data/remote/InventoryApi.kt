@@ -24,6 +24,7 @@ import com.krisoft.tridjayaelektronik.data.model.StokCabangPageDto
 import com.krisoft.tridjayaelektronik.data.model.UpdateIndentRequest
 import com.krisoft.tridjayaelektronik.data.model.UploadProofResponseDto
 import com.krisoft.tridjayaelektronik.data.model.OpnameUnitListData
+import com.krisoft.tridjayaelektronik.data.model.ProductPriceSearchListDto
 import okhttp3.MultipartBody
 import retrofit2.Response
 import retrofit2.http.Body
@@ -64,6 +65,18 @@ interface InventoryApi {
         /** Batasi ke satu toko. `null` = seluruh cabang, seperti sinkronisasi massal. */
         @Query("kodeDealer") kodeDealer: String? = null
     ): Response<ApiResponse<StokCabangPageDto>>
+
+    /**
+     * Autocomplete harga produk — login-only, tanpa gate role tambahan (sama seperti
+     * `/inventory/barang`). Layar "Cek Harga" (menu Akses Cepat) — beda dari daftar
+     * Inventory penuh: ringan, tanpa paging/cache Room, dipanggil per ketikan.
+     */
+    @GET("api/inventory/product-price-search")
+    suspend fun productPriceSearch(
+        @Query("search") search: String? = null,
+        @Query("category") category: String? = null,
+        @Query("limit") limit: Int? = null
+    ): Response<ApiResponse<ProductPriceSearchListDto>>
 
     @GET("api/inventory/indent")
     suspend fun listIndent(

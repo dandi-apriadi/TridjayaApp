@@ -23,6 +23,7 @@ import com.krisoft.tridjayaelektronik.ui.attendance.AttendanceScreen
 import com.krisoft.tridjayaelektronik.ui.deadstock.DeadstockScreen
 import com.krisoft.tridjayaelektronik.ui.goda.GodaSerialScreen
 import com.krisoft.tridjayaelektronik.ui.event.EventLeadScreen
+import com.krisoft.tridjayaelektronik.ui.cekharga.CekHargaScreen
 import com.krisoft.tridjayaelektronik.ui.indent.IndentListScreen
 import com.krisoft.tridjayaelektronik.ui.kupongebyar.KuponGebyarScreen
 import com.krisoft.tridjayaelektronik.ui.opname.OpnameListScreen
@@ -73,6 +74,7 @@ private const val ROUTE_NOTIFICATIONS = "home_notifications"
 private const val ROUTE_RANKING = "home_ranking/{kind}"
 private const val ROUTE_TRANSACTIONS = "home_ranking_transactions/{kind}/{code}?name={name}"
 private const val ROUTE_INDENT = "home_indent"
+private const val ROUTE_CEK_HARGA = "home_cek_harga"
 private const val ROUTE_SALES = "home_sales"
 private const val ROUTE_OPNAME = "home_opname"
 
@@ -230,6 +232,9 @@ internal fun routeForNavKey(navKey: String): String? = when (navKey) {
     "pemasangan_ac" -> ROUTE_PEMASANGAN_AC
     // Bukti chat harian: layar karyawan (kirim) vs antrian kepala cabang (periksa).
     "indent" -> ROUTE_INDENT
+    // Pencarian harga LIVE terpisah dari "inventory" (browse cache Room) — lihat
+    // catatan arsitektur "Cek Harga" di CekHargaScreen.kt.
+    "cek_harga" -> ROUTE_CEK_HARGA
     // Daftar sesi opname cabang (petugas yang ikut menghitung). Route-nya SUDAH
     // ter-mount sejak lama sebagai anak tab Operasional — kartu Activity cuma
     // menambah pintu, bukan layar baru.
@@ -347,6 +352,7 @@ fun ActivityNavHost(
                 onQuickAccessGaji = { navController.navigate(ROUTE_GAJI) { launchSingleTop = true } },
                 onQuickAccessKpi = { navController.navigate(ROUTE_KPI) { launchSingleTop = true } },
                 onQuickAccessHargaGs = { navController.navigate(ROUTE_HARGA_GS) { launchSingleTop = true } },
+                onQuickAccessCekHarga = { navController.navigate(ROUTE_CEK_HARGA) { launchSingleTop = true } },
                 onQuickAccessSerialInput = { navController.navigate(ROUTE_SERIAL_INPUT) { launchSingleTop = true } },
                 onQuickAccessGodaSerial = { navController.navigate(ROUTE_GODA_SERIAL) { launchSingleTop = true } },
                 onQuickAccessDeadstock = { navController.navigate(ROUTE_DEADSTOCK) { launchSingleTop = true } },
@@ -420,6 +426,9 @@ fun ActivityNavHost(
         }
         composable(ROUTE_INDENT) {
             IndentListScreen(onBack = { navController.popBackStack() })
+        }
+        composable(ROUTE_CEK_HARGA) {
+            CekHargaScreen(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_OPNAME) {
             OpnameListScreen(onBack = { navController.popBackStack() })

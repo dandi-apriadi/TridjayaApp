@@ -363,9 +363,12 @@ class CapabilityDrivenMenuTest {
         // `sayaLapor` memaksa `pelapor_user_id` = id AKTOR di server dan tak
         // pernah membacanya dari query, jadi ia tak bisa dipakai mengintip
         // laporan orang lain DAN tak punya kunci yang bisa dicerminkan.
+        // `cek_harga` menyusul dengan alasan yang SAMA seperti `inventory`:
+        // `search_product_price` (inventory-service) sama sekali tak memanggil
+        // `ensure_role`, jadi tak ada kunci kemampuan yang bisa dicerminkan.
         val tanpaKunci = QUICK_ACCESS_MENUS.filter { it.capability == null }.map { it.id }
         assertEquals(
-            listOf("kpi", "inventory", "cari_semua", "komplain_lapor", "komplain_saya", "chat_deteksi"),
+            listOf("kpi", "inventory", "cek_harga", "cari_semua", "komplain_lapor", "komplain_saya", "chat_deteksi"),
             tanpaKunci,
         )
     }
