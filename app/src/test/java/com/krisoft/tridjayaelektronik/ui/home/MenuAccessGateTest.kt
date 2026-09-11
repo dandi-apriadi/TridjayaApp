@@ -129,6 +129,14 @@ class MenuAccessGateTest {
 class QuickAccessRegistryTest {
 
     @Test
+    fun `inventory dan cek harga tampil sebagai menu terpisah untuk user login`() {
+        val menu = visibleQuickAccessMenus(setOf("karyawan")).map { it.id }
+
+        assertTrue("Menu Inventory harus tetap tersedia", "inventory" in menu)
+        assertTrue("Cek Harga harus punya menu sendiri", "cek_harga" in menu)
+    }
+
+    @Test
     fun `setiap menu menyebut guard backend yang dicerminkan`() {
         QUICK_ACCESS_MENUS.forEach { menu ->
             assertTrue(
