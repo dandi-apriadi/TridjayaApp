@@ -12,6 +12,7 @@ import com.krisoft.tridjayaelektronik.data.model.ApiErrorResponse
 import com.krisoft.tridjayaelektronik.data.model.CreateIndentRequest
 import com.krisoft.tridjayaelektronik.data.model.IndentDto
 import com.krisoft.tridjayaelektronik.data.model.IndentListData
+import com.krisoft.tridjayaelektronik.data.model.ProductPriceSearchItemDto
 import com.krisoft.tridjayaelektronik.data.model.UpdateIndentRequest
 import com.krisoft.tridjayaelektronik.data.remote.InventoryApi
 import com.krisoft.tridjayaelektronik.domain.inventory.LIMIT_CARI_STOK_NOL
@@ -368,6 +369,29 @@ class InventoryRepository @Inject constructor(
             val baris = barisStokNol(items)
             if (baris.isNotEmpty()) branchStockDao.insertAll(baris)
             AuthResult.Success(baris.size)
+        } catch (e: Exception) {
+            AuthResult.Failure("network_error", e.message ?: "Tidak bisa terhubung ke server")
+        }
+    }
+
+    /**
+     * Layar "Cek Harga" — autocomplete server, tanpa cache Room (dataset penuh terlalu besar
+     * untuk disimpan lokal, dan hasilnya harus mencerminkan harga TERKINI). `search` kosong
+     * sengaja tidak dipanggil oleh ViewModel (lihat [CekHargaViewModel]) — server tidak
+     * membatasi panjang minimum, tapi memindai seluruh katalog tanpa kata kunci itu boros.
+     */
+    suspend fun cekHarga(search: String, category: String? = null): AuthResult<List<ProductPriceSearchItemDto>> {
+        return try {
+            val response = api.productPriceSearch(
+                search = search.trim().takeIf { it.isNotEmpty() },
+                category = category?.takeIf { it.isNotEmpty() }
+            )
+            val data = response.body()?.data
+            if (response.isSuccessful && data != null) {
+                AuthResult.Success(data.items)
+            } else {
+                parseError(response, "Gagal mencari harga produk")
+            }
         } catch (e: Exception) {
             AuthResult.Failure("network_error", e.message ?: "Tidak bisa terhubung ke server")
         }

@@ -306,6 +306,16 @@ internal val QUICK_ACCESS_MENUS: List<QuickAccessMenu> = listOf(
         allowedRoles = ALL_LOGGED_IN,
         backendGuard = "gateway grup protected — stok cabang tanpa gate role tambahan",
     ),
+    // Pencarian harga LIVE (GET /inventory/product-price-search), terpisah dari
+    // "inventory" (browse cache Room) — jawaban cepat "berapa harganya sekarang"
+    // tanpa menyaring seluruh katalog. Login-only, sama seperti "inventory".
+    QuickAccessMenu(
+        id = "cek_harga",
+        capability = null,
+        label = "Cek Harga",
+        allowedRoles = ALL_LOGGED_IN,
+        backendGuard = "inventory-service http.rs search_product_price (login-only, tanpa gate role tambahan)",
+    ),
     QuickAccessMenu(
         id = "indent",
         capability = "indent.submit",

@@ -838,6 +838,10 @@ internal open class StubInventoryApi : InventoryApi {
         page: Int?, limit: Int?, refresh: Boolean?, inStock: Boolean?, search: String?, kodeDealer: String?,
     ): Response<ApiResponse<StokCabangPageDto>> = nope()
 
+    override suspend fun productPriceSearch(
+        search: String?, category: String?, limit: Int?,
+    ): Response<ApiResponse<com.krisoft.tridjayaelektronik.data.model.ProductPriceSearchListDto>> = nope()
+
     override suspend fun listIndent(status: String?): Response<ApiResponse<IndentListData>> = nope()
 
     override suspend fun createIndent(body: CreateIndentRequest): Response<ApiResponse<IndentDto>> = nope()
